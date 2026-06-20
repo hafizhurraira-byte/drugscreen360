@@ -1,0 +1,228 @@
+{
+  "common_reference_drugs": [
+    {
+      "id": "aspirin",
+      "name": "Aspirin",
+      "input_type": "name",
+      "query": "Aspirin",
+      "expected_general_behavior": "Should generally pass Lipinski/Veber and show low-moderate rule-based concern.",
+      "expected_warning_category": "low_concern",
+      "explanation": "Small oral reference drug used to check baseline screening behavior.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "caffeine",
+      "name": "Caffeine",
+      "input_type": "name",
+      "query": "Caffeine",
+      "expected_general_behavior": "Should generally show acceptable drug-likeness.",
+      "expected_warning_category": "acceptable",
+      "explanation": "Small heterocyclic reference compound.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "ibuprofen",
+      "name": "Ibuprofen",
+      "input_type": "name",
+      "query": "Ibuprofen",
+      "expected_general_behavior": "Should generally pass common oral drug-likeness checks.",
+      "expected_warning_category": "low_concern",
+      "explanation": "Common NSAID reference compound.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "acetaminophen",
+      "name": "Acetaminophen (Paracetamol)",
+      "input_type": "name",
+      "query": "Acetaminophen",
+      "expected_general_behavior": "Should generally pass simple drug-likeness checks.",
+      "expected_warning_category": "low_concern",
+      "explanation": "Common analgesic reference compound.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "metformin",
+      "name": "Metformin",
+      "input_type": "name",
+      "query": "Metformin",
+      "expected_general_behavior": "May show polarity or charge-related cautions while remaining a useful reference drug.",
+      "expected_warning_category": "acceptable",
+      "explanation": "Highly polar antidiabetic drug example.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "warfarin",
+      "name": "Warfarin",
+      "input_type": "name",
+      "query": "Warfarin",
+      "expected_general_behavior": "Should generally pass simple drug-likeness checks, with normal follow-up requirements.",
+      "expected_warning_category": "low_concern",
+      "explanation": "Oral anticoagulant reference compound.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "imatinib",
+      "name": "Imatinib",
+      "input_type": "name",
+      "query": "Imatinib",
+      "expected_general_behavior": "May show moderate developability warnings due to size and complexity.",
+      "expected_warning_category": "acceptable",
+      "explanation": "Kinase inhibitor reference compound.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "erlotinib",
+      "name": "Erlotinib",
+      "input_type": "name",
+      "query": "Erlotinib",
+      "expected_general_behavior": "Should generally pass or show moderate rule-based cautions.",
+      "expected_warning_category": "acceptable",
+      "explanation": "EGFR inhibitor reference compound.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "tamoxifen",
+      "name": "Tamoxifen",
+      "input_type": "name",
+      "query": "Tamoxifen",
+      "expected_general_behavior": "May show lipophilicity-related warnings.",
+      "expected_warning_category": "acceptable",
+      "explanation": "Endocrine therapy reference compound.",
+      "data_source_label": "benchmark_local"
+    }
+  ],
+  "warning_compounds": [
+    {
+      "id": "doxorubicin",
+      "name": "Doxorubicin",
+      "input_type": "name",
+      "query": "Doxorubicin",
+      "expected_general_behavior": "Should trigger higher developability or ADMET concern due to high MW/TPSA/complexity.",
+      "expected_warning_category": "high_developability_admet",
+      "explanation": "Large complex oncology drug used as a stronger-warning example.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "thalidomide",
+      "name": "Thalidomide",
+      "input_type": "name",
+      "query": "Thalidomide",
+      "expected_general_behavior": "Should run cleanly and require careful toxicity follow-up labeling.",
+      "expected_warning_category": "acceptable",
+      "explanation": "Known high-risk historical drug; benchmark checks disclaimers and follow-up labeling only.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "cisplatin",
+      "name": "Cisplatin",
+      "input_type": "name",
+      "query": "Cisplatin",
+      "expected_general_behavior": "May trigger unusual chemistry and rule-based review.",
+      "expected_warning_category": "acceptable",
+      "explanation": "Metal-containing drug that may challenge organic descriptor assumptions.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "diclofenac",
+      "name": "Diclofenac",
+      "input_type": "name",
+      "query": "Diclofenac",
+      "expected_general_behavior": "Should generally pass basic drug-likeness but still require toxicity follow-up.",
+      "expected_warning_category": "acceptable",
+      "explanation": "NSAID with safety follow-up relevance.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "amiodarone",
+      "name": "Amiodarone",
+      "input_type": "name",
+      "query": "Amiodarone",
+      "expected_general_behavior": "Should trigger higher lipophilicity or developability warnings.",
+      "expected_warning_category": "high_developability_admet",
+      "explanation": "Very lipophilic drug used to check LogP warnings.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "ketoconazole",
+      "name": "Ketoconazole",
+      "input_type": "name",
+      "query": "Ketoconazole",
+      "expected_general_behavior": "May show size/lipophilicity-related caution.",
+      "expected_warning_category": "acceptable",
+      "explanation": "Antifungal reference compound with safety follow-up relevance.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "clozapine",
+      "name": "Clozapine",
+      "input_type": "name",
+      "query": "Clozapine",
+      "expected_general_behavior": "Should run cleanly and require standard toxicity follow-up labels.",
+      "expected_warning_category": "acceptable",
+      "explanation": "CNS drug with known clinical safety monitoring relevance; benchmark does not validate clinical risk.",
+      "data_source_label": "benchmark_local"
+    }
+  ],
+  "chemistry_stress_tests": [
+    {
+      "id": "invalid_smiles",
+      "name": "Invalid SMILES",
+      "input_type": "smiles",
+      "query": "C1CC",
+      "expected_general_behavior": "Should fail cleanly with a validation error.",
+      "expected_warning_category": "clean_validation_error",
+      "explanation": "Invalid ring closure tests error handling.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "very_high_mw",
+      "name": "Very high molecular weight compound",
+      "input_type": "smiles",
+      "query": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "expected_general_behavior": "Should trigger high molecular weight and developability warnings.",
+      "expected_warning_category": "high_developability_admet",
+      "explanation": "Long hydrocarbon stress test for MW/LogP rules.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "very_high_logp",
+      "name": "Very high LogP compound",
+      "input_type": "smiles",
+      "query": "CCCCCCCCCCCCCCCCCCCC",
+      "expected_general_behavior": "Should trigger high LogP and solubility warnings.",
+      "expected_warning_category": "high_developability_admet",
+      "explanation": "Lipophilic hydrocarbon stress test.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "high_tpsa",
+      "name": "High TPSA compound",
+      "input_type": "smiles",
+      "query": "OCC1OC(O)C(O)C(O)C1O",
+      "expected_general_behavior": "Should show polarity/permeability caution if TPSA or H-bond counts are high.",
+      "expected_warning_category": "acceptable",
+      "explanation": "Polyhydroxylated stress-test molecule.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "nitro_aromatic",
+      "name": "Nitro aromatic alert",
+      "input_type": "smiles",
+      "query": "O=[N+]([O-])c1ccccc1",
+      "expected_general_behavior": "Should trigger a nitro aromatic structural alert if supported.",
+      "expected_warning_category": "structural_alert",
+      "explanation": "Simple nitrobenzene-like structural alert test.",
+      "data_source_label": "benchmark_local"
+    },
+    {
+      "id": "aldehyde_alert",
+      "name": "Aldehyde alert",
+      "input_type": "smiles",
+      "query": "O=Cc1ccccc1",
+      "expected_general_behavior": "Should trigger an aldehyde structural alert if supported.",
+      "expected_warning_category": "structural_alert",
+      "explanation": "Simple benzaldehyde-like structural alert test.",
+      "data_source_label": "benchmark_local"
+    }
+  ]
+}

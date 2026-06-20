@@ -1,0 +1,28 @@
+﻿# Node
+frontend/node_modules/
+frontend/dist/
+
+# Python
+backend/.venv/
+backend/.venv312/
+backend/__pycache__/
+backend/**/__pycache__/
+*.pyc
+
+# Local databases and generated files
+*.db
+*.sqlite
+*.sqlite3
+backend/uploads/
+backend/reports/
+backend/app/uploads/
+
+# Environment files
+.env
+backend/.env
+frontend/.env
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/

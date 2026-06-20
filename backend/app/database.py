@@ -1,0 +1,256 @@
+from pathlib import Path
+import sqlite3
+
+DB_PATH = Path(__file__).resolve().parents[2] / "drugscreen360.sqlite3"
+
+
+def get_connection() -> sqlite3.Connection:
+    connection = sqlite3.connect(DB_PATH)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def init_db() -> None:
+    with get_connection() as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS screening_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                input_query TEXT NOT NULL,
+                input_type TEXT NOT NULL,
+                compound_name TEXT,
+                pubchem_cid INTEGER,
+                canonical_smiles TEXT,
+                descriptor_summary TEXT NOT NULL,
+                drug_likeness_result TEXT NOT NULL,
+                decision TEXT NOT NULL,
+                report_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS finder_searches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                query TEXT NOT NULL,
+                selected_target TEXT,
+                candidates_found INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS finder_candidates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                search_id INTEGER,
+                molecule_chembl_id TEXT,
+                compound_name TEXT,
+                canonical_smiles TEXT,
+                activity_type TEXT,
+                activity_value REAL,
+                activity_units TEXT,
+                target_chembl_id TEXT,
+                source TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(search_id) REFERENCES finder_searches(id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS batch_screening_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                candidate_count INTEGER NOT NULL,
+                summary_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS disease_searches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                query TEXT NOT NULL,
+                selected_disease_id TEXT,
+                selected_disease_name TEXT,
+                targets_found INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS disease_target_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                search_id INTEGER,
+                target_id TEXT,
+                approved_symbol TEXT,
+                approved_name TEXT,
+                association_score REAL,
+                final_target_priority_score REAL,
+                selected_target INTEGER NOT NULL DEFAULT 0,
+                result_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(search_id) REFERENCES disease_searches(id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS evidence_summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                molecule_identifier TEXT,
+                target_identifier TEXT,
+                target_name TEXT,
+                evidence_score INTEGER NOT NULL,
+                evidence_level TEXT NOT NULL,
+                potency_quality TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS project_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                workflow_type TEXT NOT NULL,
+                disease_name TEXT,
+                disease_id TEXT,
+                target_symbol TEXT,
+                chembl_target_id TEXT,
+                candidate_count INTEGER NOT NULL DEFAULT 0,
+                screened_count INTEGER NOT NULL DEFAULT 0,
+                top_candidate TEXT,
+                report_payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS api_cache (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cache_key TEXT NOT NULL UNIQUE,
+                source TEXT NOT NULL,
+                query_type TEXT NOT NULL,
+                query_value TEXT NOT NULL,
+                response_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                hit_count INTEGER NOT NULL DEFAULT 0,
+                last_accessed_at TEXT
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS similarity_searches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                reference_query TEXT NOT NULL,
+                reference_compound_name TEXT,
+                source TEXT NOT NULL,
+                threshold INTEGER NOT NULL,
+                candidates_found INTEGER NOT NULL DEFAULT 0,
+                selected_candidate_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS similarity_candidates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                search_id INTEGER,
+                compound_name TEXT,
+                pubchem_cid INTEGER,
+                molecule_chembl_id TEXT,
+                canonical_smiles TEXT,
+                similarity_score REAL,
+                source TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(search_id) REFERENCES similarity_searches(id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS benchmark_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                selected_group TEXT,
+                total_tested INTEGER NOT NULL,
+                passed INTEGER NOT NULL,
+                review INTEGER NOT NULL,
+                failed INTEGER NOT NULL,
+                result_payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS model_prediction_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                smiles TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                task_name TEXT NOT NULL,
+                prediction_label TEXT NOT NULL,
+                prediction_score REAL,
+                confidence TEXT,
+                status TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS uploaded_batches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_name TEXT NOT NULL,
+                file_type TEXT NOT NULL,
+                total_rows INTEGER NOT NULL,
+                valid_count INTEGER NOT NULL,
+                invalid_count INTEGER NOT NULL,
+                duplicate_count INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS uploaded_batch_compounds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id INTEGER NOT NULL,
+                row_number INTEGER NOT NULL,
+                compound_name TEXT,
+                compound_id TEXT,
+                original_smiles TEXT,
+                canonical_smiles TEXT,
+                valid INTEGER NOT NULL,
+                error_reason TEXT,
+                descriptors_json TEXT,
+                source TEXT,
+                notes TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(batch_id) REFERENCES uploaded_batches(id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS batch_library_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id INTEGER,
+                screened_count INTEGER NOT NULL,
+                failed_count INTEGER NOT NULL,
+                result_payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(batch_id) REFERENCES uploaded_batches(id)
+            )
+            """
+        )
