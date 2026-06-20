@@ -17,6 +17,7 @@ from app.models.research_export_models import ResearchExportRequest, ResearchExp
 from app.models.schemas import ScreeningReport
 from app.services.batch_library_service import batch_library_csv, batch_library_docx, batch_library_pdf
 from app.services.admet_dataset_service import curated_csv, curation_report
+from app.services.admet_training_service import metrics_csv, model_card, training_summary
 from app.services.benchmark_service import benchmark_csv, benchmark_docx, benchmark_pdf
 from app.services.cache_service import cache_stats
 from app.services.local_admet_model import validate_local_admet_model
@@ -268,6 +269,7 @@ def create_research_export(payload: ResearchExportRequest) -> ResearchExportCrea
     batch_rows = _rows("batch_library_runs") if payload.include_batch_runs else []
     batch_candidate_rows = _rows("batch_screening_runs") if payload.include_batch_runs else []
     admet_dataset_rows = _rows("admet_datasets")
+    admet_training_rows = _rows("admet_training_runs")
     similarity_rows = _rows("similarity_searches")
     finder_rows = _rows("finder_searches")
     cache_status = cache_stats() if payload.include_cache_status else {"status": "not_included"}
@@ -354,6 +356,20 @@ def create_research_export(payload: ResearchExportRequest) -> ResearchExportCrea
                 _write_json(zip_file, f"{root}/ADMET_DATASETS/admet_dataset_{dataset['id']}_curation_report.json", curation_report(dataset["id"]), manifest)
             except Exception as exc:
                 warnings.append(f"Could not include ADMET dataset #{dataset.get('id')}: {exc}")
+
+        sections.append("ADMET_TRAINING")
+        _write_json(zip_file, f"{root}/ADMET_TRAINING/admet_training_run_records.json", admet_training_rows, manifest)
+        for run in admet_training_rows:
+            try:
+                run_id = run["id"]
+                _write_json(zip_file, f"{root}/ADMET_TRAINING/training_run_{run_id}_summary.json", training_summary(run_id), manifest)
+                _write_json(zip_file, f"{root}/ADMET_TRAINING/training_run_{run_id}_model_card.json", model_card(run_id), manifest)
+                _write_text(zip_file, f"{root}/ADMET_TRAINING/training_run_{run_id}_metrics.csv", metrics_csv(run_id), manifest, "csv")
+                artifact_dir = Path(run["artifact_dir"]) if run.get("artifact_dir") else None
+                if artifact_dir and (artifact_dir / "feature_schema.json").exists():
+                    _write_json(zip_file, f"{root}/ADMET_TRAINING/training_run_{run_id}_feature_schema.json", json.loads((artifact_dir / "feature_schema.json").read_text(encoding="utf-8")), manifest)
+            except Exception as exc:
+                warnings.append(f"Could not include ADMET training run #{run.get('id')}: {exc}")
 
         _write_json(zip_file, f"{root}/SCREENING_RESULTS/similarity_search_records.json", similarity_rows, manifest)
         _write_json(zip_file, f"{root}/SCREENING_RESULTS/finder_search_records.json", finder_rows, manifest)

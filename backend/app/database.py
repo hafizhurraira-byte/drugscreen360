@@ -383,3 +383,42 @@ def init_db() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS admet_training_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dataset_id INTEGER NOT NULL,
+                task_name TEXT,
+                task_type TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                model_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                train_count INTEGER NOT NULL,
+                test_count INTEGER NOT NULL,
+                metric_summary_json TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                artifact_dir TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(dataset_id) REFERENCES admet_datasets(id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS admet_model_artifacts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                training_run_id INTEGER NOT NULL,
+                model_id TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                version TEXT NOT NULL,
+                task_name TEXT,
+                task_type TEXT NOT NULL,
+                artifact_path TEXT NOT NULL,
+                manifest_path TEXT NOT NULL,
+                model_card_path TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                status TEXT NOT NULL,
+                FOREIGN KEY(training_run_id) REFERENCES admet_training_runs(id)
+            )
+            """
+        )

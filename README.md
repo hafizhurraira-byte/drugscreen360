@@ -1466,6 +1466,80 @@ Limitations:
 - Dataset labels are imported only from the uploaded file.
 - Curated data still needs assay provenance, unit/threshold review, license review, and expert scientific review before training any real model.
 
+## ADMET Model Training Pipeline
+
+ADMET Model Training Pipeline V1 trains experimental baseline models from uploaded curated ADMET datasets.
+
+Scientific scope:
+
+- No fake labels are generated.
+- No fake predictions are created.
+- Training is refused if the dataset is too small or unsuitable.
+- Outputs are experimental, dataset-dependent, and not clinically validated.
+- Models are not automatically enabled for live prediction.
+
+Supported task types:
+
+- `auto`
+- `binary_classification`
+- `regression`
+
+Supported baseline model types:
+
+- `random_forest`
+- `logistic_regression`
+- `random_forest_regressor`
+
+Training requirements:
+
+- minimum 20 valid labelled records
+- valid canonical SMILES
+- descriptor calculation available
+- binary classification must have two classes
+- regression labels must be numeric
+
+Features used:
+
+- molecular weight
+- LogP
+- TPSA
+- HBD
+- HBA
+- rotatable bonds
+- ring count
+- aromatic ring count
+- formal charge
+- fraction Csp3
+
+Backend endpoints:
+
+```text
+POST /api/admet-training/train
+GET  /api/admet-training/runs
+GET  /api/admet-training/runs/{run_id}
+GET  /api/admet-training/runs/{run_id}/model-card
+GET  /api/admet-training/runs/{run_id}/training-summary
+GET  /api/admet-training/runs/{run_id}/metrics.csv
+```
+
+Generated artifacts are stored locally under:
+
+```text
+backend/models/admet/trained/
+```
+
+This folder is ignored by Git and Docker.
+
+Generated files:
+
+- `model.joblib`
+- `model_manifest.json`
+- `model_card.json`
+- `training_summary.json`
+- `feature_schema.json`
+
+The generated manifest is designed to be compatible with the Local ADMET Model Validation Wizard, but DrugScreen360 does not automatically activate the trained model for live prediction. A supported local model loader and external scientific validation are still required.
+
 ## External ADMET Provider Adapter V1
 
 DrugScreen360 includes a safe external-provider adapter for future real ADMET/toxicity services. By default it is unavailable and no external prediction call is made. The rule-based ADMET/Tox adapter remains the fallback baseline.

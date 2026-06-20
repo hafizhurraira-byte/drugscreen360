@@ -529,6 +529,17 @@ export default function App() {
   const [admetDatasetResult, setAdmetDatasetResult] = useState(null);
   const [admetDatasets, setAdmetDatasets] = useState([]);
   const [admetDatasetLoading, setAdmetDatasetLoading] = useState(false);
+  const [admetTrainingForm, setAdmetTrainingForm] = useState({
+    dataset_id: "",
+    task_type: "auto",
+    model_type: "random_forest",
+    test_size: 0.2,
+    random_state: 42,
+    notes: "",
+  });
+  const [admetTrainingResult, setAdmetTrainingResult] = useState(null);
+  const [admetTrainingRuns, setAdmetTrainingRuns] = useState([]);
+  const [admetTrainingLoading, setAdmetTrainingLoading] = useState(false);
 
   const synonyms = useMemo(() => {
     const list = report?.compound_identity?.synonyms || [];
@@ -634,6 +645,7 @@ export default function App() {
     loadProjects();
     loadActiveProjectOptions();
     loadAdmetDatasets();
+    loadAdmetTrainingRuns();
     loadSystemHealth();
   }, []);
 
@@ -1177,6 +1189,17 @@ export default function App() {
     }
   }
 
+  async function loadAdmetTrainingRuns() {
+    try {
+      const response = await fetch(`${API_BASE}/admet-training/runs`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load ADMET training runs.");
+      setAdmetTrainingRuns(data);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function uploadAdmetDataset(event) {
     event.preventDefault();
     if (!admetDatasetFile) {
@@ -1197,6 +1220,7 @@ export default function App() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "ADMET dataset upload failed.");
       setAdmetDatasetResult(data);
+      setAdmetTrainingForm((current) => ({ ...current, dataset_id: String(data.dataset_id) }));
       await loadAdmetDatasets();
       if (activeProjectId) {
         setActiveProjectNotice(`Saved ADMET dataset to active project: ${activeProject?.title || `Project #${activeProjectId}`}.`);
@@ -1215,6 +1239,46 @@ export default function App() {
     if (!datasetId) return;
     const suffix = format === "csv" ? "curated.csv" : "curation-report.json";
     window.location.href = `${API_BASE}/admet-datasets/${datasetId}/${suffix}`;
+  }
+
+  async function trainAdmetModel(event) {
+    event.preventDefault();
+    if (!admetTrainingForm.dataset_id) {
+      setError("Select a curated dataset before training.");
+      return;
+    }
+    setAdmetTrainingLoading(true);
+    setError("");
+    setWorkflowStatus("Training experimental baseline ADMET model...");
+    try {
+      const response = await fetch(`${API_BASE}/admet-training/train`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dataset_id: Number(admetTrainingForm.dataset_id),
+          task_type: admetTrainingForm.task_type,
+          model_type: admetTrainingForm.model_type,
+          test_size: Number(admetTrainingForm.test_size),
+          random_state: Number(admetTrainingForm.random_state),
+          notes: admetTrainingForm.notes || null,
+          project_id: activeProjectId ? Number(activeProjectId) : null,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "ADMET model training failed.");
+      setAdmetTrainingResult(data);
+      await loadAdmetTrainingRuns();
+      if (activeProjectId) {
+        setActiveProjectNotice(`Saved ADMET training run to active project: ${activeProject?.title || `Project #${activeProjectId}`}.`);
+        if (selectedProject?.id && String(selectedProject.id) === String(activeProjectId)) await loadProjectDetail(selectedProject.id);
+      }
+      setWorkflowStatus("Experimental ADMET model training complete. Review metrics and model card.");
+    } catch (err) {
+      setError(err.message);
+      setWorkflowStatus("");
+    } finally {
+      setAdmetTrainingLoading(false);
+    }
   }
 
   async function runScreening(event) {
@@ -3326,6 +3390,136 @@ export default function App() {
               <div className="empty-state-card">
                 <h3>No ADMET datasets yet.</h3>
                 <p>Upload a labeled CSV, TSV, TXT, or SDF dataset to validate and curate it for future model training.</p>
+              </div>
+            )}
+          </Section>
+
+          <Section title="Model Training" icon={ShieldCheck} wide>
+            <p className="limitation-label">
+              Experimental model trained from uploaded dataset only. Not clinically validated. No fake labels or predictions are generated.
+            </p>
+            <form className="finder-search" onSubmit={trainAdmetModel}>
+              <label>
+                Curated dataset
+                <select value={admetTrainingForm.dataset_id} onChange={(event) => setAdmetTrainingForm((current) => ({ ...current, dataset_id: event.target.value }))} required>
+                  <option value="">Select dataset</option>
+                  {admetDatasets.map((dataset) => (
+                    <option key={dataset.id} value={dataset.id}>
+                      #{dataset.id} {dataset.name} - {dataset.valid_count} valid
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Task type
+                <select value={admetTrainingForm.task_type} onChange={(event) => setAdmetTrainingForm((current) => ({ ...current, task_type: event.target.value }))}>
+                  <option value="auto">auto</option>
+                  <option value="binary_classification">binary classification</option>
+                  <option value="regression">regression</option>
+                </select>
+              </label>
+              <label>
+                Model type
+                <select value={admetTrainingForm.model_type} onChange={(event) => setAdmetTrainingForm((current) => ({ ...current, model_type: event.target.value }))}>
+                  <option value="random_forest">random forest</option>
+                  <option value="logistic_regression">logistic regression</option>
+                  <option value="random_forest_regressor">random forest regressor</option>
+                </select>
+              </label>
+              <label>
+                Test size
+                <input type="number" min="0.1" max="0.5" step="0.05" value={admetTrainingForm.test_size} onChange={(event) => setAdmetTrainingForm((current) => ({ ...current, test_size: event.target.value }))} />
+              </label>
+              <label>
+                Random state
+                <input type="number" value={admetTrainingForm.random_state} onChange={(event) => setAdmetTrainingForm((current) => ({ ...current, random_state: event.target.value }))} />
+              </label>
+              <label>
+                Notes
+                <textarea rows={3} value={admetTrainingForm.notes} onChange={(event) => setAdmetTrainingForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Training notes" />
+              </label>
+              <button type="submit" disabled={admetTrainingLoading || !admetTrainingForm.dataset_id}>
+                {admetTrainingLoading ? "Training..." : "Train Baseline Model"}
+              </button>
+              <button type="button" className="secondary-button" onClick={loadAdmetTrainingRuns}>Refresh Training Runs</button>
+            </form>
+            {admetTrainingForm.dataset_id && (() => {
+              const selected = admetDatasets.find((dataset) => String(dataset.id) === String(admetTrainingForm.dataset_id));
+              return selected ? (
+                <div className="metric-grid compact-metrics">
+                  <Field label="Valid count" value={selected.valid_count} />
+                  <Field label="Invalid count" value={selected.invalid_count} />
+                  <Field label="Duplicate count" value={selected.duplicate_count} />
+                  <Field label="Task" value={selected.task_name || "Not set"} />
+                </div>
+              ) : null;
+            })()}
+          </Section>
+
+          {admetTrainingResult && (
+            <Section title="Training Result" icon={ClipboardList} wide>
+              <div className="summary-grid">
+                <SummaryCard label="Run ID" value={admetTrainingResult.training_run_id} icon={ClipboardList} />
+                <SummaryCard label="Task Type" value={admetTrainingResult.task_type} icon={Target} />
+                <SummaryCard label="Train Count" value={admetTrainingResult.train_count} icon={CheckCircle2} />
+                <SummaryCard label="Test Count" value={admetTrainingResult.test_count} icon={History} />
+              </div>
+              <h3>Metrics</h3>
+              <div className="metric-grid compact-metrics">
+                {Object.entries(admetTrainingResult.metrics || {}).map(([key, value]) => <Field key={key} label={key} value={Array.isArray(value) ? JSON.stringify(value) : value} />)}
+              </div>
+              <article className="evidence-panel">
+                <h3>Model Card</h3>
+                <div className="metric-grid compact-metrics">
+                  <Field label="Model" value={admetTrainingResult.model_card.model_name} />
+                  <Field label="Dataset" value={admetTrainingResult.model_card.dataset_name} />
+                  <Field label="Features" value={(admetTrainingResult.model_card.features_used || []).join(", ")} />
+                  <Field label="Manifest path" value={admetTrainingResult.artifact.manifest_path} />
+                  <Field label="Artifact status" value={admetTrainingResult.artifact.status} />
+                  <Field label="External validation required" value={String(admetTrainingResult.model_card.external_validation_required)} />
+                </div>
+              </article>
+              {(admetTrainingResult.warnings || []).map((warning) => <p className="warning-text" key={warning}>{warning}</p>)}
+              {(admetTrainingResult.limitations || []).map((item) => <p className="limitation-label" key={item}>{item}</p>)}
+            </Section>
+          )}
+
+          <Section title="ADMET Training Runs" icon={History} wide>
+            {admetTrainingRuns.length ? (
+              <div className="responsive-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Run</th>
+                      <th>Dataset</th>
+                      <th>Task</th>
+                      <th>Model</th>
+                      <th>Train/Test</th>
+                      <th>Status</th>
+                      <th>Metrics</th>
+                      <th>Created</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {admetTrainingRuns.map((run) => (
+                      <tr key={run.id}>
+                        <td>{run.id}</td>
+                        <td>{run.dataset_id}</td>
+                        <td>{run.task_type}</td>
+                        <td>{run.model_type}</td>
+                        <td>{run.train_count}/{run.test_count}</td>
+                        <td>{run.status}</td>
+                        <td className="smiles-cell">{JSON.stringify(run.metric_summary)}</td>
+                        <td>{run.created_at}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="empty-state-card">
+                <h3>No ADMET training runs yet.</h3>
+                <p>Train only when you have enough valid labelled data and are ready to review an experimental model card.</p>
               </div>
             )}
           </Section>

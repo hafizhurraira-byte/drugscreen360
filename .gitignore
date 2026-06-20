@@ -26,6 +26,7 @@ backend/models/**/*.onnx
 backend/models/**/*.pt
 backend/models/**/*.h5
 backend/models/**/*.bin
+backend/models/admet/trained/
 
 # Environment files
 .env
