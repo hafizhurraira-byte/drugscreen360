@@ -517,6 +517,18 @@ export default function App() {
   const [batchUploadResult, setBatchUploadResult] = useState(null);
   const [batchUploadLoading, setBatchUploadLoading] = useState(false);
   const [selectedUploadDetail, setSelectedUploadDetail] = useState(null);
+  const [admetDatasetFile, setAdmetDatasetFile] = useState(null);
+  const [admetDatasetForm, setAdmetDatasetForm] = useState({
+    dataset_name: "Example ADMET dataset",
+    task_name: "hERG",
+    smiles_column: "smiles",
+    label_column: "label",
+    compound_name_column: "compound_name",
+    notes: "",
+  });
+  const [admetDatasetResult, setAdmetDatasetResult] = useState(null);
+  const [admetDatasets, setAdmetDatasets] = useState([]);
+  const [admetDatasetLoading, setAdmetDatasetLoading] = useState(false);
 
   const synonyms = useMemo(() => {
     const list = report?.compound_identity?.synonyms || [];
@@ -621,6 +633,7 @@ export default function App() {
     loadResearchExports();
     loadProjects();
     loadActiveProjectOptions();
+    loadAdmetDatasets();
     loadSystemHealth();
   }, []);
 
@@ -1151,6 +1164,57 @@ export default function App() {
     const runId = batchUploadResult?.batch_screening_id;
     if (!runId) return;
     window.location.href = `${API_BASE}/batch-library/runs/${runId}/${format}`;
+  }
+
+  async function loadAdmetDatasets() {
+    try {
+      const response = await fetch(`${API_BASE}/admet-datasets/list`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load ADMET datasets.");
+      setAdmetDatasets(data);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function uploadAdmetDataset(event) {
+    event.preventDefault();
+    if (!admetDatasetFile) {
+      setError("Choose a CSV, TSV, TXT, or SDF dataset first.");
+      return;
+    }
+    setAdmetDatasetLoading(true);
+    setError("");
+    setWorkflowStatus("Curating ADMET dataset...");
+    const formData = new FormData();
+    formData.append("file", admetDatasetFile);
+    Object.entries(admetDatasetForm).forEach(([key, value]) => {
+      if (value !== "") formData.append(key, value);
+    });
+    if (activeProjectId) formData.append("project_id", activeProjectId);
+    try {
+      const response = await fetch(`${API_BASE}/admet-datasets/upload`, { method: "POST", body: formData });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "ADMET dataset upload failed.");
+      setAdmetDatasetResult(data);
+      await loadAdmetDatasets();
+      if (activeProjectId) {
+        setActiveProjectNotice(`Saved ADMET dataset to active project: ${activeProject?.title || `Project #${activeProjectId}`}.`);
+        if (selectedProject?.id && String(selectedProject.id) === String(activeProjectId)) await loadProjectDetail(selectedProject.id);
+      }
+      setWorkflowStatus("ADMET dataset curated. Export ready.");
+    } catch (err) {
+      setError(err.message);
+      setWorkflowStatus("");
+    } finally {
+      setAdmetDatasetLoading(false);
+    }
+  }
+
+  function exportAdmetDataset(datasetId, format) {
+    if (!datasetId) return;
+    const suffix = format === "csv" ? "curated.csv" : "curation-report.json";
+    window.location.href = `${API_BASE}/admet-datasets/${datasetId}/${suffix}`;
   }
 
   async function runScreening(event) {
@@ -1891,6 +1955,10 @@ export default function App() {
         <button className={activeView === "batch-upload" ? "tab-active" : ""} onClick={() => setActiveView("batch-upload")}>
           <Download size={18} aria-hidden="true" />
           Batch Upload
+        </button>
+        <button className={activeView === "admet-data" ? "tab-active" : ""} onClick={() => setActiveView("admet-data")}>
+          <FileJson size={18} aria-hidden="true" />
+          ADMET Data
         </button>
         <button
           className={activeView === "projects" ? "tab-active" : ""}
@@ -3115,6 +3183,152 @@ export default function App() {
               )}
             </Section>
           )}
+        </div>
+      )}
+
+      {activeView === "admet-data" && (
+        <div className="finder-dashboard">
+          <Section title="ADMET Dataset Import & Curation" icon={FileJson} wide>
+            <p className="limitation-label">
+              Dataset preparation only. No model is trained, no labels are generated, and no ADMET/toxicity predictions are produced.
+            </p>
+            <form className="finder-search" onSubmit={uploadAdmetDataset}>
+              <label>
+                Dataset file
+                <input type="file" accept=".csv,.tsv,.txt,.sdf" onChange={(event) => setAdmetDatasetFile(event.target.files?.[0] || null)} />
+              </label>
+              <label>
+                Dataset name
+                <input value={admetDatasetForm.dataset_name} onChange={(event) => setAdmetDatasetForm((current) => ({ ...current, dataset_name: event.target.value }))} required />
+              </label>
+              <label>
+                Task name
+                <select value={admetDatasetForm.task_name} onChange={(event) => setAdmetDatasetForm((current) => ({ ...current, task_name: event.target.value }))}>
+                  {["hERG", "Ames", "hepatotoxicity", "BBB", "CYP inhibition", "solubility", "clearance", "permeability"].map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+              <label>
+                SMILES column
+                <input value={admetDatasetForm.smiles_column} onChange={(event) => setAdmetDatasetForm((current) => ({ ...current, smiles_column: event.target.value }))} required />
+              </label>
+              <label>
+                Label column
+                <input value={admetDatasetForm.label_column} onChange={(event) => setAdmetDatasetForm((current) => ({ ...current, label_column: event.target.value }))} required />
+              </label>
+              <label>
+                Compound name column
+                <input value={admetDatasetForm.compound_name_column} onChange={(event) => setAdmetDatasetForm((current) => ({ ...current, compound_name_column: event.target.value }))} />
+              </label>
+              <label>
+                Notes
+                <textarea rows={3} value={admetDatasetForm.notes} onChange={(event) => setAdmetDatasetForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Dataset source, assay notes, label definition" />
+              </label>
+              <button type="submit" disabled={admetDatasetLoading || !admetDatasetFile}>{admetDatasetLoading ? "Curating..." : "Upload & Curate Dataset"}</button>
+              <button type="button" className="secondary-button" onClick={loadAdmetDatasets}>Refresh Datasets</button>
+            </form>
+          </Section>
+
+          {admetDatasetResult && (
+            <Section title="Validation Summary" icon={CheckCircle2} wide>
+              <div className="summary-grid">
+                <SummaryCard label="Total Rows" value={admetDatasetResult.summary.total_rows} icon={ClipboardList} />
+                <SummaryCard label="Valid Molecules" value={admetDatasetResult.summary.valid_molecules} icon={CheckCircle2} />
+                <SummaryCard label="Invalid SMILES" value={admetDatasetResult.summary.invalid_smiles} icon={AlertTriangle} />
+                <SummaryCard label="Duplicates" value={admetDatasetResult.summary.duplicate_molecules} icon={History} />
+              </div>
+              <div className="metric-grid compact-metrics">
+                <Field label="Missing labels" value={admetDatasetResult.summary.missing_labels} />
+                <Field label="Unique molecules" value={admetDatasetResult.summary.unique_canonical_molecules} />
+                <Field label="Descriptor success" value={admetDatasetResult.summary.descriptor_success_count} />
+                <Field label="Status" value={admetDatasetResult.status} />
+              </div>
+              <h3>Label distribution</h3>
+              <div className="metric-grid compact-metrics">
+                {Object.entries(admetDatasetResult.summary.label_distribution || {}).map(([label, count]) => <Field key={label} label={label} value={count} />)}
+              </div>
+              {(admetDatasetResult.summary.warnings || []).map((warning) => <p className="warning-text" key={warning}>{warning}</p>)}
+              <div className="candidate-actions left-actions">
+                <button onClick={() => exportAdmetDataset(admetDatasetResult.dataset_id, "csv")}>Download Curated CSV</button>
+                <button className="secondary-button" onClick={() => exportAdmetDataset(admetDatasetResult.dataset_id, "json")}>Download Report JSON</button>
+              </div>
+              <div className="responsive-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Original SMILES</th>
+                      <th>Canonical SMILES</th>
+                      <th>Label</th>
+                      <th>Status</th>
+                      <th>Duplicate</th>
+                      <th>Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {admetDatasetResult.records_preview.map((record, index) => (
+                      <tr key={`${record.original_smiles}-${index}`}>
+                        <td>{record.compound_name || "Not available"}</td>
+                        <td className="smiles-cell">{record.original_smiles || "Not available"}</td>
+                        <td className="smiles-cell">{record.canonical_smiles || "Not available"}</td>
+                        <td>{record.label_value || "Missing"}</td>
+                        <td><Badge tone={record.is_valid ? "Good" : "High"}>{record.is_valid ? "Valid" : "Invalid"}</Badge></td>
+                        <td>{record.duplicate_group || "No"}</td>
+                        <td>{record.invalid_reason || "None"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {(admetDatasetResult.limitations || []).map((item) => <p className="limitation-label" key={item}>{item}</p>)}
+            </Section>
+          )}
+
+          <Section title="Curated ADMET Datasets" icon={History} wide>
+            {admetDatasets.length ? (
+              <div className="responsive-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Task</th>
+                      <th>Records</th>
+                      <th>Valid</th>
+                      <th>Invalid</th>
+                      <th>Duplicates</th>
+                      <th>Status</th>
+                      <th>Created</th>
+                      <th>Exports</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {admetDatasets.map((dataset) => (
+                      <tr key={dataset.id}>
+                        <td>{dataset.name}</td>
+                        <td>{dataset.task_name || "Not set"}</td>
+                        <td>{dataset.record_count}</td>
+                        <td>{dataset.valid_count}</td>
+                        <td>{dataset.invalid_count}</td>
+                        <td>{dataset.duplicate_count}</td>
+                        <td>{dataset.status}</td>
+                        <td>{dataset.created_at}</td>
+                        <td>
+                          <div className="candidate-actions left-actions">
+                            <button className="small-button" onClick={() => exportAdmetDataset(dataset.id, "csv")}>CSV</button>
+                            <button className="small-button" onClick={() => exportAdmetDataset(dataset.id, "json")}>JSON</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="empty-state-card">
+                <h3>No ADMET datasets yet.</h3>
+                <p>Upload a labeled CSV, TSV, TXT, or SDF dataset to validate and curate it for future model training.</p>
+              </div>
+            )}
+          </Section>
         </div>
       )}
 

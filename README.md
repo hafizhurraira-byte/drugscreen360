@@ -1392,6 +1392,80 @@ Limitations:
 - Auto-save does not change scientific scoring, descriptors, ADMET/Tox rules, evidence scores, or model status.
 - No fake predictions or clinical, regulatory, safety, efficacy, or market-readiness claims are created.
 
+## ADMET Dataset Import & Curation
+
+ADMET Dataset Import & Curation prepares labeled compound datasets for future real model training.
+
+This feature does not train models, generate labels, or make predictions. It only validates and standardizes uploaded data.
+
+Supported formats:
+
+- CSV
+- TSV
+- TXT if tabular
+- SDF when RDKit can parse the file
+
+Expected columns:
+
+- `smiles` or a user-selected SMILES column
+- a user-selected label column
+- optional compound name column
+- optional task name, source, and notes fields
+
+Example tasks:
+
+- hERG
+- Ames
+- hepatotoxicity
+- BBB
+- CYP inhibition
+- solubility
+- clearance
+- permeability
+
+The curation step checks:
+
+- required columns
+- invalid or missing SMILES
+- canonical SMILES
+- missing labels
+- duplicate canonical molecules
+- label distribution
+- safe RDKit descriptors including MW, LogP, TPSA, HBD, HBA, rotatable bonds, ring count, aromatic ring count, formal charge, and fraction Csp3
+
+Backend endpoints:
+
+```text
+POST /api/admet-datasets/upload
+GET  /api/admet-datasets/list
+GET  /api/admet-datasets/{dataset_id}
+GET  /api/admet-datasets/{dataset_id}/records
+GET  /api/admet-datasets/{dataset_id}/summary
+GET  /api/admet-datasets/{dataset_id}/curated.csv
+GET  /api/admet-datasets/{dataset_id}/curation-report.json
+```
+
+Use it from the UI:
+
+1. Open `ADMET Data`.
+2. Upload a CSV, TSV, TXT, or SDF dataset.
+3. Enter dataset name, task name, SMILES column, label column, and optional compound name column.
+4. Click `Upload & Curate Dataset`.
+5. Review invalid SMILES, missing labels, duplicates, label distribution, and descriptor counts.
+6. Export curated CSV or curation report JSON.
+
+Active Project integration:
+
+- If an active project is selected, the curated dataset is attached to that project.
+- Research Export packages include ADMET dataset summaries, curated CSVs, and curation reports.
+
+Limitations:
+
+- No model is trained in this step.
+- No fake ADMET/toxicity labels or predictions are generated.
+- Dataset labels are imported only from the uploaded file.
+- Curated data still needs assay provenance, unit/threshold review, license review, and expert scientific review before training any real model.
+
 ## External ADMET Provider Adapter V1
 
 DrugScreen360 includes a safe external-provider adapter for future real ADMET/toxicity services. By default it is unavailable and no external prediction call is made. The rule-based ADMET/Tox adapter remains the fallback baseline.

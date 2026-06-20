@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.constants import DISCLAIMER
 from app.database import init_db
 from app.routers.admet import router as admet_router
+from app.routers.admet_datasets import router as admet_datasets_router
 from app.routers.benchmark import router as benchmark_router
 from app.routers.batch_library import router as batch_library_router
 from app.routers.cache import router as cache_router
@@ -57,6 +58,7 @@ def root():
 app.include_router(screening_router, prefix="/api")
 app.include_router(finder_router, prefix="/api")
 app.include_router(admet_router, prefix="/api")
+app.include_router(admet_datasets_router, prefix="/api")
 app.include_router(disease_finder_router, prefix="/api")
 app.include_router(evidence_router, prefix="/api")
 app.include_router(project_report_router, prefix="/api")

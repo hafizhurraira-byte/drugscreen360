@@ -16,6 +16,7 @@ from app.models.project_report_models import ProjectReportPayload
 from app.models.research_export_models import ResearchExportRequest, ResearchExportCreateResponse, ResearchExportListItem
 from app.models.schemas import ScreeningReport
 from app.services.batch_library_service import batch_library_csv, batch_library_docx, batch_library_pdf
+from app.services.admet_dataset_service import curated_csv, curation_report
 from app.services.benchmark_service import benchmark_csv, benchmark_docx, benchmark_pdf
 from app.services.cache_service import cache_stats
 from app.services.local_admet_model import validate_local_admet_model
@@ -266,6 +267,7 @@ def create_research_export(payload: ResearchExportRequest) -> ResearchExportCrea
     benchmark_rows = _rows("benchmark_runs") if payload.include_benchmark_runs else []
     batch_rows = _rows("batch_library_runs") if payload.include_batch_runs else []
     batch_candidate_rows = _rows("batch_screening_runs") if payload.include_batch_runs else []
+    admet_dataset_rows = _rows("admet_datasets")
     similarity_rows = _rows("similarity_searches")
     finder_rows = _rows("finder_searches")
     cache_status = cache_stats() if payload.include_cache_status else {"status": "not_included"}
@@ -343,6 +345,15 @@ def create_research_export(payload: ResearchExportRequest) -> ResearchExportCrea
             _write_json(zip_file, f"{root}/BATCH_RESULTS/batch_upload_run_records.json", batch_rows, manifest)
             _write_json(zip_file, f"{root}/BATCH_RESULTS/finder_similarity_batch_run_records.json", batch_candidate_rows, manifest)
             _add_batch_runs(zip_file, root, batch_rows, warnings, manifest) if payload.include_reports else None
+
+        sections.append("ADMET_DATASETS")
+        _write_json(zip_file, f"{root}/ADMET_DATASETS/admet_dataset_records.json", admet_dataset_rows, manifest)
+        for dataset in admet_dataset_rows:
+            try:
+                _write_text(zip_file, f"{root}/ADMET_DATASETS/admet_dataset_{dataset['id']}_curated.csv", curated_csv(dataset["id"]), manifest, "csv")
+                _write_json(zip_file, f"{root}/ADMET_DATASETS/admet_dataset_{dataset['id']}_curation_report.json", curation_report(dataset["id"]), manifest)
+            except Exception as exc:
+                warnings.append(f"Could not include ADMET dataset #{dataset.get('id')}: {exc}")
 
         _write_json(zip_file, f"{root}/SCREENING_RESULTS/similarity_search_records.json", similarity_rows, manifest)
         _write_json(zip_file, f"{root}/SCREENING_RESULTS/finder_search_records.json", finder_rows, manifest)

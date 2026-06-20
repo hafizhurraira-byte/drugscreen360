@@ -347,3 +347,39 @@ def init_db() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS admet_datasets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                task_name TEXT,
+                label_column TEXT NOT NULL,
+                original_filename TEXT NOT NULL,
+                record_count INTEGER NOT NULL,
+                valid_count INTEGER NOT NULL,
+                invalid_count INTEGER NOT NULL,
+                duplicate_count INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                status TEXT NOT NULL,
+                notes TEXT
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS admet_dataset_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dataset_id INTEGER NOT NULL,
+                compound_name TEXT,
+                original_smiles TEXT,
+                canonical_smiles TEXT,
+                label_value TEXT,
+                is_valid INTEGER NOT NULL,
+                invalid_reason TEXT,
+                duplicate_group TEXT,
+                descriptors_json TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(dataset_id) REFERENCES admet_datasets(id)
+            )
+            """
+        )
