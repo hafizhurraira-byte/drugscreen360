@@ -1197,6 +1197,67 @@ Limitations:
 - No artificial ADMET, toxicity, ML, clinical, regulatory, safety, efficacy, or market-readiness claims are added.
 - Export content remains computational decision-support only and requires laboratory validation and expert review.
 
+## Saved Project Workspaces
+
+Saved Project Workspaces let you organize local DrugScreen360 work under named research projects.
+
+Use a workspace to track:
+
+- single-molecule screening results
+- Drug Finder or Similarity Finder batch results
+- Batch Upload runs
+- Validation / Benchmarking runs
+- project reports
+- research export packages
+- notes, disease area, target, and project status
+
+Project statuses:
+
+- `active`
+- `review`
+- `completed`
+- `archived`
+
+Project types:
+
+- `single_molecule`
+- `target_screening`
+- `disease_screening`
+- `similarity_screening`
+- `batch_screening`
+- `validation`
+- `general_research`
+
+How to use:
+
+1. Open `Projects`.
+2. Create a project with title, disease area, target, type, status, and notes.
+3. Open the project detail.
+4. Attach local result IDs manually, such as screening history IDs, benchmark run IDs, batch upload run IDs, project report IDs, or research export IDs.
+5. Review the project summary, attached items, model status summary, and limitations.
+6. Use `Create Research Export for Project` to pre-fill the Research Export Package panel.
+7. Create and download the ZIP export.
+
+Backend endpoints:
+
+```text
+POST /api/projects/create
+GET  /api/projects/list
+GET  /api/projects/{project_id}
+PUT  /api/projects/{project_id}
+POST /api/projects/{project_id}/attach-item
+POST /api/projects/{project_id}/archive
+GET  /api/projects/{project_id}/summary
+```
+
+Limitations:
+
+- Workspaces organize local records only.
+- Older records may not be project-linked unless manually attached.
+- Projects do not change descriptors, ADMET/Tox rules, model status, or evidence scores.
+- No fake predictions are created.
+- A workspace does not prove safety, efficacy, clinical success, regulatory approval, or market readiness.
+
 ## External ADMET Provider Adapter V1
 
 DrugScreen360 includes a safe external-provider adapter for future real ADMET/toxicity services. By default it is unavailable and no external prediction call is made. The rule-based ADMET/Tox adapter remains the fallback baseline.

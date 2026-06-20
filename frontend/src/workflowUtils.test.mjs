@@ -63,6 +63,8 @@ const projectPayload = buildProjectReportPayload({
 assert.equal(projectPayload.chembl_target.target_chembl_id, "CHEMBL203");
 assert.equal(projectPayload.screened_candidate_count, 1);
 assert.ok(projectComparisonToCsv(projectPayload.batch_screening_results.comparison_table).includes("CHEMBL1"));
+assert.ok(["active", "review", "completed", "archived"].includes("active"));
+assert.ok(["single_molecule", "target_screening", "disease_screening", "similarity_screening", "batch_screening", "validation", "general_research"].includes("general_research"));
 
 const similarityPayload = buildProjectReportPayload({
   workflowType: "similarity_to_candidate",

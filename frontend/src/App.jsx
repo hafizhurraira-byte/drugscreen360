@@ -472,6 +472,7 @@ export default function App() {
   const [systemHealthLoading, setSystemHealthLoading] = useState(false);
   const [researchExportTitle, setResearchExportTitle] = useState("");
   const [researchExportNotes, setResearchExportNotes] = useState("");
+  const [researchExportProjectId, setResearchExportProjectId] = useState("");
   const [researchExportOptions, setResearchExportOptions] = useState({
     include_reports: true,
     include_cache_status: true,
@@ -482,6 +483,23 @@ export default function App() {
   const [researchExportResult, setResearchExportResult] = useState(null);
   const [researchExports, setResearchExports] = useState([]);
   const [researchExportLoading, setResearchExportLoading] = useState(false);
+  const [projects, setProjects] = useState([]);
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [projectLoading, setProjectLoading] = useState(false);
+  const [projectForm, setProjectForm] = useState({
+    title: "",
+    description: "",
+    disease_area: "",
+    target_name: "",
+    project_type: "general_research",
+    status: "active",
+    notes: "",
+  });
+  const [projectAttachForm, setProjectAttachForm] = useState({
+    item_type: "screening",
+    item_id: "",
+    item_title: "",
+  });
   const [batchUploadFile, setBatchUploadFile] = useState(null);
   const [batchParseResult, setBatchParseResult] = useState(null);
   const [batchUploadResult, setBatchUploadResult] = useState(null);
@@ -581,6 +599,7 @@ export default function App() {
     loadModelStatus();
     loadLocalModelValidation();
     loadResearchExports();
+    loadProjects();
     loadSystemHealth();
   }, []);
 
@@ -685,6 +704,7 @@ export default function App() {
         body: JSON.stringify({
           project_title: researchExportTitle.trim() || null,
           notes: researchExportNotes.trim() || null,
+          project_id: researchExportProjectId ? Number(researchExportProjectId) : null,
           ...researchExportOptions,
         }),
       });
@@ -706,6 +726,126 @@ export default function App() {
   function downloadResearchExport(exportItem) {
     if (!exportItem?.download_url) return;
     window.location.href = `${API_ROOT}${exportItem.download_url}`;
+  }
+
+  async function loadProjects() {
+    setProjectLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/projects/list`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load projects.");
+      setProjects(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setProjectLoading(false);
+    }
+  }
+
+  async function createProject(event) {
+    event.preventDefault();
+    setProjectLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`${API_BASE}/projects/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...projectForm,
+          title: projectForm.title.trim(),
+          description: projectForm.description.trim() || null,
+          disease_area: projectForm.disease_area.trim() || null,
+          target_name: projectForm.target_name.trim() || null,
+          notes: projectForm.notes.trim() || null,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not create project.");
+      setProjectForm({ title: "", description: "", disease_area: "", target_name: "", project_type: "general_research", status: "active", notes: "" });
+      await loadProjects();
+      await loadProjectDetail(data.id);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setProjectLoading(false);
+    }
+  }
+
+  async function loadProjectDetail(projectId) {
+    setProjectLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/projects/${projectId}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load project.");
+      setSelectedProject(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setProjectLoading(false);
+    }
+  }
+
+  async function updateSelectedProject(updates) {
+    if (!selectedProject) return;
+    setProjectLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/projects/${selectedProject.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not update project.");
+      await loadProjects();
+      await loadProjectDetail(data.id);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setProjectLoading(false);
+    }
+  }
+
+  async function archiveSelectedProject() {
+    if (!selectedProject || !window.confirm("Archive this project?")) return;
+    setProjectLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/projects/${selectedProject.id}/archive`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not archive project.");
+      await loadProjects();
+      await loadProjectDetail(data.id);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setProjectLoading(false);
+    }
+  }
+
+  async function attachProjectItem(event) {
+    event.preventDefault();
+    if (!selectedProject) return;
+    setProjectLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/projects/${selectedProject.id}/attach-item`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          item_type: projectAttachForm.item_type,
+          item_id: projectAttachForm.item_id.trim(),
+          item_title: projectAttachForm.item_title.trim() || null,
+          metadata: { source: "manual-ui" },
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not attach item.");
+      setProjectAttachForm({ item_type: "screening", item_id: "", item_title: "" });
+      await loadProjectDetail(data.project_id);
+      await loadProjects();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setProjectLoading(false);
+    }
   }
 
   function toggleBenchmarkItem(item) {
@@ -1464,6 +1604,16 @@ export default function App() {
         <button className={activeView === "batch-upload" ? "tab-active" : ""} onClick={() => setActiveView("batch-upload")}>
           <Download size={18} aria-hidden="true" />
           Batch Upload
+        </button>
+        <button
+          className={activeView === "projects" ? "tab-active" : ""}
+          onClick={() => {
+            setActiveView("projects");
+            loadProjects();
+          }}
+        >
+          <ClipboardList size={18} aria-hidden="true" />
+          Projects
         </button>
         <button className={activeView === "disease" ? "tab-active" : ""} onClick={() => setActiveView("disease")}>
           <ShieldCheck size={18} aria-hidden="true" />
@@ -3007,6 +3157,220 @@ export default function App() {
         </div>
       )}
 
+      {activeView === "projects" && (
+        <div className="finder-dashboard">
+          <Section title="Saved Project Workspaces" icon={ClipboardList} wide>
+            <p className="limitation-label">
+              Projects organize local DrugScreen360 records and notes only. They do not change scientific scoring or prove safety, efficacy, clinical success, or market readiness.
+            </p>
+            <form className="finder-search" onSubmit={createProject}>
+              <label>
+                Project title
+                <input
+                  value={projectForm.title}
+                  onChange={(event) => setProjectForm((current) => ({ ...current, title: event.target.value }))}
+                  placeholder="EGFR breast cancer screening"
+                  required
+                />
+              </label>
+              <label>
+                Disease area
+                <input
+                  value={projectForm.disease_area}
+                  onChange={(event) => setProjectForm((current) => ({ ...current, disease_area: event.target.value }))}
+                  placeholder="breast cancer"
+                />
+              </label>
+              <label>
+                Target name
+                <input
+                  value={projectForm.target_name}
+                  onChange={(event) => setProjectForm((current) => ({ ...current, target_name: event.target.value }))}
+                  placeholder="EGFR"
+                />
+              </label>
+              <label>
+                Project type
+                <select value={projectForm.project_type} onChange={(event) => setProjectForm((current) => ({ ...current, project_type: event.target.value }))}>
+                  {["single_molecule", "target_screening", "disease_screening", "similarity_screening", "batch_screening", "validation", "general_research"].map((item) => (
+                    <option key={item} value={item}>{item.replaceAll("_", " ")}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Status
+                <select value={projectForm.status} onChange={(event) => setProjectForm((current) => ({ ...current, status: event.target.value }))}>
+                  {["active", "review", "completed", "archived"].map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Description
+                <textarea
+                  rows={3}
+                  value={projectForm.description}
+                  onChange={(event) => setProjectForm((current) => ({ ...current, description: event.target.value }))}
+                  placeholder="Short workspace description"
+                />
+              </label>
+              <label>
+                Notes
+                <textarea
+                  rows={3}
+                  value={projectForm.notes}
+                  onChange={(event) => setProjectForm((current) => ({ ...current, notes: event.target.value }))}
+                  placeholder="Project notes"
+                />
+              </label>
+              <button type="submit" disabled={projectLoading || !projectForm.title.trim()}>
+                {projectLoading ? "Saving..." : "Create Project"}
+              </button>
+              <button type="button" className="secondary-button" onClick={loadProjects} disabled={projectLoading}>
+                Refresh Projects
+              </button>
+            </form>
+          </Section>
+
+          <Section title="Project List" icon={History} wide>
+            {projects.length > 0 ? (
+              <div className="responsive-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Title</th>
+                      <th>Type</th>
+                      <th>Status</th>
+                      <th>Items</th>
+                      <th>Exports</th>
+                      <th>Updated</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {projects.map((project) => (
+                      <tr key={project.id}>
+                        <td>{project.title}</td>
+                        <td>{project.project_type.replaceAll("_", " ")}</td>
+                        <td><Badge tone={toneForRisk(project.status === "active" ? "Good" : project.status === "archived" ? "High" : "Warning")}>{project.status}</Badge></td>
+                        <td>{project.attached_item_count}</td>
+                        <td>{project.export_count}</td>
+                        <td>{project.updated_at}</td>
+                        <td><button className="small-button" onClick={() => loadProjectDetail(project.id)}>View</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="empty-state-card">
+                <h3>No projects yet.</h3>
+                <p>Create a project to organize screening results, validation runs, reports, exports, and notes.</p>
+              </div>
+            )}
+          </Section>
+
+          {selectedProject && (
+            <Section title="Project Detail" icon={FileText} wide>
+              <div className="status-row">
+                <h3>{selectedProject.title}</h3>
+                <Badge>{selectedProject.status}</Badge>
+              </div>
+              <div className="metric-grid compact-metrics">
+                <Field label="Project ID" value={selectedProject.id} />
+                <Field label="Disease area" value={selectedProject.disease_area || "Not set"} />
+                <Field label="Target" value={selectedProject.target_name || "Not set"} />
+                <Field label="Type" value={selectedProject.project_type.replaceAll("_", " ")} />
+                <Field label="Attached items" value={selectedProject.attached_item_count} />
+                <Field label="Exports" value={selectedProject.export_count} />
+                <Field label="Latest activity" value={selectedProject.latest_activity} />
+              </div>
+              <div className="finder-search">
+                <label>
+                  Status
+                  <select value={selectedProject.status} onChange={(event) => updateSelectedProject({ status: event.target.value })}>
+                    {["active", "review", "completed", "archived"].map((item) => (
+                      <option key={item} value={item}>{item}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Notes
+                  <textarea
+                    rows={4}
+                    value={selectedProject.notes || ""}
+                    onChange={(event) => setSelectedProject((current) => ({ ...current, notes: event.target.value }))}
+                    onBlur={(event) => updateSelectedProject({ notes: event.target.value })}
+                  />
+                </label>
+              </div>
+              <div className="candidate-actions left-actions">
+                <button className="secondary-button" onClick={archiveSelectedProject} disabled={projectLoading || selectedProject.status === "archived"}>Archive Project</button>
+                <button
+                  onClick={() => {
+                    setActiveView("system");
+                    setResearchExportTitle(selectedProject.title);
+                    setResearchExportNotes(selectedProject.notes || "");
+                    setResearchExportProjectId(String(selectedProject.id));
+                  }}
+                >
+                  Create Research Export for Project
+                </button>
+              </div>
+
+              <form className="finder-search" onSubmit={attachProjectItem}>
+                <label>
+                  Item type
+                  <select value={projectAttachForm.item_type} onChange={(event) => setProjectAttachForm((current) => ({ ...current, item_type: event.target.value }))}>
+                    {["screening", "drug_finder_batch", "similarity_batch", "batch_upload", "benchmark", "project_report", "research_export", "note"].map((item) => (
+                      <option key={item} value={item}>{item.replaceAll("_", " ")}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Item ID
+                  <input value={projectAttachForm.item_id} onChange={(event) => setProjectAttachForm((current) => ({ ...current, item_id: event.target.value }))} placeholder="Local record ID" required />
+                </label>
+                <label>
+                  Item title
+                  <input value={projectAttachForm.item_title} onChange={(event) => setProjectAttachForm((current) => ({ ...current, item_title: event.target.value }))} placeholder="Aspirin screening" />
+                </label>
+                <button type="submit" disabled={projectLoading || !projectAttachForm.item_id.trim()}>Attach Item</button>
+              </form>
+
+              <h3>Attached items</h3>
+              {selectedProject.items?.length ? (
+                <div className="responsive-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Type</th>
+                        <th>ID</th>
+                        <th>Title</th>
+                        <th>Created</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedProject.items.map((item) => (
+                        <tr key={item.id}>
+                          <td>{item.item_type}</td>
+                          <td>{item.item_id}</td>
+                          <td>{item.item_title || "Untitled"}</td>
+                          <td>{item.created_at}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="muted">No attached items yet.</p>
+              )}
+              {(selectedProject.limitations || []).map((item) => <p className="limitation-label" key={item}>{item}</p>)}
+            </Section>
+          )}
+        </div>
+      )}
+
       {activeView === "system" && (
         <div className="finder-dashboard">
           <Section title="System" icon={Settings} wide>
@@ -3225,6 +3589,15 @@ export default function App() {
                   placeholder="Optional notes for supervisor, thesis, or research documentation"
                   rows={3}
                 />
+              </label>
+              <label>
+                Saved project
+                <select value={researchExportProjectId} onChange={(event) => setResearchExportProjectId(event.target.value)}>
+                  <option value="">No saved project</option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>{project.title}</option>
+                  ))}
+                </select>
               </label>
             </div>
             <div className="option-grid">

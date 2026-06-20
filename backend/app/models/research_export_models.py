@@ -2,6 +2,7 @@ from pydantic import BaseModel
 
 
 class ResearchExportRequest(BaseModel):
+    project_id: int | None = None
     project_title: str | None = None
     notes: str | None = None
     include_reports: bool = True
