@@ -1135,6 +1135,68 @@ The manifest preview endpoint returns metadata from `model_manifest.json` only. 
 
 Important: validation is not prediction. DrugScreen360 will not generate local model predictions unless a real scientifically validated model, complete artifact files, and a supported predictor loader are supplied later.
 
+## Research Export Package
+
+DrugScreen360 can create a complete research documentation ZIP package from stored local project data.
+
+Use it for:
+
+- supervisor review
+- thesis/research documentation
+- reproducibility notes
+- project archive handoff
+- internal scientific reporting
+
+Create it from the UI:
+
+1. Open `System`.
+2. Find `Research Export Package`.
+3. Enter an optional project title and notes.
+4. Choose what to include: reports, cache status, benchmark runs, batch runs, and screening history.
+5. Click `Create Research Export Package`.
+6. Click `Download ZIP`.
+
+Backend endpoints:
+
+```text
+POST /api/research-export/create
+GET  /api/research-export/{export_id}/download
+GET  /api/research-export/list
+```
+
+The ZIP includes, where available:
+
+- `README_EXPORT.md`
+- `PROJECT_METADATA.json`
+- `MODEL_STATUS.json`
+- `LOCAL_MODEL_VALIDATION.json`
+- `CACHE_STATUS.json`
+- `SCREENING_RESULTS/`
+- `BATCH_RESULTS/`
+- `BENCHMARK_RESULTS/`
+- `REPORTS/`
+- `TABLES/`
+- `DISCLAIMERS/scientific_limitations.md`
+- `REPRODUCIBILITY/environment_summary.md`
+- `MANIFEST.json`
+
+Generated ZIP files are stored locally under:
+
+```text
+backend/research_exports/
+```
+
+This folder is ignored by Git.
+
+Limitations:
+
+- The export only includes records stored in the local SQLite database.
+- Some interactive workflows may not appear unless they were saved as history, project reports, batch runs, or benchmark runs.
+- Reports are regenerated when practical; failures are recorded as warnings instead of stopping the export.
+- No fake predictions are created.
+- No artificial ADMET, toxicity, ML, clinical, regulatory, safety, efficacy, or market-readiness claims are added.
+- Export content remains computational decision-support only and requires laboratory validation and expert review.
+
 ## External ADMET Provider Adapter V1
 
 DrugScreen360 includes a safe external-provider adapter for future real ADMET/toxicity services. By default it is unavailable and no external prediction call is made. The rule-based ADMET/Tox adapter remains the fallback baseline.

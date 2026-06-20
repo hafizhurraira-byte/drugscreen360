@@ -16,6 +16,7 @@ from app.routers.finder import router as finder_router
 from app.routers.health import router as health_router
 from app.routers.models import router as models_router
 from app.routers.project_report import router as project_report_router
+from app.routers.research_export import router as research_export_router
 from app.routers.screening import router as screening_router
 from app.routers.similarity import router as similarity_router
 from app.services.version import app_version
@@ -65,3 +66,4 @@ app.include_router(benchmark_router, prefix="/api")
 app.include_router(models_router, prefix="/api")
 app.include_router(batch_library_router, prefix="/api")
 app.include_router(health_router, prefix="/api")
+app.include_router(research_export_router, prefix="/api")

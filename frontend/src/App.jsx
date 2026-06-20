@@ -470,6 +470,18 @@ export default function App() {
   const [localModelValidationLoading, setLocalModelValidationLoading] = useState(false);
   const [systemHealth, setSystemHealth] = useState(null);
   const [systemHealthLoading, setSystemHealthLoading] = useState(false);
+  const [researchExportTitle, setResearchExportTitle] = useState("");
+  const [researchExportNotes, setResearchExportNotes] = useState("");
+  const [researchExportOptions, setResearchExportOptions] = useState({
+    include_reports: true,
+    include_cache_status: true,
+    include_benchmark_runs: true,
+    include_batch_runs: true,
+    include_screening_history: true,
+  });
+  const [researchExportResult, setResearchExportResult] = useState(null);
+  const [researchExports, setResearchExports] = useState([]);
+  const [researchExportLoading, setResearchExportLoading] = useState(false);
   const [batchUploadFile, setBatchUploadFile] = useState(null);
   const [batchParseResult, setBatchParseResult] = useState(null);
   const [batchUploadResult, setBatchUploadResult] = useState(null);
@@ -568,6 +580,7 @@ export default function App() {
     loadBenchmarkCompounds();
     loadModelStatus();
     loadLocalModelValidation();
+    loadResearchExports();
     loadSystemHealth();
   }, []);
 
@@ -649,6 +662,50 @@ export default function App() {
     } finally {
       setSystemHealthLoading(false);
     }
+  }
+
+  async function loadResearchExports() {
+    try {
+      const response = await fetch(`${API_BASE}/research-export/list`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load research exports.");
+      setResearchExports(data);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function createResearchExport() {
+    setResearchExportLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`${API_BASE}/research-export/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_title: researchExportTitle.trim() || null,
+          notes: researchExportNotes.trim() || null,
+          ...researchExportOptions,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not create research export package.");
+      setResearchExportResult(data);
+      await loadResearchExports();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setResearchExportLoading(false);
+    }
+  }
+
+  function updateResearchExportOption(key, value) {
+    setResearchExportOptions((current) => ({ ...current, [key]: value }));
+  }
+
+  function downloadResearchExport(exportItem) {
+    if (!exportItem?.download_url) return;
+    window.location.href = `${API_ROOT}${exportItem.download_url}`;
   }
 
   function toggleBenchmarkItem(item) {
@@ -3143,6 +3200,101 @@ export default function App() {
               <div className="empty-state-card">
                 <h3>Local model validation not loaded yet.</h3>
                 <p>Click Validate Local Model to inspect the manifest and artifact readiness.</p>
+              </div>
+            )}
+          </Section>
+
+          <Section title="Research Export Package" icon={FileJson} wide>
+            <p className="limitation-label">
+              Export stored DrugScreen360 records, status files, tables, reproducibility notes, and scientific disclaimers as a ZIP package. No fake predictions are created.
+            </p>
+            <div className="finder-search">
+              <label>
+                Project title
+                <input
+                  value={researchExportTitle}
+                  onChange={(event) => setResearchExportTitle(event.target.value)}
+                  placeholder="Optional research project title"
+                />
+              </label>
+              <label>
+                Notes
+                <textarea
+                  value={researchExportNotes}
+                  onChange={(event) => setResearchExportNotes(event.target.value)}
+                  placeholder="Optional notes for supervisor, thesis, or research documentation"
+                  rows={3}
+                />
+              </label>
+            </div>
+            <div className="option-grid">
+              {[
+                ["include_reports", "Include reports"],
+                ["include_cache_status", "Include cache status"],
+                ["include_benchmark_runs", "Include benchmark runs"],
+                ["include_batch_runs", "Include batch runs"],
+                ["include_screening_history", "Include screening history"],
+              ].map(([key, label]) => (
+                <label className="toggle-row" key={key}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(researchExportOptions[key])}
+                    onChange={(event) => updateResearchExportOption(key, event.target.checked)}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <div className="candidate-actions left-actions">
+              <button onClick={createResearchExport} disabled={researchExportLoading}>
+                <Download size={18} aria-hidden="true" />
+                {researchExportLoading ? "Creating..." : "Create Research Export Package"}
+              </button>
+              <button className="secondary-button" onClick={loadResearchExports} disabled={researchExportLoading}>
+                Refresh exports
+              </button>
+              {researchExportResult && (
+                <button className="secondary-button" onClick={() => downloadResearchExport(researchExportResult)}>
+                  Download ZIP
+                </button>
+              )}
+            </div>
+            {researchExportResult && (
+              <article className="evidence-panel">
+                <h3>{researchExportResult.filename}</h3>
+                <div className="metric-grid compact-metrics">
+                  <Field label="Created" value={researchExportResult.created_at} />
+                  <Field label="Included sections" value={(researchExportResult.included_sections || []).join(", ")} />
+                  <Field label="Warnings" value={(researchExportResult.warnings || []).join("; ") || "None"} />
+                </div>
+              </article>
+            )}
+            {researchExports.length > 0 && (
+              <div className="responsive-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Filename</th>
+                      <th>Created</th>
+                      <th>Sections</th>
+                      <th>Warnings</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {researchExports.map((item) => (
+                      <tr key={item.export_id}>
+                        <td className="smiles-cell">{item.filename}</td>
+                        <td>{item.created_at}</td>
+                        <td className="smiles-cell">{(item.included_sections || []).join(", ")}</td>
+                        <td className="smiles-cell">{(item.warnings || []).join("; ") || "None"}</td>
+                        <td>
+                          <button className="small-button" onClick={() => downloadResearchExport(item)}>Download</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </Section>

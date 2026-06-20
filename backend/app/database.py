@@ -276,3 +276,17 @@ def init_db() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_exports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT NOT NULL,
+                title TEXT,
+                notes TEXT,
+                included_sections TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
