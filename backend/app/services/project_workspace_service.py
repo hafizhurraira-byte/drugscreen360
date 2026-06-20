@@ -28,10 +28,13 @@ PROJECT_LIMITATIONS = [
 
 def _model_summary() -> dict[str, Any]:
     status = model_status_response()
+    from app.services.admet_trained_model_service import get_active_trained_model_info
+    active_trained = get_active_trained_model_info()
     return {
         "available_models": [model.model_id for model in status["available_models"]],
         "unavailable_models": [model.model_id for model in status["unavailable_models"]],
         "limitations": status["limitations"],
+        "active_trained_model": active_trained if active_trained.get("status") == "active" else None
     }
 
 

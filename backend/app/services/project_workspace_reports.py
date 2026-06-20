@@ -101,6 +101,22 @@ def _report_payload(project_id: int, options: ProjectWorkspaceReportCreateReques
     warnings = list(dashboard.get("warnings") or [])
     if not dashboard.get("candidate_matrix"):
         warnings.append("Candidate decision matrix is empty because no candidate-level data is attached.")
+        
+    if options.include_model_status:
+        from app.services.admet_training_service import get_admet_dashboard_summary
+        try:
+            dash = get_admet_dashboard_summary()
+            dashboard_summary_item = {
+                "total_training_runs": dash["total_training_runs"],
+                "total_trained_model_artifacts": dash["total_trained_model_artifacts"],
+                "failed_invalid_model_count": dash["failed_invalid_model_count"],
+                "dataset_count_used_for_training": dash["dataset_count_used_for_training"],
+            }
+        except:
+            dashboard_summary_item = {"error": "failed to load dashboard summary"}
+    else:
+        dashboard_summary_item = {"status": "not included"}
+
     payload = {
         "title": f"DrugScreen360 Project Workspace Report - {project['title']}",
         "created_at": created_at,
@@ -115,6 +131,7 @@ def _report_payload(project_id: int, options: ProjectWorkspaceReportCreateReques
         "model_status_summary": dashboard.get("model_status_summary", {}) if options.include_model_status else {"status": "not included"},
         "local_model_validation": local_validation if options.include_model_status else {"status": "not included"},
         "trained_model_status": active_trained if options.include_model_status else {"status": "not included"},
+        "trained_model_dashboard_summary": dashboard_summary_item,
         "limitations": dashboard.get("limitations", []) if options.include_limitations else [],
         "reproducibility": {
             "app_version": app_version(),
@@ -172,6 +189,10 @@ def _build_pdf(payload: dict[str, Any]) -> bytes:
         story.append(Paragraph("No candidate-level data available for this project.", styles["BodyText"]))
     story.append(Paragraph("Model Status Summary", styles["Heading2"]))
     story.append(_pdf_table(_pairs(payload["model_status_summary"])))
+    story.append(Paragraph("Active Trained ADMET Model Status", styles["Heading2"]))
+    story.append(_pdf_table(_pairs(payload["trained_model_status"])))
+    story.append(Paragraph("Trained ADMET Models Dashboard Summary", styles["Heading2"]))
+    story.append(_pdf_table(_pairs(payload["trained_model_dashboard_summary"])))
     story.append(Paragraph("Local Model Validation Summary", styles["Heading2"]))
     story.append(_pdf_table(_pairs(payload["local_model_validation"])))
     story.append(Paragraph("Recommended Next Steps", styles["Heading2"]))
@@ -211,6 +232,8 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
         ("Attached Item Summary", payload["item_counts"] or {"items": "not available"}),
         ("Risk And Evidence Summary", payload["risk_summary"]),
         ("Model Status Summary", payload["model_status_summary"]),
+        ("Active Trained ADMET Model Status", payload["trained_model_status"]),
+        ("Trained ADMET Models Dashboard Summary", payload["trained_model_dashboard_summary"]),
         ("Local Model Validation Summary", payload["local_model_validation"]),
         ("Reproducibility", payload["reproducibility"]),
     ]:

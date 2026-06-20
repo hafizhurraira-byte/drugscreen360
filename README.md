@@ -1177,6 +1177,26 @@ All predictions made by active trained local models are flagged and clearly labe
 These predictions are displayed separately from the rule-based ADMET v1 checks and are integrated into single screening, batch screening, project workspace reports, and research export packages.
 
 
+## ADMET Model Performance Dashboard V1
+
+DrugScreen360 includes a professional ADMET Model Performance Dashboard to review and compare local trained ADMET models.
+
+### Key Features
+- **Summary Dashboard**: View general metrics including total training runs, active model status, best classification/regression models, and scientific limitations.
+- **Detailed Run Visualization**: Dive into specific training runs to inspect classification confusion matrices, regression metrics, prediction probability distributions, label distributions, and RDKit feature importance rankings.
+- **Model Comparison Table**: Compare all training runs in a comprehensive tabular view and export comparison datasets as CSV for scientific reporting.
+- **Project Workspace Integration**: Attach model dashboard snapshots directly to project workspace logs, which are included in PDF and DOCX reports.
+- **Research Export Integration**: Exports include a dedicated `ADMET_MODEL_DASHBOARD/` directory containing the summary JSON, model comparison CSV, scientific limitations, and individual training run detail sheets.
+
+### API Endpoints
+- `GET /api/admet-training/dashboard`: Returns the general dashboard summary.
+- `GET /api/admet-training/runs/{run_id}/dashboard`: Returns detailed metrics and validation readiness for a specific run.
+- `GET /api/admet-training/model-comparison`: Returns a tabular comparison list of all training runs.
+- `GET /api/admet-training/model-comparison.csv`: Exports training runs comparison list in CSV format.
+- `GET /api/admet-training/runs/{run_id}/plots-data`: Returns visual data (confusion matrix, distributions, feature importance).
+- `POST /api/admet-training/dashboard/attach`: Attaches a dashboard summary snapshot to a project workspace.
+
+
 ## Research Export Package
 
 DrugScreen360 can create a complete research documentation ZIP package from stored local project data.

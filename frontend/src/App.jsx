@@ -585,6 +585,13 @@ export default function App() {
   const [testError, setTestError] = useState("");
   const [trainedModelDetail, setTrainedModelDetail] = useState(null);
 
+  const [dashboardSummary, setDashboardSummary] = useState(null);
+  const [modelComparison, setModelComparison] = useState([]);
+  const [selectedRunId, setSelectedRunId] = useState("");
+  const [selectedRunDashboard, setSelectedRunDashboard] = useState(null);
+  const [selectedRunPlots, setSelectedRunPlots] = useState(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+
   const synonyms = useMemo(() => {
     const list = report?.compound_identity?.synonyms || [];
     return list.slice(0, 8).join(", ");
@@ -693,6 +700,8 @@ export default function App() {
     loadTrainedModels();
     loadActiveTrainedModel();
     loadSystemHealth();
+    loadDashboardSummary();
+    loadModelComparison();
   }, []);
 
   useEffect(() => {
@@ -1268,6 +1277,78 @@ export default function App() {
     }
   }
 
+  async function loadDashboardSummary() {
+    try {
+      const response = await fetch(`${API_BASE}/admet-training/dashboard`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load ADMET dashboard summary.");
+      setDashboardSummary(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function loadModelComparison() {
+    try {
+      const response = await fetch(`${API_BASE}/admet-training/model-comparison`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load ADMET model comparison.");
+      setModelComparison(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleRunSelect(runId) {
+    setSelectedRunId(runId);
+    if (!runId) {
+      setSelectedRunDashboard(null);
+      setSelectedRunPlots(null);
+      return;
+    }
+    setDashboardLoading(true);
+    try {
+      const respDash = await fetch(`${API_BASE}/admet-training/runs/${runId}/dashboard`);
+      const dataDash = await respDash.json();
+      if (!respDash.ok) throw new Error(dataDash.detail || "Could not load run dashboard details.");
+      setSelectedRunDashboard(dataDash);
+
+      const respPlots = await fetch(`${API_BASE}/admet-training/runs/${runId}/plots-data`);
+      const dataPlots = await respPlots.json();
+      if (!respPlots.ok) throw new Error(dataPlots.detail || "Could not load run plots data.");
+      setSelectedRunPlots(dataPlots);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDashboardLoading(false);
+    }
+  }
+
+  async function attachDashboardToProject(runId = null) {
+    if (!activeProjectId) return;
+    try {
+      setWorkflowStatus("Attaching ADMET model dashboard to active project...");
+      const response = await fetch(`${API_BASE}/admet-training/dashboard/attach`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: Number(activeProjectId),
+          run_id: runId ? Number(runId) : null,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Failed to attach dashboard.");
+      setActiveProjectNotice("Successfully attached ADMET model dashboard to project.");
+      setWorkflowStatus("Dashboard attached successfully.");
+      if (selectedProject?.id && String(selectedProject.id) === String(activeProjectId)) {
+        await loadProjectDetail(selectedProject.id);
+      }
+    } catch (err) {
+      setError(err.message);
+      setWorkflowStatus("");
+    }
+  }
+
   async function validateTrainedModel(modelId) {
     try {
       setWorkflowStatus(`Validating trained model ${modelId}...`);
@@ -1300,6 +1381,8 @@ export default function App() {
       await loadActiveTrainedModel();
       await loadTrainedModels();
       await loadModelStatus();
+      await loadDashboardSummary();
+      await loadModelComparison();
       if (selectedProject?.id) {
         await loadProjectDetail(selectedProject.id);
       }
@@ -1324,6 +1407,8 @@ export default function App() {
       await loadActiveTrainedModel();
       await loadTrainedModels();
       await loadModelStatus();
+      await loadDashboardSummary();
+      await loadModelComparison();
       if (selectedProject?.id) {
         await loadProjectDetail(selectedProject.id);
       }
@@ -1441,6 +1526,9 @@ export default function App() {
       if (!response.ok) throw new Error(data.detail || "ADMET model training failed.");
       setAdmetTrainingResult(data);
       await loadAdmetTrainingRuns();
+      await loadTrainedModels();
+      await loadDashboardSummary();
+      await loadModelComparison();
       if (activeProjectId) {
         setActiveProjectNotice(`Saved ADMET training run to active project: ${activeProject?.title || `Project #${activeProjectId}`}.`);
         if (selectedProject?.id && String(selectedProject.id) === String(activeProjectId)) await loadProjectDetail(selectedProject.id);
@@ -3695,6 +3783,285 @@ export default function App() {
                 <p>Train only when you have enough valid labelled data and are ready to review an experimental model card.</p>
               </div>
             )}
+          </Section>
+
+          <Section title="ADMET Model Dashboard" icon={ClipboardList} wide>
+            <p className="limitation-label">
+              Review and compare trained ADMET models, metrics, and dataset performance.
+              Trained models are experimental and require expert external validation.
+            </p>
+            
+            <div className="summary-grid" style={{ marginBottom: "20px" }}>
+              <SummaryCard
+                label="Total Curated Datasets"
+                value={dashboardSummary ? dashboardSummary.dataset_count_used_for_training : 0}
+                icon={FileJson}
+              />
+              <SummaryCard
+                label="Total Training Runs"
+                value={dashboardSummary ? dashboardSummary.total_training_runs : 0}
+                icon={History}
+              />
+              <SummaryCard
+                label="Trained Models"
+                value={dashboardSummary ? dashboardSummary.total_trained_model_artifacts : 0}
+                icon={ShieldCheck}
+              />
+              <SummaryCard
+                label="Active Model"
+                value={
+                  dashboardSummary && dashboardSummary.active_trained_model_status?.status === "active"
+                    ? (dashboardSummary.active_trained_model_status.model_name || dashboardSummary.active_trained_model_status.model_id)
+                    : "None Active"
+                }
+                icon={Target}
+              />
+              <SummaryCard
+                label="Failed / Invalid Models"
+                value={dashboardSummary ? dashboardSummary.failed_invalid_model_count : 0}
+                icon={AlertTriangle}
+              />
+            </div>
+
+            <div className="evidence-panel" style={{ padding: "15px", marginBottom: "20px" }}>
+              <h3>Select Model Training Run to Inspect</h3>
+              <div style={{ marginTop: "10px", display: "flex", gap: "10px", alignItems: "flex-end", flexWrap: "wrap" }}>
+                <label style={{ flex: "1", minWidth: "250px" }}>
+                  Trained ADMET Runs
+                  <select
+                    value={selectedRunId}
+                    onChange={(e) => handleRunSelect(e.target.value)}
+                    style={{ width: "100%", padding: "8px", borderRadius: "4px", border: "1px solid #ccc", marginTop: "5px" }}
+                  >
+                    <option value="">-- Choose a training run --</option>
+                    {admetTrainingRuns.map((run) => (
+                      <option key={run.id} value={run.id}>
+                        Run #{run.id}: {run.model_name} ({run.model_type}) for {run.task_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {activeProjectId && (
+                  <button
+                    type="button"
+                    className="small-button secondary-button"
+                    onClick={() => attachDashboardToProject(selectedRunId || null)}
+                  >
+                    Attach {selectedRunId ? `Run #${selectedRunId} Snapshot` : "Dashboard Snapshot"} to Project
+                  </button>
+                )}
+              </div>
+
+              {dashboardLoading && <p className="warning-text">Loading detailed training run performance...</p>}
+
+              {selectedRunDashboard && (
+                <div style={{ marginTop: "20px" }}>
+                  <div className="section-divider" style={{ margin: "20px 0" }} />
+                  <h2>Run #{selectedRunDashboard.training_run_id} Detail: {selectedRunDashboard.training_run_metadata.model_name}</h2>
+                  
+                  <div className="metric-grid compact-metrics" style={{ marginTop: "15px" }}>
+                    <Field label="Task Type" value={selectedRunDashboard.task_type} />
+                    <Field label="Model Type" value={selectedRunDashboard.model_type} />
+                    <Field label="Dataset Name" value={selectedRunDashboard.dataset_summary?.name} />
+                    <Field label="Total Rows" value={selectedRunDashboard.dataset_summary?.record_count} />
+                    <Field label="Train Size" value={selectedRunDashboard.train_count} />
+                    <Field label="Test Size" value={selectedRunDashboard.test_count} />
+                  </div>
+
+                  <h3 style={{ marginTop: "15px" }}>Performance Metrics</h3>
+                  <div className="metric-grid compact-metrics">
+                    {Object.entries(selectedRunDashboard.metrics || {}).map(([key, val]) => {
+                      if (key === "confusion_matrix") return null;
+                      return <Field key={key} label={key.replace('_', ' ').toUpperCase()} value={typeof val === "object" ? JSON.stringify(val) : val} />;
+                    })}
+                  </div>
+
+                  {selectedRunDashboard.task_type === "binary_classification" && selectedRunDashboard.confusion_matrix && (
+                    <div style={{ marginTop: "15px" }}>
+                      <h3>Confusion Matrix (Test Split)</h3>
+                      <div className="responsive-table" style={{ maxWidth: "500px", marginTop: "5px" }}>
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>True \ Predicted</th>
+                              <th>Predicted Inactive (0)</th>
+                              <th>Predicted Active (1)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td><strong>True Inactive (0)</strong></td>
+                              <td>{selectedRunDashboard.confusion_matrix[0][0]} (True Neg)</td>
+                              <td>{selectedRunDashboard.confusion_matrix[0][1]} (False Pos)</td>
+                            </tr>
+                            <tr>
+                              <td><strong>True Active (1)</strong></td>
+                              <td>{selectedRunDashboard.confusion_matrix[1][0]} (False Neg)</td>
+                              <td>{selectedRunDashboard.confusion_matrix[1][1]} (True Pos)</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedRunPlots && selectedRunPlots.feature_importance && typeof selectedRunPlots.feature_importance === "object" && (
+                    <div style={{ marginTop: "15px" }}>
+                      <h3>Descriptor Feature Importance</h3>
+                      <div className="responsive-table" style={{ marginTop: "5px" }}>
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Feature</th>
+                              <th>Relative Importance</th>
+                              <th>Distribution</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(selectedRunPlots.feature_importance)
+                              .sort((a, b) => b[1] - a[1])
+                              .map(([feature, val]) => (
+                                <tr key={feature}>
+                                  <td><strong>{feature.replace(/_/g, ' ').toUpperCase()}</strong></td>
+                                  <td>{(val * 100).toFixed(2)}%</td>
+                                  <td>
+                                    <div style={{ width: "120px", background: "#f3f4f6", borderRadius: "3px", height: "8px", overflow: "hidden" }}>
+                                      <div style={{ width: `${val * 100}%`, background: "#0f766e", height: "100%" }} />
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ marginTop: "15px" }}>
+                    <h3>Activation Readiness & Validation Status</h3>
+                    <div className="compact-metrics" style={{ display: "flex", gap: "10px", marginTop: "5px", alignItems: "center" }}>
+                      <Badge tone={selectedRunDashboard.validation_status.valid ? "Good" : "High"}>
+                        {selectedRunDashboard.validation_status.valid ? "Validation Passed" : "Validation Failed"}
+                      </Badge>
+                      <Badge tone={selectedRunDashboard.activation_readiness ? "Good" : "Neutral"}>
+                        {selectedRunDashboard.activation_readiness ? "Readiness: Ready" : "Readiness: Not Ready"}
+                      </Badge>
+                      {selectedRunDashboard.validation_status.model_id && (
+                        <div className="candidate-actions left-actions" style={{ gap: "5px" }}>
+                          {activeTrainedModel && activeTrainedModel.model_id === selectedRunDashboard.validation_status.model_id && activeTrainedModel.status === "available" ? (
+                            <button className="small-button secondary-button warning-button" onClick={deactivateActiveTrainedModel}>
+                              Deactivate Active Model
+                            </button>
+                          ) : (
+                            <button
+                              className="small-button"
+                              onClick={() => activateTrainedModel(selectedRunDashboard.validation_status.model_id)}
+                              disabled={!selectedRunDashboard.activation_readiness}
+                            >
+                              Activate Selected Model
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {selectedRunDashboard.validation_status.errors && selectedRunDashboard.validation_status.errors.map((err, i) => (
+                      <p key={i} className="warning-text" style={{ fontSize: "0.85rem", marginTop: "4px" }}>• {err}</p>
+                    ))}
+                  </div>
+
+                  <div style={{ marginTop: "15px" }}>
+                    <h3>Warnings & Limitations</h3>
+                    <p className="warning-text">
+                      Scientific notice: Experimental local model prediction. Requires external validation.
+                    </p>
+                    {selectedRunDashboard.warnings && selectedRunDashboard.warnings.map((w, i) => (
+                      <p key={i} className="warning-text" style={{ fontSize: "0.85rem" }}>• {w}</p>
+                    ))}
+                    {selectedRunDashboard.limitations && selectedRunDashboard.limitations.map((l, i) => (
+                      <p key={i} className="limitation-label" style={{ fontSize: "0.85rem" }}>• {l}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="evidence-panel" style={{ padding: "15px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", flexWrap: "wrap", gap: "10px" }}>
+                <h3>Model Comparison Summary</h3>
+                <a
+                  href={`${API_BASE}/admet-training/model-comparison.csv`}
+                  className="small-button secondary-button"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "5px", textDecoration: "none" }}
+                  download
+                >
+                  <Download size={14} /> Download Comparison CSV
+                </a>
+              </div>
+              
+              {modelComparison.length ? (
+                <div className="responsive-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Model ID</th>
+                        <th>Task</th>
+                        <th>Type</th>
+                        <th>Dataset</th>
+                        <th>Size (Train/Test)</th>
+                        <th>Accuracy / F1 / AUC</th>
+                        <th>R² / RMSE</th>
+                        <th>Validation</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {modelComparison.map((model) => (
+                        <tr key={model.model_id}>
+                          <td><strong>{model.model_id}</strong></td>
+                          <td>{model.task_name} ({model.task_type})</td>
+                          <td>{model.model_type}</td>
+                          <td>{model.dataset_name}</td>
+                          <td>{model.train_count}/{model.test_count}</td>
+                          <td>
+                            {model.task_type === "binary_classification" ? (
+                              <div style={{ fontSize: "0.85rem" }}>
+                                Acc: {typeof model.accuracy === "number" ? model.accuracy.toFixed(4) : model.accuracy}<br />
+                                F1: {typeof model.f1 === "number" ? model.f1.toFixed(4) : model.f1}<br />
+                                AUC: {typeof model.roc_auc === "number" ? model.roc_auc.toFixed(4) : model.roc_auc}
+                              </div>
+                            ) : (
+                              <span className="limitation-label">N/A</span>
+                            )}
+                          </td>
+                          <td>
+                            {model.task_type === "regression" ? (
+                              <div style={{ fontSize: "0.85rem" }}>
+                                R²: {typeof model.r2 === "number" ? model.r2.toFixed(4) : model.r2}<br />
+                                RMSE: {typeof model.rmse === "number" ? model.rmse.toFixed(4) : model.rmse}
+                              </div>
+                            ) : (
+                              <span className="limitation-label">N/A</span>
+                            )}
+                          </td>
+                          <td>
+                            <Badge tone={model.validation_status === "valid" ? "Good" : "High"}>
+                              {model.validation_status}
+                            </Badge>
+                          </td>
+                          <td>
+                            <Badge tone={model.active_status === "active" ? "Good" : "Neutral"}>
+                              {model.active_status}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="limitation-label">No models discovered yet to compare. Train models to populate this table.</p>
+              )}
+            </div>
           </Section>
 
           <Section title="Active Trained Model" icon={ShieldCheck} wide>
