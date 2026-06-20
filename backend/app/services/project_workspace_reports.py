@@ -21,6 +21,7 @@ from app.models.project_workspace_report_models import (
     ProjectWorkspaceReportListItem,
 )
 from app.services.local_admet_model import validate_local_admet_model
+from app.services.admet_trained_model_service import get_active_trained_model_info
 from app.models.project_workspace_models import ProjectAttachRequest
 from app.services.project_workspace_service import attach_project_item, project_dashboard
 from app.services.version import app_version
@@ -95,6 +96,7 @@ def _matrix_rows(dashboard: dict[str, Any]) -> list[list[str]]:
 def _report_payload(project_id: int, options: ProjectWorkspaceReportCreateRequest, created_at: str) -> dict[str, Any]:
     dashboard = project_dashboard(project_id).model_dump()
     local_validation = validate_local_admet_model()
+    active_trained = get_active_trained_model_info()
     project = dashboard["project"]
     warnings = list(dashboard.get("warnings") or [])
     if not dashboard.get("candidate_matrix"):
@@ -112,6 +114,7 @@ def _report_payload(project_id: int, options: ProjectWorkspaceReportCreateReques
         "candidate_matrix": dashboard.get("candidate_matrix", []) if options.include_candidate_matrix else [],
         "model_status_summary": dashboard.get("model_status_summary", {}) if options.include_model_status else {"status": "not included"},
         "local_model_validation": local_validation if options.include_model_status else {"status": "not included"},
+        "trained_model_status": active_trained if options.include_model_status else {"status": "not included"},
         "limitations": dashboard.get("limitations", []) if options.include_limitations else [],
         "reproducibility": {
             "app_version": app_version(),
