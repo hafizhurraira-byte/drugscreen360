@@ -242,6 +242,10 @@ function ModelPredictionPanel({ predictions }) {
       </article>
     );
   }
+
+  const trainedModelOutputs = (predictions.model_outputs || []).filter(bundle => bundle.model_id === "trained_local_admet_model");
+  const otherModelOutputs = (predictions.model_outputs || []).filter(bundle => bundle.model_id !== "trained_local_admet_model");
+
   return (
     <article className="evidence-panel">
       <h3>Model-Based Predictions</h3>
@@ -255,10 +259,42 @@ function ModelPredictionPanel({ predictions }) {
           <Field label="Local model status" value={predictions.model_status_summary.local_model_status || "not requested"} />
           <Field label="Local model available" value={String(predictions.model_status_summary.local_model_available ?? false)} />
           <Field label="Local warning" value={predictions.model_status_summary.local_model_warning || "None"} />
+          <Field label="Trained model status" value={predictions.model_status_summary.trained_model_status || "not requested"} />
+          <Field label="Trained model available" value={String(predictions.model_status_summary.trained_model_available ?? false)} />
+          <Field label="Trained warning" value={predictions.model_status_summary.trained_model_warning || "None"} />
         </div>
       )}
+
+      {trainedModelOutputs.length > 0 && trainedModelOutputs.some(b => b.model_status === "available") && (
+        <div style={{ marginTop: "15px", marginBottom: "15px" }}>
+          <h4>Experimental Trained Local Model</h4>
+          <div className="example-grid">
+            {trainedModelOutputs.map((bundle) => (
+              <article className="example-card" key={bundle.model_id} style={{ border: "1px solid var(--primary-accent)", width: "100%" }}>
+                <h3>{bundle.model_name}</h3>
+                <Badge tone={bundle.model_status === "available" ? "good" : "bad"}>{bundle.model_status}</Badge>
+                <Field label="Source" value={bundle.prediction_source} />
+                <Field label="Confidence" value={bundle.confidence} />
+                {bundle.predictions && bundle.predictions.map((p, idx) => (
+                  <div key={idx} style={{ marginTop: "10px" }}>
+                    <Field label="Prediction Task" value={p.task_name} />
+                    <Field label="Predicted Value/Label" value={p.prediction_label} />
+                    {p.prediction_score !== null && (
+                      <Field label="Probability / Score" value={p.prediction_score} />
+                    )}
+                  </div>
+                ))}
+                <p className="warning-text" style={{ marginTop: "10px" }}>{(bundle.warnings || []).join(" ")}</p>
+                <p className="limitation-label">{(bundle.limitations || []).join(" ")}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <h4>Other Model-Based Predictions</h4>
       <div className="example-grid">
-        {(predictions.model_outputs || []).map((bundle) => (
+        {otherModelOutputs.map((bundle) => (
           <article className="example-card" key={bundle.model_id}>
             <h3>{bundle.model_name}</h3>
             <Badge tone={bundle.model_status === "available" ? "good" : bundle.model_status === "mock" ? "warn" : "bad"}>{bundle.model_status}</Badge>
@@ -541,6 +577,14 @@ export default function App() {
   const [admetTrainingRuns, setAdmetTrainingRuns] = useState([]);
   const [admetTrainingLoading, setAdmetTrainingLoading] = useState(false);
 
+  const [trainedModels, setTrainedModels] = useState([]);
+  const [activeTrainedModel, setActiveTrainedModel] = useState(null);
+  const [testSmiles, setTestSmiles] = useState("");
+  const [testPrediction, setTestPrediction] = useState(null);
+  const [testLoading, setTestLoading] = useState(false);
+  const [testError, setTestError] = useState("");
+  const [trainedModelDetail, setTrainedModelDetail] = useState(null);
+
   const synonyms = useMemo(() => {
     const list = report?.compound_identity?.synonyms || [];
     return list.slice(0, 8).join(", ");
@@ -646,6 +690,8 @@ export default function App() {
     loadActiveProjectOptions();
     loadAdmetDatasets();
     loadAdmetTrainingRuns();
+    loadTrainedModels();
+    loadActiveTrainedModel();
     loadSystemHealth();
   }, []);
 
@@ -1197,6 +1243,133 @@ export default function App() {
       setAdmetTrainingRuns(data);
     } catch (err) {
       setError(err.message);
+    }
+  }
+
+  async function loadTrainedModels() {
+    try {
+      const response = await fetch(`${API_BASE}/admet-training/models`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load trained models.");
+      setTrainedModels(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function loadActiveTrainedModel() {
+    try {
+      const response = await fetch(`${API_BASE}/admet-training/active-model`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load active trained model.");
+      setActiveTrainedModel(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function validateTrainedModel(modelId) {
+    try {
+      setWorkflowStatus(`Validating trained model ${modelId}...`);
+      const response = await fetch(`${API_BASE}/admet-training/models/${modelId}/validate`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Validation failed.");
+      alert(`Model validation: ${data.valid ? "SUCCESS" : "FAILED"}\nErrors: ${data.errors.join(", ") || "None"}`);
+      await loadTrainedModels();
+      if (activeTrainedModel && activeTrainedModel.model_id === modelId) {
+        await loadActiveTrainedModel();
+      }
+    } catch (err) {
+      alert(`Validation error: ${err.message}`);
+    } finally {
+      setWorkflowStatus("");
+    }
+  }
+
+  async function activateTrainedModel(modelId) {
+    try {
+      setWorkflowStatus(`Activating trained model ${modelId}...`);
+      const response = await fetch(`${API_BASE}/admet-training/models/${modelId}/activate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: activeProjectId ? Number(activeProjectId) : null })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Activation failed.");
+      setActiveProjectNotice(`Activated model ${modelId} successfully.`);
+      await loadActiveTrainedModel();
+      await loadTrainedModels();
+      await loadModelStatus();
+      if (selectedProject?.id) {
+        await loadProjectDetail(selectedProject.id);
+      }
+    } catch (err) {
+      alert(`Activation error: ${err.message}`);
+    } finally {
+      setWorkflowStatus("");
+    }
+  }
+
+  async function deactivateActiveTrainedModel() {
+    try {
+      setWorkflowStatus("Deactivating active trained model predictions...");
+      const response = await fetch(`${API_BASE}/admet-training/models/deactivate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: activeProjectId ? Number(activeProjectId) : null })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Deactivation failed.");
+      setActiveProjectNotice("Deactivated model predictions successfully.");
+      await loadActiveTrainedModel();
+      await loadTrainedModels();
+      await loadModelStatus();
+      if (selectedProject?.id) {
+        await loadProjectDetail(selectedProject.id);
+      }
+    } catch (err) {
+      alert(`Deactivation error: ${err.message}`);
+    } finally {
+      setWorkflowStatus("");
+    }
+  }
+
+  async function testTrainedModelPrediction(event) {
+    if (event) event.preventDefault();
+    if (!testSmiles.trim()) return;
+    setTestLoading(true);
+    setTestError("");
+    setTestPrediction(null);
+    try {
+      const response = await fetch(`${API_BASE}/admet-training/predict`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          smiles: testSmiles.trim(),
+          project_id: activeProjectId ? Number(activeProjectId) : null
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Prediction test failed.");
+      setTestPrediction(data);
+      if (selectedProject?.id) {
+        await loadProjectDetail(selectedProject.id);
+      }
+    } catch (err) {
+      setTestError(err.message);
+    } finally {
+      setTestLoading(false);
+    }
+  }
+
+  async function viewTrainedModelDetail(modelId) {
+    try {
+      const response = await fetch(`${API_BASE}/admet-training/models/${modelId}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not retrieve model card details.");
+      setTrainedModelDetail(data);
+    } catch (err) {
+      alert(err.message);
     }
   }
 
@@ -3523,6 +3696,169 @@ export default function App() {
               </div>
             )}
           </Section>
+
+          <Section title="Active Trained Model" icon={ShieldCheck} wide>
+            {activeTrainedModel && activeTrainedModel.status === "available" ? (
+              <div>
+                <div className="summary-grid">
+                  <SummaryCard label="Active Model ID" value={activeTrainedModel.model_id} icon={Target} />
+                  <SummaryCard label="Task Name" value={activeTrainedModel.task_name || "ADMET"} icon={Target} />
+                  <SummaryCard label="Task Type" value={activeTrainedModel.task_type} icon={ClipboardList} />
+                  <SummaryCard label="Version" value={activeTrainedModel.version} icon={History} />
+                </div>
+                <div style={{ marginTop: "15px" }} className="candidate-actions left-actions">
+                  <button className="secondary-button warning-button" onClick={deactivateActiveTrainedModel}>Deactivate Active Model</button>
+                </div>
+              </div>
+            ) : (
+              <div className="empty-state-card">
+                <h3>No trained model active.</h3>
+                <p>Status: <Badge tone="High">{activeTrainedModel ? activeTrainedModel.status : "disabled"}</Badge></p>
+                {activeTrainedModel?.warnings && activeTrainedModel.warnings.map(w => <p className="warning-text" key={w}>{w}</p>)}
+              </div>
+            )}
+          </Section>
+
+          <Section title="Trained ADMET Models" icon={ShieldCheck} wide>
+            <p className="limitation-label">
+              Trained models are experimental and dataset-dependent. No clinical validity is implied. Explicit activation is required to use them for predictions.
+            </p>
+            {trainedModels.length ? (
+              <div className="responsive-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Model ID</th>
+                      <th>Task</th>
+                      <th>Model Type</th>
+                      <th>Created</th>
+                      <th>Files</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trainedModels.map((model) => (
+                      <tr key={model.model_id}>
+                        <td>{model.model_id}</td>
+                        <td>
+                          {model.task_name} ({model.task_type})
+                        </td>
+                        <td>{model.model_type}</td>
+                        <td>{model.created_at ? new Date(model.created_at).toLocaleString() : "N/A"}</td>
+                        <td>
+                          <div className="compact-metrics" style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                            <Badge tone={model.manifest_valid ? "Good" : "High"}>Manifest</Badge>
+                            <Badge tone={model.artifact_found ? "Good" : "High"}>Artifact</Badge>
+                            <Badge tone={model.model_card_found ? "Good" : "Neutral"}>Card</Badge>
+                            <Badge tone={model.feature_schema_found ? "Good" : "High"}>Schema</Badge>
+                          </div>
+                        </td>
+                        <td>
+                          <Badge tone={model.status === "valid" ? "Good" : "High"}>{model.status}</Badge>
+                          {activeTrainedModel && activeTrainedModel.model_id === model.model_id && activeTrainedModel.status === "available" && (
+                            <Badge tone="Good" style={{ marginLeft: "5px" }}>Active</Badge>
+                          )}
+                        </td>
+                        <td>
+                          <div className="candidate-actions left-actions" style={{ gap: "5px" }}>
+                            <button className="small-button" onClick={() => validateTrainedModel(model.model_id)}>Validate</button>
+                            <button className="small-button" onClick={() => activateTrainedModel(model.model_id)}>Activate</button>
+                            <button className="small-button secondary-button" onClick={() => viewTrainedModelDetail(model.model_id)}>Details</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="empty-state-card">
+                <h3>No discovered trained models.</h3>
+                <p>Train ADMET models from curated datasets above to see them here.</p>
+              </div>
+            )}
+          </Section>
+
+          {trainedModelDetail && (
+            <Section title={`Model Detail: ${trainedModelDetail.manifest?.model_id}`} icon={ClipboardList} wide>
+              <div className="candidate-actions left-actions" style={{ marginBottom: "15px" }}>
+                <button className="small-button secondary-button" onClick={() => setTrainedModelDetail(null)}>Close Details</button>
+              </div>
+              <article className="evidence-panel">
+                <h3>Model Card Summary</h3>
+                <div className="metric-grid compact-metrics">
+                  <Field label="Dataset Name" value={trainedModelDetail.model_card?.dataset_name} />
+                  <Field label="Split Method" value={trainedModelDetail.model_card?.split_method} />
+                  <Field label="Intended Use" value={trainedModelDetail.model_card?.intended_use} />
+                  <Field label="Training count" value={trainedModelDetail.model_card?.record_counts?.train_count} />
+                  <Field label="Test count" value={trainedModelDetail.model_card?.record_counts?.test_count} />
+                </div>
+                <h3>Metrics</h3>
+                <div className="metric-grid compact-metrics">
+                  {Object.entries(trainedModelDetail.metrics || {}).map(([k, v]) => (
+                    <Field key={k} label={k} value={typeof v === "object" ? JSON.stringify(v) : v} />
+                  ))}
+                </div>
+                <h3>Limitations</h3>
+                {(trainedModelDetail.limitations || []).map((lim, i) => (
+                  <p key={i} className="limitation-label">{lim}</p>
+                ))}
+                {trainedModelDetail.warnings && trainedModelDetail.warnings.length > 0 && (
+                  <div>
+                    <h3>Warnings</h3>
+                    {trainedModelDetail.warnings.map((w, i) => (
+                      <p key={i} className="warning-text">{w}</p>
+                    ))}
+                  </div>
+                )}
+              </article>
+            </Section>
+          )}
+
+          <Section title="Trained Model Prediction Test" icon={ShieldCheck} wide>
+            <p className="limitation-label">
+              Test predictions are dataset-dependent, computational, and require expert external validation.
+            </p>
+            <form className="finder-search" onSubmit={testTrainedModelPrediction}>
+              <label>
+                SMILES String
+                <input
+                  value={testSmiles}
+                  onChange={(event) => setTestSmiles(event.target.value)}
+                  placeholder="CC(=O)OC1=CC=CC=C1C(=O)O"
+                  required
+                />
+              </label>
+              <button type="submit" disabled={testLoading || !testSmiles.trim()}>
+                {testLoading ? "Predicting..." : "Predict with Active Model"}
+              </button>
+            </form>
+            {testError && <p className="warning-text">{testError}</p>}
+            {testPrediction && (
+              <article className="evidence-panel" style={{ marginTop: "15px" }}>
+                <h3>Prediction Output</h3>
+                <div className="metric-grid compact-metrics">
+                  <Field label="Model Name" value={testPrediction.model_name} />
+                  <Field label="Version" value={testPrediction.version} />
+                  <Field label="Task Name" value={testPrediction.task_name} />
+                  <Field label="Task Type" value={testPrediction.task_type} />
+                  {testPrediction.prediction_label !== null && (
+                    <Field label="Predicted Label" value={<Badge tone="Good">{testPrediction.prediction_label}</Badge>} />
+                  )}
+                  {testPrediction.prediction_value !== null && (
+                    <Field label="Predicted Value" value={testPrediction.prediction_value} />
+                  )}
+                  {testPrediction.prediction_score !== null && (
+                    <Field label="Confidence / Probability" value={testPrediction.prediction_score} />
+                  )}
+                </div>
+                <p className="warning-text">{testPrediction.experimental_model_notice}</p>
+                {testPrediction.warnings && testPrediction.warnings.map(w => <p className="warning-text" key={w}>{w}</p>)}
+                {testPrediction.limitations && testPrediction.limitations.map(l => <p className="limitation-label" key={l}>{l}</p>)}
+              </article>
+            )}
+          </Section>
         </div>
       )}
 
@@ -4432,6 +4768,46 @@ export default function App() {
               <div className="empty-state-card">
                 <h3>Local model validation not loaded yet.</h3>
                 <p>Click Validate Local Model to inspect the manifest and artifact readiness.</p>
+              </div>
+            )}
+          </Section>
+
+          <Section title="Active Trained Model Status" icon={ShieldCheck} wide>
+            <div className="candidate-actions left-actions">
+              <button onClick={loadActiveTrainedModel}>
+                Refresh Trained Model Status
+              </button>
+            </div>
+            {activeTrainedModel ? (
+              <article className="evidence-panel">
+                <div className="status-row">
+                  <h3>Active Trained Model Details</h3>
+                  <Badge tone={activeTrainedModel.status === "available" ? "Good" : activeTrainedModel.status === "disabled" ? "Neutral" : "High"}>
+                    {activeTrainedModel.status}
+                  </Badge>
+                </div>
+                <div className="metric-grid compact-metrics">
+                  <Field label="Active Model ID" value={activeTrainedModel.model_id || "None"} />
+                  <Field label="Model Name" value={activeTrainedModel.model_name || "None"} />
+                  <Field label="Version" value={activeTrainedModel.version || "None"} />
+                  <Field label="Task Name" value={activeTrainedModel.task_name || "None"} />
+                  <Field label="Task Type" value={activeTrainedModel.task_type || "None"} />
+                </div>
+                {activeTrainedModel.warnings && activeTrainedModel.warnings.length > 0 && (
+                  <div>
+                    <h4>Warnings/Errors</h4>
+                    <ul className="compact-list warning-list">
+                      {activeTrainedModel.warnings.map((w, i) => (
+                        <li key={i}>{w}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </article>
+            ) : (
+              <div className="empty-state-card">
+                <h3>Active trained model status not loaded yet.</h3>
+                <p>Click Refresh Trained Model Status to inspect active local models.</p>
               </div>
             )}
           </Section>

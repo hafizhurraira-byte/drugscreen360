@@ -61,8 +61,10 @@ def predict_admet(smiles: str, model_ids: list[str], include_unavailable: bool =
     rule_based_used = any(item.model_id == "rule_based_admet_v1" and item.model_status == "available" for item in outputs)
     external_bundle = next((item for item in outputs if item.model_id == "external_admet_provider_v1"), None)
     local_bundle = next((item for item in outputs if item.model_id == "local_admet_model"), None)
+    trained_bundle = next((item for item in outputs if item.model_id == "trained_local_admet_model"), None)
     external_warning = "; ".join(external_bundle.warnings) if external_bundle and external_bundle.warnings else None
     local_warning = "; ".join(local_bundle.warnings) if local_bundle and local_bundle.warnings else None
+    trained_warning = "; ".join(trained_bundle.warnings) if trained_bundle and trained_bundle.warnings else None
     model_status_summary = {
         "rule_based_used": rule_based_used,
         "external_model_used": bool(external_bundle and external_bundle.model_status in {"available", "mock"}),
@@ -73,11 +75,16 @@ def predict_admet(smiles: str, model_ids: list[str], include_unavailable: bool =
         "local_model_available": bool(local_bundle and local_bundle.model_status == "available"),
         "local_model_status": local_bundle.model_status if local_bundle else "not_requested",
         "local_model_warning": local_warning,
+        "trained_model_used": bool(trained_bundle and trained_bundle.model_status == "available"),
+        "trained_model_available": bool(trained_bundle and trained_bundle.model_status == "available"),
+        "trained_model_status": trained_bundle.model_status if trained_bundle else "not_requested",
+        "trained_model_warning": trained_warning,
         "mock_provider_used": mock_used,
     }
     interpretation = (
         "Rule-based ADMET/Tox output plus available model outputs. Review disagreements cautiously."
         if real_available
+
         else "Only rule-based ADMET/Tox screening is available. No validated ML toxicity model is currently active."
     )
     if mock_used:

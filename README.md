@@ -1135,6 +1135,48 @@ The manifest preview endpoint returns metadata from `model_manifest.json` only. 
 
 Important: validation is not prediction. DrugScreen360 will not generate local model predictions unless a real scientifically validated model, complete artifact files, and a supported predictor loader are supplied later.
 
+## Trained ADMET Model Activation & Prediction V1
+
+DrugScreen360 now supports scanning, validating, activating, and predicting using local trained ADMET models.
+
+### Model Storage & Discovery
+Trained models are stored in separate subdirectories under:
+```text
+backend/models/admet/trained/
+```
+For example:
+```text
+backend/models/admet/trained/my_trained_model_v1/
+```
+Each trained model folder must contain:
+1. `model.joblib`: The scikit-learn model artifact.
+2. `model_manifest.json`: Configuration and metadata.
+3. `model_card.json`: Metrics, dataset, split details, limitations.
+4. `feature_schema.json`: Expected descriptors and label mapping.
+5. `training_summary.json`: Details on the training run.
+
+### Validation & Activation
+Before a model can make predictions, it must be validated and explicitly activated by the user.
+- **Validation**: Ensures the directory structure, joblib model readability, descriptor schema, and metrics are valid and correct.
+- **Activation**: SQLite-persisted status activation. Activated models are registered under the `"trained_local_admet_model"` registry adapter.
+- **Deactivation**: Disables prediction outputs from the trained model.
+
+### API Endpoints
+- `GET /api/admet-training/models`: Lists all discovered trained models.
+- `GET /api/admet-training/models/{model_id}`: Detailed model card and manifest.
+- `POST /api/admet-training/models/{model_id}/validate`: Triggers dry-run model validation.
+- `POST /api/admet-training/models/{model_id}/activate`: Explicitly activates the selected model.
+- `POST /api/admet-training/models/deactivate`: Deactivates the active model.
+- `GET /api/admet-training/active-model`: Returns currently active model information.
+- `POST /api/admet-training/predict`: Runs predictions on a SMILES string with the active model.
+
+### Experimental Safety Notice
+All predictions made by active trained local models are flagged and clearly labeled with the notice:
+> "Experimental local model prediction. Requires external validation."
+
+These predictions are displayed separately from the rule-based ADMET v1 checks and are integrated into single screening, batch screening, project workspace reports, and research export packages.
+
+
 ## Research Export Package
 
 DrugScreen360 can create a complete research documentation ZIP package from stored local project data.
@@ -1169,6 +1211,7 @@ The ZIP includes, where available:
 - `README_EXPORT.md`
 - `PROJECT_METADATA.json`
 - `MODEL_STATUS.json`
+- `TRAINED_MODEL_INFO.json` (active trained model metadata and card, when active)
 - `LOCAL_MODEL_VALIDATION.json`
 - `CACHE_STATUS.json`
 - `SCREENING_RESULTS/`

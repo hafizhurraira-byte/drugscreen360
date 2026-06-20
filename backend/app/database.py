@@ -422,3 +422,14 @@ def init_db() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS admet_active_model (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                model_id TEXT,
+                status TEXT NOT NULL,
+                activated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+

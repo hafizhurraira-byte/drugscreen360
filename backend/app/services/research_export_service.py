@@ -21,6 +21,7 @@ from app.services.admet_training_service import metrics_csv, model_card, trainin
 from app.services.benchmark_service import benchmark_csv, benchmark_docx, benchmark_pdf
 from app.services.cache_service import cache_stats
 from app.services.local_admet_model import validate_local_admet_model
+from app.services.admet_trained_model_service import get_active_trained_model_info, discover_trained_models
 from app.services.model_registry import model_status_response
 from app.services.project_reports import build_project_csv, build_project_docx, build_project_pdf
 from app.services.project_workspace_service import (
@@ -110,6 +111,7 @@ def _model_status_json() -> dict[str, Any]:
             "rule_based_admet_v1": "available by default as transparent heuristic rules",
             "external_admet_provider_v1": "available only when a real provider is configured and healthy",
             "local_admet_model": "available only when a real local model, manifest, artifacts, and supported loader exist",
+            "trained_local_admet_model": "available only when a validated local trained model is explicitly activated by the user",
         },
     }
 
@@ -322,6 +324,35 @@ def create_research_export(payload: ResearchExportRequest) -> ResearchExportCrea
             warnings.append("Project-scoped export includes project metadata and attached item list. Older records may not be fully project-linked.")
         _write_json(zip_file, f"{root}/MODEL_STATUS.json", model_status, manifest)
         _write_json(zip_file, f"{root}/LOCAL_MODEL_VALIDATION.json", local_validation, manifest)
+        
+        # Write active trained model metadata
+        active_trained = get_active_trained_model_info()
+        trained_model_info = {
+            "status": active_trained["status"],
+            "model_id": active_trained.get("model_id"),
+            "model_name": active_trained.get("model_name"),
+            "version": active_trained.get("version"),
+            "task_name": active_trained.get("task_name"),
+            "task_type": active_trained.get("task_type"),
+            "warnings": active_trained.get("warnings") or [],
+            "experimental_notice": "This model is an experimental local model trained on curated datasets. All predictions are dataset-dependent and require external validation. No clinical safety, efficacy, regulatory approval, or market readiness is implied."
+        }
+        if active_trained["status"] == "available":
+            try:
+                models = discover_trained_models()
+                m_summary = next((m for m in models if m["model_id"] == active_trained["model_id"]), None)
+                if m_summary:
+                    folder = Path(m_summary["artifact_dir"])
+                    card_path = folder / "model_card.json"
+                    if card_path.exists():
+                        trained_model_info["model_card"] = json.loads(card_path.read_text(encoding="utf-8"))
+                    summary_path = folder / "training_summary.json"
+                    if summary_path.exists():
+                        trained_model_info["training_summary"] = json.loads(summary_path.read_text(encoding="utf-8"))
+            except Exception as e:
+                trained_model_info["warnings"].append(f"Failed to load trained model files during export: {e}")
+        _write_json(zip_file, f"{root}/TRAINED_MODEL_INFO.json", trained_model_info, manifest)
+
         if payload.include_cache_status:
             _write_json(zip_file, f"{root}/CACHE_STATUS.json", cache_status, manifest)
             sections.append("CACHE_STATUS")

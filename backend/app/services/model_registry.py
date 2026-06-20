@@ -5,6 +5,8 @@ from app.models.model_registry_models import ModelInfo, ModelPredictionBundle, P
 from app.services.admet_toxicity_engine import evaluate_admet_toxicity
 from app.services.admet_external_provider import check_external_provider_status, predict_external_admet
 from app.services.local_admet_model import check_local_admet_model_status, predict_local_admet
+from app.services.admet_trained_model_service import get_active_trained_model_info, predict_trained_model
+
 
 TASKS = [
     "solubility",
@@ -236,10 +238,102 @@ class LocalAdmetModelAdapter:
         return predict_local_admet(smiles)
 
 
+class TrainedLocalAdmetModelAdapter:
+    model_id = "trained_local_admet_model"
+    model_name = "Experimental Trained Local ADMET Model"
+
+    def is_available(self) -> bool:
+        return self.get_model_info().status == "available"
+
+    def get_model_info(self) -> ModelInfo:
+        info = get_active_trained_model_info()
+        status = info["status"]
+        warning = "; ".join(info.get("warnings", [])) if info.get("warnings") else None
+        tasks = [info["task_name"]] if info.get("task_name") else ["admet_task"]
+        version = info.get("version")
+        limitations = [
+            "Experimental local model prediction. Requires external validation.",
+            "All predictions are dataset-dependent and computationally inferred."
+        ]
+        return ModelInfo(
+            model_id=self.model_id,
+            model_name=self.model_name,
+            model_type="trained_local_model",
+            prediction_tasks=tasks,
+            status=status,
+            input_type="smiles",
+            version=version,
+            source=f"Trained model: {info.get('model_name')}" if info.get("model_name") else "Local trained models directory",
+            limitations=limitations,
+            last_checked_at=_now(),
+            enabled=status == "available",
+            model_dir=None,
+            manifest_found=status != "unavailable",
+            artifacts_found=status == "available",
+            warning=warning,
+        )
+
+    def predict(self, smiles: str) -> ModelPredictionBundle:
+        info = self.get_model_info()
+        if info.status != "available":
+            return ModelPredictionBundle(
+                model_id=self.model_id,
+                model_name=self.model_name,
+                model_status=info.status,
+                prediction_source="Trained model unavailable",
+                confidence="None",
+                predictions=[],
+                raw_output=None,
+                warnings=[info.warning or "Trained local model is not active."],
+                limitations=info.limitations,
+            )
+        try:
+            res = predict_trained_model(smiles)
+            pred_label = res["prediction_label"] if res["prediction_label"] is not None else str(res["prediction_value"])
+            predictions = [
+                PredictionResult(
+                    task_name=res["task_name"],
+                    prediction_label=pred_label,
+                    prediction_score=res["prediction_score"],
+                    probability=res["prediction_score"],
+                    confidence="Experimental local model prediction. Requires external validation.",
+                    model_id=self.model_id,
+                    model_name=self.model_name,
+                    model_status="available",
+                    limitations=res["limitations"],
+                    warnings=res["warnings"] + ["Experimental local model prediction. Requires external validation."],
+                )
+            ]
+            return ModelPredictionBundle(
+                model_id=self.model_id,
+                model_name=self.model_name,
+                model_status="available",
+                prediction_source=f"Experimental trained local model ({res['model_name']})",
+                confidence="Experimental local model prediction. Requires external validation.",
+                predictions=predictions,
+                raw_output=res,
+                warnings=res["warnings"] + ["Experimental local model prediction. Requires external validation."],
+                limitations=res["limitations"],
+            )
+        except Exception as e:
+            return ModelPredictionBundle(
+                model_id=self.model_id,
+                model_name=self.model_name,
+                model_status="error",
+                prediction_source="Trained model prediction error",
+                confidence="None",
+                predictions=[],
+                raw_output=None,
+                warnings=[f"Failed to generate prediction: {e}"],
+                limitations=info.limitations,
+            )
+
+
 ADAPTERS: dict[str, PredictorAdapter] = {
     "rule_based_admet_v1": RuleBasedAdmetAdapter(),
     "external_admet_provider_v1": ExternalAdmetProviderAdapter(),
     "local_admet_model": LocalAdmetModelAdapter(),
+    "trained_local_admet_model": TrainedLocalAdmetModelAdapter(),
     "external_admet_service": UnavailableAdapter("external_admet_service", "External ADMET Service Adapter", "external_placeholder", "External service"),
     "tox_model_adapter": UnavailableAdapter("tox_model_adapter", "Toxicity Model Adapter", "ml_placeholder", "Future toxicity model"),
 }

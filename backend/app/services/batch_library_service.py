@@ -289,7 +289,7 @@ def screen_batch_library(batch_id: int | None, compounds: list[ParsedCompound], 
             tests = plan_experimental_tests(descriptors, rules)
             decision = build_decision(rules, tests)
             model_predictions = (
-                predict_admet(item.canonical_smiles, ["rule_based_admet_v1", "external_admet_provider_v1", "local_admet_model"], True)
+                predict_admet(item.canonical_smiles, ["rule_based_admet_v1", "external_admet_provider_v1", "local_admet_model", "trained_local_admet_model"], True)
                 if run_model_predictions
                 else None
             )
@@ -324,6 +324,9 @@ def screen_batch_library(batch_id: int | None, compounds: list[ParsedCompound], 
                     external_model_used=bool(model_summary.get("external_model_used", False)),
                     external_model_available=bool(model_summary.get("external_model_available", False)),
                     external_model_warning=model_summary.get("external_model_warning"),
+                    trained_model_used=bool(model_summary.get("trained_model_used", False)),
+                    trained_model_available=bool(model_summary.get("trained_model_available", False)),
+                    trained_model_warning=model_summary.get("trained_model_warning"),
                     required_tests=[test.name for test in tests] + admet.recommended_followup_tests,
                     batch_priority_score=score,
                     priority_label=label,
@@ -350,6 +353,10 @@ def screen_batch_library(batch_id: int | None, compounds: list[ParsedCompound], 
         (model for model in status["available_models"] + status["unavailable_models"] if model.model_id == "local_admet_model"),
         None,
     )
+    trained_info = next(
+        (model for model in status["available_models"] + status["unavailable_models"] if model.model_id == "trained_local_admet_model"),
+        None,
+    )
     response = BatchLibraryScreenResponse(
         batch_id=batch_id,
         screened_count=len(results),
@@ -370,6 +377,9 @@ def screen_batch_library(batch_id: int | None, compounds: list[ParsedCompound], 
             "local_model_status": local_info.status if local_info else "not_registered",
             "local_model_available": bool(local_info and local_info.status == "available"),
             "local_model_warning": local_info.warning if local_info else "Local ADMET model adapter is not registered.",
+            "trained_model_status": trained_info.status if trained_info else "not_registered",
+            "trained_model_available": bool(trained_info and trained_info.status == "available"),
+            "trained_model_warning": trained_info.warning if trained_info else "Trained local ADMET model adapter is not registered.",
             "prediction_source_used": "Rule-based ADMET/Tox adapter plus unavailable-model messages when requested.",
         },
         limitations=[LIMITATION, "Evidence quality not evaluated because uploaded compounds are not target-linked candidates."],

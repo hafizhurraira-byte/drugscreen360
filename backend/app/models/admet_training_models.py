@@ -77,3 +77,83 @@ class AdmetTrainingResponse(BaseModel):
     model_card: AdmetModelCard
     next_steps: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
+
+
+class DiscoveredModelSummary(BaseModel):
+    model_id: str
+    training_run_id: int | None = None
+    task_name: str | None = None
+    task_type: str | None = None
+    model_name: str | None = None
+    model_type: str | None = None
+    created_at: str | None = None
+    artifact_dir: str
+    manifest_valid: bool
+    artifact_found: bool
+    model_card_found: bool
+    feature_schema_found: bool
+    status: str
+    warnings: list[str]
+
+
+class DiscoveredModelDetail(BaseModel):
+    manifest: dict[str, Any] | None = None
+    model_card: dict[str, Any] | None = None
+    metrics: dict[str, Any] | None = None
+    feature_schema: dict[str, Any] | None = None
+    limitations: list[str] = []
+    warnings: list[str] = []
+
+
+class ModelValidationResponse(BaseModel):
+    model_id: str
+    valid: bool
+    errors: list[str]
+    warnings: list[str]
+
+
+class ModelActivateRequest(BaseModel):
+    project_id: int | None = None
+
+
+class ModelActivateResponse(BaseModel):
+    model_id: str
+    status: str
+    warnings: list[str]
+
+
+class ModelDeactivateResponse(BaseModel):
+    status: str
+    message: str
+
+
+class ActiveModelResponse(BaseModel):
+    status: str
+    model_id: str | None = None
+    model_name: str | None = None
+    version: str | None = None
+    task_name: str | None = None
+    task_type: str | None = None
+    warnings: list[str] = []
+
+
+class TrainedModelPredictRequest(BaseModel):
+    smiles: str
+    model_id: str | None = None
+    project_id: int | None = None
+
+
+class TrainedModelPredictionResponse(BaseModel):
+    prediction_label: str | None = None
+    prediction_value: float | None = None
+    prediction_score: float | None = None
+    task_name: str
+    task_type: str
+    model_id: str
+    model_name: str
+    version: str
+    features_used: list[str]
+    warnings: list[str]
+    limitations: list[str]
+    experimental_model_notice: str
+
