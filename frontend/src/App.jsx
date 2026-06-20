@@ -484,6 +484,9 @@ export default function App() {
   const [researchExports, setResearchExports] = useState([]);
   const [researchExportLoading, setResearchExportLoading] = useState(false);
   const [projects, setProjects] = useState([]);
+  const [activeProjectOptions, setActiveProjectOptions] = useState([]);
+  const [activeProjectId, setActiveProjectId] = useState(() => localStorage.getItem("drugscreen360-active-project-id") || "");
+  const [activeProjectNotice, setActiveProjectNotice] = useState("");
   const [selectedProject, setSelectedProject] = useState(null);
   const [projectDashboard, setProjectDashboard] = useState(null);
   const [projectLoading, setProjectLoading] = useState(false);
@@ -542,6 +545,11 @@ export default function App() {
     );
   }, [bestHumanSingleProteinTarget, selectedTarget, targets]);
 
+  const activeProject = useMemo(
+    () => activeProjectOptions.find((project) => String(project.id) === String(activeProjectId)) || null,
+    [activeProjectId, activeProjectOptions]
+  );
+
   const projectPayload = useMemo(
     () =>
       activeView === "similarity" && similarityBatchResult
@@ -593,9 +601,12 @@ export default function App() {
     try {
       const response = await fetch(`${API_BASE}/screening/history`);
       if (!response.ok) throw new Error("Could not load screening history.");
-      setHistory(await response.json());
+      const data = await response.json();
+      setHistory(data);
+      return data;
     } catch (err) {
       setError(err.message);
+      return [];
     } finally {
       setHistoryLoading(false);
     }
@@ -609,6 +620,7 @@ export default function App() {
     loadLocalModelValidation();
     loadResearchExports();
     loadProjects();
+    loadActiveProjectOptions();
     loadSystemHealth();
   }, []);
 
@@ -619,6 +631,14 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("drugscreen360-qa-checklist", JSON.stringify(qaChecklist));
   }, [qaChecklist]);
+
+  useEffect(() => {
+    if (activeProjectId) {
+      localStorage.setItem("drugscreen360-active-project-id", String(activeProjectId));
+    } else {
+      localStorage.removeItem("drugscreen360-active-project-id");
+    }
+  }, [activeProjectId]);
 
   async function loadExamples() {
     try {
@@ -721,6 +741,17 @@ export default function App() {
       if (!response.ok) throw new Error(data.detail || "Could not create research export package.");
       setResearchExportResult(data);
       await loadResearchExports();
+      await autoAttachToActiveProject({
+        item_type: "research_export",
+        item_id: data.export_id,
+        item_title: data.filename || researchExportTitle || "Research export package",
+        metadata: {
+          workflow_type: "research_export",
+          project_title: researchExportTitle.trim() || null,
+          selected_project_id: researchExportProjectId ? Number(researchExportProjectId) : null,
+          warnings: data.warnings || [],
+        },
+      });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -751,6 +782,62 @@ export default function App() {
     }
   }
 
+  async function loadActiveProjectOptions() {
+    try {
+      const response = await fetch(`${API_BASE}/projects/active-options`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load active project options.");
+      setActiveProjectOptions(data);
+      if (activeProjectId && !data.some((project) => String(project.id) === String(activeProjectId))) {
+        setActiveProjectId("");
+        setActiveProjectNotice("The previous active project is archived or unavailable.");
+      }
+    } catch (err) {
+      setActiveProjectNotice(err.message);
+    }
+  }
+
+  async function autoAttachToActiveProject({ item_type, item_id, item_title, metadata = {} }) {
+    if (!activeProjectId) {
+      setActiveProjectNotice("Select an active project to auto-save new results.");
+      return null;
+    }
+    if (item_id === undefined || item_id === null || item_id === "") {
+      setActiveProjectNotice("Result completed, but no saved record ID was returned for project auto-save.");
+      return null;
+    }
+    const projectName = activeProject?.title || `Project #${activeProjectId}`;
+    try {
+      const response = await fetch(`${API_BASE}/projects/${activeProjectId}/attach-item`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          item_type,
+          item_id: String(item_id),
+          item_title,
+          metadata: {
+            ...metadata,
+            auto_attached: true,
+            active_project_id: Number(activeProjectId),
+            created_timestamp: new Date().toISOString(),
+          },
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not save result to active project.");
+      setActiveProjectNotice(`Saved to active project: ${projectName}.`);
+      await loadProjects();
+      await loadActiveProjectOptions();
+      if (selectedProject?.id && String(selectedProject.id) === String(activeProjectId)) {
+        await loadProjectDetail(selectedProject.id);
+      }
+      return data;
+    } catch (err) {
+      setActiveProjectNotice(`Could not auto-save to ${projectName}: ${err.message}`);
+      return null;
+    }
+  }
+
   async function createProject(event) {
     event.preventDefault();
     setProjectLoading(true);
@@ -772,6 +859,7 @@ export default function App() {
       if (!response.ok) throw new Error(data.detail || "Could not create project.");
       setProjectForm({ title: "", description: "", disease_area: "", target_name: "", project_type: "general_research", status: "active", notes: "" });
       await loadProjects();
+      await loadActiveProjectOptions();
       await loadProjectDetail(data.id);
     } catch (err) {
       setError(err.message);
@@ -826,6 +914,8 @@ export default function App() {
       if (!response.ok) throw new Error(data.detail || "Could not create project report.");
       setProjectWorkspaceReportResult(data);
       await loadProjectWorkspaceReports(selectedProject.id);
+      await loadProjectDetail(selectedProject.id);
+      setActiveProjectNotice(`Project workspace report linked to ${selectedProject.title}.`);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -860,6 +950,7 @@ export default function App() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Could not update project.");
       await loadProjects();
+      await loadActiveProjectOptions();
       await loadProjectDetail(data.id);
     } catch (err) {
       setError(err.message);
@@ -876,6 +967,7 @@ export default function App() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Could not archive project.");
       await loadProjects();
+      await loadActiveProjectOptions();
       await loadProjectDetail(data.id);
     } catch (err) {
       setError(err.message);
@@ -959,6 +1051,19 @@ export default function App() {
       if (!response.ok) throw new Error(data.detail || "Benchmark run failed.");
       setBenchmarkResult(data);
       setWorkflowStatus("Benchmark run complete. Export ready.");
+      await autoAttachToActiveProject({
+        item_type: "benchmark",
+        item_id: data.benchmark_run_id,
+        item_title: `Benchmark run #${data.benchmark_run_id}`,
+        metadata: {
+          workflow_type: "validation",
+          total_tested: data.summary?.total_tested,
+          passed: data.summary?.passed,
+          review: data.summary?.review,
+          failed: data.summary?.failed,
+          model_status: data.model_status_summary,
+        },
+      });
     } catch (err) {
       setError(err.message);
       setWorkflowStatus("");
@@ -1014,6 +1119,18 @@ export default function App() {
       if (!response.ok) throw new Error(data.detail || "Batch library screening failed.");
       setBatchUploadResult(data);
       setWorkflowStatus("Batch upload screening complete. Export ready.");
+      await autoAttachToActiveProject({
+        item_type: "batch_upload",
+        item_id: data.batch_screening_id,
+        item_title: `Batch upload screening #${data.batch_screening_id}`,
+        metadata: {
+          workflow_type: "batch_upload",
+          screened_count: data.screened_count,
+          failed_count: data.failed_count,
+          model_status: data.model_status_summary,
+          decision: data.ranking_summary?.high_priority_count ? "review top ranked compounds" : "review required",
+        },
+      });
     } catch (err) {
       setError(err.message);
       setWorkflowStatus("");
@@ -1059,7 +1176,28 @@ export default function App() {
       }
       setReport(data);
       setCompoundCacheMetadata(data.compound_identity?.cache_metadata || null);
-      await loadHistory();
+      const updatedHistory = await loadHistory();
+      const savedItem = (updatedHistory || []).find(
+        (item) =>
+          item.input_query === validation.query &&
+          item.input_type === validation.input_type &&
+          item.canonical_smiles === data.compound_identity?.canonical_smiles
+      ) || (updatedHistory || [])[0];
+      if (savedItem?.id) {
+        await autoAttachToActiveProject({
+          item_type: "screening",
+          item_id: savedItem.id,
+          item_title: `${data.compound_identity?.compound_name || validation.query} screening`,
+          metadata: {
+            workflow_type: "single_molecule",
+            compound_name: data.compound_identity?.compound_name,
+            compound_id: data.compound_identity?.pubchem_cid,
+            decision: data.go_no_go_recommendation?.decision,
+            model_status: data.model_predictions?.model_status_summary,
+            admet_risk_summary: data.admet_toxicity_v1?.overall?.concern_level,
+          },
+        });
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1330,6 +1468,20 @@ export default function App() {
       setBatchResult(data);
       setProjectReport(null);
       setWorkflowStatus("Batch screening complete. Export ready.");
+      await autoAttachToActiveProject({
+        item_type: "drug_finder_batch",
+        item_id: data.batch_run_id,
+        item_title: `${selectedTarget?.preferred_name || selectedTarget?.target_chembl_id || "Target"} candidate batch`,
+        metadata: {
+          workflow_type: selectedDisease ? "disease_to_candidate" : "target_to_candidate",
+          target_name: selectedTarget?.preferred_name,
+          target_chembl_id: selectedTarget?.target_chembl_id,
+          disease_area: selectedDisease?.disease_name || null,
+          selected_candidate_count: selected.length,
+          decision: "compare screened candidates",
+          model_status: data.model_status_summary,
+        },
+      });
     } catch (err) {
       setError(err.message);
       setWorkflowStatus("");
@@ -1440,6 +1592,18 @@ export default function App() {
       setSimilarityBatchResult(data);
       setProjectReport(null);
       setWorkflowStatus("Similarity batch screening complete. Export ready.");
+      await autoAttachToActiveProject({
+        item_type: "similarity_batch",
+        item_id: data.batch_run_id || data.batch_screening_id || `similarity-${Date.now()}`,
+        item_title: `${similarityReference?.compound_name || similarityQuery} similarity batch`,
+        metadata: {
+          workflow_type: "similarity_screening",
+          compound_name: similarityReference?.compound_name || similarityQuery,
+          selected_candidate_count: selected.length,
+          decision: "compare screened analogs",
+          model_status: data.model_status_summary,
+        },
+      });
     } catch (err) {
       setError(err.message);
       setWorkflowStatus("");
@@ -1565,6 +1729,19 @@ export default function App() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Project report export failed.");
       setProjectReport(data);
+      await autoAttachToActiveProject({
+        item_type: "project_report",
+        item_id: data.project_report_id,
+        item_title: "DrugScreen360 Project Screening Report",
+        metadata: {
+          workflow_type: projectPayload.workflow_type,
+          target_name: projectPayload.chembl_target?.preferred_name,
+          disease_area: projectPayload.disease?.disease_name,
+          selected_candidate_count: projectPayload.selected_candidate_count,
+          screened_candidate_count: projectPayload.screened_candidate_count,
+          decision: "project report generated",
+        },
+      });
       return data.project_report_id;
     } catch (err) {
       setError(err.message);
@@ -1643,6 +1820,53 @@ export default function App() {
         <p>{DISCLAIMER}</p>
       </div>
 
+      <section className="active-project-toolbar" aria-label="Active project">
+        <div>
+          <strong>Active Project:</strong>{" "}
+          <span>{activeProject ? activeProject.title : "No active project"}</span>
+          {activeProject && (
+            <small>
+              {activeProject.status} · {activeProject.project_type.replaceAll("_", " ")}
+              {activeProject.target_name ? ` · ${activeProject.target_name}` : ""}
+            </small>
+          )}
+        </div>
+        <label>
+          Save new results to
+          <select
+            value={activeProjectId}
+            onChange={(event) => {
+              setActiveProjectId(event.target.value);
+              setActiveProjectNotice(event.target.value ? "Active project selected. New workflow results will auto-save." : "Auto-save disabled.");
+            }}
+          >
+            <option value="">No active project</option>
+            {activeProjectOptions.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.title} ({project.status})
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="secondary-button" type="button" onClick={loadActiveProjectOptions}>
+          Refresh Projects
+        </button>
+        {activeProject && (
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => {
+              setActiveView("projects");
+              loadProjectDetail(activeProject.id);
+            }}
+          >
+            Open Project
+          </button>
+        )}
+      </section>
+
+      {activeProjectNotice && <p className="status-message">{activeProjectNotice}</p>}
+
       <nav className="view-tabs" aria-label="DrugScreen360 sections">
         <button className={activeView === "examples" ? "tab-active" : ""} onClick={() => setActiveView("examples")}>
           <FileText size={18} aria-hidden="true" />
@@ -1686,6 +1910,7 @@ export default function App() {
           className={activeView === "system" ? "tab-active" : ""}
           onClick={() => {
             setActiveView("system");
+            if (activeProjectId && !researchExportProjectId) setResearchExportProjectId(String(activeProjectId));
             loadSystemHealth();
             loadCacheStats();
             loadLocalModelValidation();
@@ -3557,7 +3782,7 @@ export default function App() {
                 <label>
                   Item type
                   <select value={projectAttachForm.item_type} onChange={(event) => setProjectAttachForm((current) => ({ ...current, item_type: event.target.value }))}>
-                    {["screening", "drug_finder_batch", "similarity_batch", "batch_upload", "benchmark", "project_report", "research_export", "note"].map((item) => (
+                    {["screening", "drug_finder_batch", "similarity_batch", "batch_upload", "benchmark", "project_report", "project_workspace_report", "research_export", "note"].map((item) => (
                       <option key={item} value={item}>{item.replaceAll("_", " ")}</option>
                     ))}
                   </select>

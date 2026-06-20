@@ -1352,6 +1352,46 @@ Limitations:
 - No fake ADMET, toxicity, ML, safety, efficacy, clinical, regulatory, or market-readiness claims are created.
 - Candidate labels are conservative decision-support labels and require laboratory validation and expert review.
 
+## Active Project Auto-Save
+
+Active Project Auto-Save lets you choose one saved project as the current workspace for new results.
+
+How to use:
+
+1. Create or open a saved project from `Projects`.
+2. Use the `Active Project` selector near the top of the app.
+3. Choose an active or review project, or choose `No active project`.
+4. Run workflows normally.
+5. Completed results are attached to the active project when a saved record ID is available.
+6. Open the project to see the new attached item, refreshed dashboard, candidate decision matrix, project reports, and research export package context.
+
+Auto-save currently links:
+
+- single molecule screening history records
+- Drug Finder candidate batch screening runs
+- Similarity Finder batch screening runs
+- Batch Upload screening runs
+- Validation / Benchmarking runs
+- Research Export packages
+- Project screening reports
+- Project Workspace Reports
+
+The Research Export panel preselects the active project when opened, but the user can change or clear it before creating the ZIP.
+
+Backend helper endpoint:
+
+```text
+GET /api/projects/active-options
+```
+
+Limitations:
+
+- Auto-save organizes local records only.
+- If a workflow completes but no saved record ID is returned, the workflow still succeeds but no project item is attached automatically.
+- Archived projects are not shown as active-project choices.
+- Auto-save does not change scientific scoring, descriptors, ADMET/Tox rules, evidence scores, or model status.
+- No fake predictions or clinical, regulatory, safety, efficacy, or market-readiness claims are created.
+
 ## External ADMET Provider Adapter V1
 
 DrugScreen360 includes a safe external-provider adapter for future real ADMET/toxicity services. By default it is unavailable and no external prediction call is made. The rule-based ADMET/Tox adapter remains the fallback baseline.

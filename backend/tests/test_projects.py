@@ -41,6 +41,17 @@ def test_list_projects_works():
     assert any(item["id"] == project["id"] for item in response.json())
 
 
+def test_active_options_returns_non_archived_projects():
+    active_project = _create_project()
+    archived_project = _create_project()
+    client.post(f"/api/projects/{archived_project['id']}/archive")
+    response = client.get("/api/projects/active-options")
+    assert response.status_code == 200
+    ids = [item["id"] for item in response.json()]
+    assert active_project["id"] in ids
+    assert archived_project["id"] not in ids
+
+
 def test_get_project_detail_works():
     project = _create_project()
     response = client.get(f"/api/projects/{project['id']}")
@@ -167,6 +178,8 @@ def test_create_project_workspace_report_works(tmp_path, monkeypatch):
     assert body["project_id"] == project["id"]
     assert body["available_formats"] == ["pdf", "docx", "json"]
     assert body["pdf_url"].endswith("/pdf")
+    detail = client.get(f"/api/projects/{project['id']}").json()
+    assert any(item["item_type"] == "project_workspace_report" and item["item_id"] == str(body["report_id"]) for item in detail["items"])
 
 
 def test_project_workspace_report_file_endpoints(tmp_path, monkeypatch):

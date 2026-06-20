@@ -64,6 +64,16 @@ class ProjectSummary(BaseModel):
     limitations: list[str] = Field(default_factory=list)
 
 
+class ProjectActiveOption(BaseModel):
+    id: int
+    title: str
+    project_type: ProjectType
+    status: ProjectStatus
+    disease_area: str | None = None
+    target_name: str | None = None
+    updated_at: str
+
+
 class ProjectDetail(ProjectSummary):
     items: list[ProjectItem] = Field(default_factory=list)
     exports: list[dict[str, Any]] = Field(default_factory=list)

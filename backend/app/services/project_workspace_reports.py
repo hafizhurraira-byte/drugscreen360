@@ -21,7 +21,8 @@ from app.models.project_workspace_report_models import (
     ProjectWorkspaceReportListItem,
 )
 from app.services.local_admet_model import validate_local_admet_model
-from app.services.project_workspace_service import project_dashboard
+from app.models.project_workspace_models import ProjectAttachRequest
+from app.services.project_workspace_service import attach_project_item, project_dashboard
 from app.services.version import app_version
 
 REPORT_DIR = Path(__file__).resolve().parents[2] / "project_workspace_reports"
@@ -262,6 +263,22 @@ def create_project_workspace_report(project_id: int, options: ProjectWorkspaceRe
         )
         report_id = int(cursor.lastrowid)
         row = connection.execute("SELECT created_at FROM project_workspace_reports WHERE id = ?", (report_id,)).fetchone()
+    attach_project_item(
+        project_id,
+        ProjectAttachRequest(
+            item_type="project_workspace_report",
+            item_id=str(report_id),
+            item_title=payload["title"],
+            metadata={
+                "workflow_type": "project_workspace_report",
+                "project_id": project_id,
+                "report_id": report_id,
+                "decision": "not evaluated",
+                "model_status": payload.get("model_status_summary"),
+                "created_at": row["created_at"] if row else created_at,
+            },
+        ),
+    )
     return ProjectWorkspaceReportCreateResponse(
         report_id=report_id,
         project_id=project_id,

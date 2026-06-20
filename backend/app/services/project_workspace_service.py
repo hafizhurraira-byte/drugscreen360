@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from app.database import get_connection, init_db
 from app.models.project_workspace_models import (
     CandidateDecisionMatrixRow,
+    ProjectActiveOption,
     ProjectAttachRequest,
     ProjectCreateRequest,
     ProjectDashboardResponse,
@@ -121,6 +122,31 @@ def list_projects() -> list[ProjectSummary]:
             ).fetchone()["latest"]
             summaries.append(_project_from_row(row, item_count, export_count, latest))
     return summaries
+
+
+def active_project_options() -> list[ProjectActiveOption]:
+    init_db()
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, title, project_type, status, disease_area, target_name, updated_at
+            FROM projects
+            WHERE status != 'archived'
+            ORDER BY datetime(updated_at) DESC, id DESC
+            """
+        ).fetchall()
+    return [
+        ProjectActiveOption(
+            id=row["id"],
+            title=row["title"],
+            project_type=row["project_type"],
+            status=row["status"],
+            disease_area=row["disease_area"],
+            target_name=row["target_name"],
+            updated_at=row["updated_at"],
+        )
+        for row in rows
+    ]
 
 
 def get_project(project_id: int) -> ProjectDetail:
@@ -290,6 +316,21 @@ def _string_list(value: Any) -> list[str]:
     return [str(value)]
 
 
+def _model_status_text(value: Any) -> str:
+    if isinstance(value, dict):
+        if value.get("status"):
+            return str(value["status"])
+        parts = []
+        if value.get("available_models"):
+            parts.append(f"available: {', '.join(str(item) for item in value['available_models'])}")
+        if value.get("unavailable_models"):
+            parts.append(f"unavailable: {', '.join(str(item) for item in value['unavailable_models'])}")
+        return "; ".join(parts) or "not available"
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value) or "not available"
+    return str(value) if value not in (None, "") else "not available"
+
+
 def _screening_record(item_id: str) -> dict[str, Any] | None:
     try:
         record_id = int(item_id)
@@ -436,7 +477,7 @@ def _extract_row(data: dict[str, Any], item: ProjectItem, detail: ProjectDetail)
         "admet_risk_summary": _coalesce(data, "admet_risk_summary", "concern_level", "developability_risk") or admet_overall.get("concern_level") or "not evaluated",
         "evidence_level": _coalesce(data, "evidence_level", "evidence.evidence_level") or evidence.get("evidence_level") or "not evaluated",
         "evidence_score": _coalesce(data, "evidence_score", "evidence.evidence_score") or evidence.get("evidence_score"),
-        "model_prediction_status": _coalesce(data, "model_prediction_status", "prediction_source", "model_status") or model_status.get("status") or "not available",
+        "model_prediction_status": _model_status_text(_coalesce(data, "model_prediction_status", "prediction_source", "model_status") or model_status.get("status") or model_status),
     }
     missing = []
     for label, key in [

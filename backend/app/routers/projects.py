@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse
 
 from app.models.project_workspace_models import (
     ProjectDashboardResponse,
+    ProjectActiveOption,
     ProjectAttachRequest,
     ProjectCreateRequest,
     ProjectDetail,
@@ -16,6 +17,7 @@ from app.models.project_workspace_report_models import (
     ProjectWorkspaceReportListItem,
 )
 from app.services.project_workspace_service import (
+    active_project_options,
     archive_project,
     attach_project_item,
     create_project,
@@ -43,6 +45,11 @@ def create_project_endpoint(payload: ProjectCreateRequest):
 @router.get("/list", response_model=list[ProjectSummary])
 def list_projects_endpoint():
     return list_projects()
+
+
+@router.get("/active-options", response_model=list[ProjectActiveOption])
+def active_project_options_endpoint():
+    return active_project_options()
 
 
 @router.get("/{project_id}", response_model=ProjectDetail)
