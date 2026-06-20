@@ -65,6 +65,9 @@ def test_local_model_disabled_returns_unavailable_group(monkeypatch, tmp_path):
     response = client.get("/api/models/status")
     unavailable_ids = [model["model_id"] for model in response.json()["unavailable_models"]]
     assert "local_admet_model" in unavailable_ids
+    validation = client.get("/api/models/local-admet/validate").json()
+    assert validation["status"] == "disabled"
+    assert validation["enabled"] is False
 
 
 def test_local_model_enabled_missing_manifest_returns_unavailable(monkeypatch, tmp_path):
@@ -73,6 +76,11 @@ def test_local_model_enabled_missing_manifest_returns_unavailable(monkeypatch, t
     assert info.status == "unavailable"
     assert info.manifest_found is False
     assert "model_manifest.json" in info.warning
+    response = client.get("/api/models/local-admet/validate")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "unavailable"
+    assert body["manifest_found"] is False
 
 
 def test_local_model_invalid_manifest_returns_error(monkeypatch, tmp_path):
@@ -82,12 +90,27 @@ def test_local_model_invalid_manifest_returns_error(monkeypatch, tmp_path):
     assert info.status == "error"
     assert info.manifest_found is True
     assert "invalid JSON" in info.warning
+    body = client.get("/api/models/local-admet/validate").json()
+    assert body["status"] == "error"
+    assert body["manifest_valid"] is False
+    assert body["errors"]
+
+
+def test_local_model_missing_required_fields_returns_error(monkeypatch, tmp_path):
+    model_dir = _configure_local_model(monkeypatch, tmp_path)
+    (model_dir / "model_manifest.json").write_text('{"model_id":"local_admet_model_v1"}', encoding="utf-8")
+    response = client.get("/api/models/local-admet/validate")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "error"
+    assert body["manifest_valid"] is False
+    assert any("Missing required manifest" in item for item in body["errors"])
 
 
 def test_local_model_missing_artifacts_returns_unavailable(monkeypatch, tmp_path):
     model_dir = _configure_local_model(monkeypatch, tmp_path)
     (model_dir / "model_manifest.json").write_text(
-        '{"model_id":"local_admet_model_v1","model_name":"Local ADMET Model","version":"1.0","tasks":["herg"],"limitations":"test","artifact_files":["missing.pkl"]}',
+        '{"model_id":"local_admet_model_v1","model_name":"Local ADMET Model","version":"1.0","tasks":["herg"],"input_type":"rdkit_descriptors","limitations":"test","artifact_files":["missing.pkl"]}',
         encoding="utf-8",
     )
     info = check_local_admet_model_status()
@@ -95,6 +118,35 @@ def test_local_model_missing_artifacts_returns_unavailable(monkeypatch, tmp_path
     assert info.manifest_found is True
     assert info.artifacts_found is False
     assert "missing.pkl" in info.warning
+    body = client.get("/api/models/local-admet/validate").json()
+    assert body["status"] == "unavailable"
+    assert body["missing_artifacts"] == ["missing.pkl"]
+
+
+def test_local_model_example_manifest_is_ignored_as_active_manifest(monkeypatch, tmp_path):
+    model_dir = _configure_local_model(monkeypatch, tmp_path)
+    (model_dir / "model_manifest.example.json").write_text(
+        '{"model_id":"example","model_name":"Example","version":"0","tasks":["herg"],"input_type":"rdkit_descriptors","limitations":"example","artifact_files":[]}',
+        encoding="utf-8",
+    )
+    body = client.get("/api/models/local-admet/validate").json()
+    assert body["status"] == "unavailable"
+    assert body["manifest_found"] is False
+
+
+def test_local_manifest_preview_does_not_expose_binary_contents(monkeypatch, tmp_path):
+    model_dir = _configure_local_model(monkeypatch, tmp_path)
+    (model_dir / "model.joblib").write_bytes(b"binary-model-contents")
+    (model_dir / "model_manifest.json").write_text(
+        '{"model_id":"local_admet_model_v1","model_name":"Local ADMET Model","version":"1.0","tasks":["herg"],"input_type":"rdkit_descriptors","limitations":"test","artifact_files":["model.joblib"]}',
+        encoding="utf-8",
+    )
+    response = client.get("/api/models/local-admet/manifest-preview")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["manifest"]["artifact_files"] == ["model.joblib"]
+    assert "binary-model-contents" not in str(body)
 
 
 def test_model_status_endpoint_includes_local_model_details(monkeypatch, tmp_path):

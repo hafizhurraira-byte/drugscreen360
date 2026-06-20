@@ -466,6 +466,8 @@ export default function App() {
   const [selectedBenchmarkDetail, setSelectedBenchmarkDetail] = useState(null);
   const [modelStatus, setModelStatus] = useState(null);
   const [modelStatusLoading, setModelStatusLoading] = useState(false);
+  const [localModelValidation, setLocalModelValidation] = useState(null);
+  const [localModelValidationLoading, setLocalModelValidationLoading] = useState(false);
   const [systemHealth, setSystemHealth] = useState(null);
   const [systemHealthLoading, setSystemHealthLoading] = useState(false);
   const [batchUploadFile, setBatchUploadFile] = useState(null);
@@ -565,6 +567,7 @@ export default function App() {
     loadExamples();
     loadBenchmarkCompounds();
     loadModelStatus();
+    loadLocalModelValidation();
     loadSystemHealth();
   }, []);
 
@@ -612,6 +615,20 @@ export default function App() {
       setError(err.message);
     } finally {
       setModelStatusLoading(false);
+    }
+  }
+
+  async function loadLocalModelValidation() {
+    setLocalModelValidationLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/models/local-admet/validate`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not validate local ADMET model.");
+      setLocalModelValidation(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLocalModelValidationLoading(false);
     }
   }
 
@@ -1401,6 +1418,7 @@ export default function App() {
             setActiveView("system");
             loadSystemHealth();
             loadCacheStats();
+            loadLocalModelValidation();
           }}
         >
           <Settings size={18} aria-hidden="true" />
@@ -3057,6 +3075,76 @@ export default function App() {
                 </article>
               ))}
             </div>
+          </Section>
+
+          <Section title="Local ADMET Model Validation" icon={ClipboardList} wide>
+            <div className="candidate-actions left-actions">
+              <button onClick={loadLocalModelValidation} disabled={localModelValidationLoading}>
+                {localModelValidationLoading ? "Validating..." : "Validate Local Model"}
+              </button>
+            </div>
+            <p className="limitation-label">
+              This validation checks manifest quality and artifact readiness only. It does not run or create ADMET/toxicity predictions.
+            </p>
+            {localModelValidation ? (
+              <article className="evidence-panel">
+                <div className="status-row">
+                  <h3>Local model readiness</h3>
+                  <Badge tone={toneForRisk(localModelValidation.status === "available" ? "Good" : localModelValidation.status === "error" ? "High" : "Warning")}>
+                    {localModelValidation.status}
+                  </Badge>
+                </div>
+                <div className="metric-grid compact-metrics">
+                  <Field label="Enabled" value={localModelValidation.enabled ? "yes" : "no"} />
+                  <Field label="Model directory" value={localModelValidation.model_dir} />
+                  <Field label="Manifest path" value={localModelValidation.manifest_path} />
+                  <Field label="Manifest found" value={localModelValidation.manifest_found ? "yes" : "no"} />
+                  <Field label="Manifest valid" value={localModelValidation.manifest_valid ? "yes" : "no"} />
+                  <Field label="Artifact count" value={localModelValidation.artifact_count} />
+                  <Field label="Artifacts found" value={localModelValidation.artifacts_found ? "yes" : "no"} />
+                  <Field label="Missing artifacts" value={(localModelValidation.missing_artifacts || []).join(", ") || "None"} />
+                  <Field label="Supported tasks" value={(localModelValidation.supported_tasks || []).join(", ") || "None"} />
+                  <Field label="Input type" value={localModelValidation.input_type || "Not available"} />
+                  <Field label="Version" value={localModelValidation.version || "Not available"} />
+                  <Field label="Limitations" value={localModelValidation.limitations || "Not available"} />
+                </div>
+                {(localModelValidation.errors || []).length > 0 && (
+                  <>
+                    <h4>Errors</h4>
+                    <ul className="compact-list warning-list">
+                      {localModelValidation.errors.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                {(localModelValidation.warnings || []).length > 0 && (
+                  <>
+                    <h4>Warnings</h4>
+                    <ul className="compact-list warning-list">
+                      {localModelValidation.warnings.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                {(localModelValidation.next_steps || []).length > 0 && (
+                  <>
+                    <h4>Next steps</h4>
+                    <ul className="compact-list">
+                      {localModelValidation.next_steps.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </article>
+            ) : (
+              <div className="empty-state-card">
+                <h3>Local model validation not loaded yet.</h3>
+                <p>Click Validate Local Model to inspect the manifest and artifact readiness.</p>
+              </div>
+            )}
           </Section>
 
           <Section title="Cache Items" icon={History} wide>

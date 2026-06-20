@@ -8,6 +8,7 @@ from app.models.model_registry_models import (
     PredictAdmetResponse,
 )
 from app.services.admet_predictor_service import compare_models, predict_admet
+from app.services.local_admet_model import local_admet_manifest_preview, validate_local_admet_model
 from app.services.model_registry import model_status_response
 
 router = APIRouter(prefix="/models", tags=["models"])
@@ -16,6 +17,16 @@ router = APIRouter(prefix="/models", tags=["models"])
 @router.get("/status", response_model=ModelStatusResponse)
 def models_status():
     return model_status_response()
+
+
+@router.get("/local-admet/validate")
+def validate_local_admet():
+    return validate_local_admet_model()
+
+
+@router.get("/local-admet/manifest-preview")
+def preview_local_admet_manifest():
+    return local_admet_manifest_preview()
 
 
 @router.post("/predict-admet", response_model=PredictAdmetResponse)

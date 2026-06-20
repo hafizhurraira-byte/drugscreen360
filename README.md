@@ -1096,6 +1096,45 @@ Large model artifacts are ignored by Git by default:
 
 This keeps DrugScreen360 scientifically honest: unavailable models remain unavailable, and no fake ML predictions are shown.
 
+## Model Import & Validation
+
+DrugScreen360 includes a Local ADMET Model Validation wizard to help prepare a real model folder safely before any prediction loader is implemented.
+
+Backend endpoints:
+
+```text
+GET /api/models/local-admet/validate
+GET /api/models/local-admet/manifest-preview
+```
+
+The validation endpoint checks:
+
+- `model_manifest.json` exists.
+- JSON is valid.
+- Required manifest fields are present.
+- `tasks` is a non-empty list.
+- `artifact_files` is a list.
+- Every listed artifact file exists.
+- Artifact extensions are supported: `.pkl`, `.joblib`, `.onnx`, `.json`.
+- `model_manifest.example.json` is ignored as documentation-only.
+
+The System tab includes `Local ADMET Model Validation`, where you can click `Validate Local Model` and review:
+
+- status
+- manifest found/valid
+- artifact count
+- missing artifacts
+- supported tasks
+- input type
+- version
+- warnings
+- errors
+- next steps
+
+The manifest preview endpoint returns metadata from `model_manifest.json` only. It never returns binary artifact contents.
+
+Important: validation is not prediction. DrugScreen360 will not generate local model predictions unless a real scientifically validated model, complete artifact files, and a supported predictor loader are supplied later.
+
 ## External ADMET Provider Adapter V1
 
 DrugScreen360 includes a safe external-provider adapter for future real ADMET/toxicity services. By default it is unavailable and no external prediction call is made. The rule-based ADMET/Tox adapter remains the fallback baseline.
