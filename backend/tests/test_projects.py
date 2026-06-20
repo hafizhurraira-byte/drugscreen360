@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services import research_export_service
+from app.services import project_workspace_reports
 
 client = TestClient(app)
 
@@ -157,6 +158,51 @@ def test_project_decision_matrix_csv_endpoint_works():
     assert "Insufficient evidence" in response.text
 
 
+def test_create_project_workspace_report_works(tmp_path, monkeypatch):
+    monkeypatch.setattr(project_workspace_reports, "REPORT_DIR", tmp_path / "project_workspace_reports")
+    project = _create_project()
+    response = client.post(f"/api/projects/{project['id']}/report/create", json={})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["project_id"] == project["id"]
+    assert body["available_formats"] == ["pdf", "docx", "json"]
+    assert body["pdf_url"].endswith("/pdf")
+
+
+def test_project_workspace_report_file_endpoints(tmp_path, monkeypatch):
+    monkeypatch.setattr(project_workspace_reports, "REPORT_DIR", tmp_path / "project_workspace_reports")
+    project = _create_project()
+    report = client.post(f"/api/projects/{project['id']}/report/create", json={}).json()
+    pdf = client.get(report["pdf_url"])
+    docx = client.get(report["docx_url"])
+    json_response = client.get(report["json_url"])
+    assert pdf.status_code == 200
+    assert pdf.content.startswith(b"%PDF")
+    assert docx.status_code == 200
+    assert docx.content[:2] == b"PK"
+    assert json_response.status_code == 200
+    assert json_response.json()["project"]["id"] == project["id"]
+
+
+def test_project_workspace_reports_list_works(tmp_path, monkeypatch):
+    monkeypatch.setattr(project_workspace_reports, "REPORT_DIR", tmp_path / "project_workspace_reports")
+    project = _create_project()
+    client.post(f"/api/projects/{project['id']}/report/create", json={})
+    response = client.get(f"/api/projects/{project['id']}/reports")
+    assert response.status_code == 200
+    assert response.json()[0]["project_id"] == project["id"]
+
+
+def test_empty_project_report_has_warnings_and_limitations(tmp_path, monkeypatch):
+    monkeypatch.setattr(project_workspace_reports, "REPORT_DIR", tmp_path / "project_workspace_reports")
+    project = _create_project()
+    report = client.post(f"/api/projects/{project['id']}/report/create", json={}).json()
+    payload = client.get(report["json_url"]).json()
+    assert any("Candidate decision matrix is empty" in warning for warning in payload["warnings"])
+    assert any("do not prove safety" in item for item in payload["limitations"])
+    assert payload["candidate_matrix"] == []
+
+
 def test_research_export_can_include_project_metadata(tmp_path, monkeypatch):
     monkeypatch.setattr(research_export_service, "EXPORT_DIR", tmp_path / "research_exports")
     project = _create_project()
@@ -173,6 +219,32 @@ def test_research_export_can_include_project_metadata(tmp_path, monkeypatch):
     assert any(name.endswith("PROJECT_WORKSPACE/project_dashboard.json") for name in names)
     assert any(name.endswith("PROJECT_WORKSPACE/candidate_decision_matrix.csv") for name in names)
     assert any(name.endswith("PROJECT_WORKSPACE/project_recommendations.md") for name in names)
+
+
+def test_project_research_export_includes_workspace_reports(tmp_path, monkeypatch):
+    monkeypatch.setattr(project_workspace_reports, "REPORT_DIR", tmp_path / "project_workspace_reports")
+    monkeypatch.setattr(research_export_service, "EXPORT_DIR", tmp_path / "research_exports")
+    monkeypatch.setattr(research_export_service, "REPORT_DIR", project_workspace_reports.REPORT_DIR)
+    project = _create_project()
+    client.post(f"/api/projects/{project['id']}/report/create", json={})
+    response = client.post(
+        "/api/research-export/create",
+        json={"project_id": project["id"], "project_title": "Project Export", "include_reports": False},
+    )
+    assert response.status_code == 200
+    archive = zipfile.ZipFile(BytesIO(client.get(f"/api/research-export/{response.json()['export_id']}/download").content))
+    names = archive.namelist()
+    assert any("PROJECT_WORKSPACE/REPORTS/" in name and name.endswith(".pdf") for name in names)
+    assert any("PROJECT_WORKSPACE/REPORTS/" in name and name.endswith(".docx") for name in names)
+    assert any("PROJECT_WORKSPACE/REPORTS/" in name and name.endswith(".json") for name in names)
+
+
+def test_invalid_project_workspace_report_id_handled_safely(tmp_path, monkeypatch):
+    monkeypatch.setattr(project_workspace_reports, "REPORT_DIR", tmp_path / "project_workspace_reports")
+    assert client.post("/api/projects/999999999/report/create", json={}).status_code == 404
+    assert client.get("/api/projects/999999999/reports").status_code == 404
+    project = _create_project()
+    assert client.get(f"/api/projects/{project['id']}/report/999999/pdf").status_code == 404
 
 
 def test_invalid_project_id_handled_safely():

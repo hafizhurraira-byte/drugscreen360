@@ -18,6 +18,7 @@ backups/
 backend/uploads/
 backend/reports/
 backend/research_exports/
+backend/project_workspace_reports/
 backend/app/uploads/
 backend/models/**/*.pkl
 backend/models/**/*.joblib

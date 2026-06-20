@@ -501,6 +501,14 @@ export default function App() {
     item_id: "",
     item_title: "",
   });
+  const [projectReportOptions, setProjectReportOptions] = useState({
+    include_candidate_matrix: true,
+    include_model_status: true,
+    include_reproducibility: true,
+    include_limitations: true,
+  });
+  const [projectWorkspaceReports, setProjectWorkspaceReports] = useState([]);
+  const [projectWorkspaceReportResult, setProjectWorkspaceReportResult] = useState(null);
   const [batchUploadFile, setBatchUploadFile] = useState(null);
   const [batchParseResult, setBatchParseResult] = useState(null);
   const [batchUploadResult, setBatchUploadResult] = useState(null);
@@ -785,11 +793,54 @@ export default function App() {
       if (!dashboardResponse.ok) throw new Error(dashboardData.detail || "Could not load project dashboard.");
       setSelectedProject(data);
       setProjectDashboard(dashboardData);
+      await loadProjectWorkspaceReports(projectId);
     } catch (err) {
       setError(err.message);
     } finally {
       setProjectLoading(false);
     }
+  }
+
+  async function loadProjectWorkspaceReports(projectId) {
+    try {
+      const response = await fetch(`${API_BASE}/projects/${projectId}/reports`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load project reports.");
+      setProjectWorkspaceReports(data);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function createProjectWorkspaceReport() {
+    if (!selectedProject) return;
+    setProjectLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`${API_BASE}/projects/${selectedProject.id}/report/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(projectReportOptions),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not create project report.");
+      setProjectWorkspaceReportResult(data);
+      await loadProjectWorkspaceReports(selectedProject.id);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setProjectLoading(false);
+    }
+  }
+
+  function updateProjectReportOption(key, value) {
+    setProjectReportOptions((current) => ({ ...current, [key]: value }));
+  }
+
+  function downloadProjectWorkspaceReport(reportItem, format) {
+    const url = reportItem?.[`${format}_url`];
+    if (!url) return;
+    window.location.href = `${API_ROOT}${url}`;
   }
 
   function downloadProjectDecisionMatrix(projectId) {
@@ -3437,6 +3488,70 @@ export default function App() {
                   )}
                 </div>
               )}
+
+              <div className="result-section">
+                <div className="status-row">
+                  <h3>Project Workspace Report</h3>
+                  <span className="limitation-label">Computational decision-support only. Reports use available saved project data.</span>
+                </div>
+                <div className="finder-search">
+                  {[
+                    ["include_candidate_matrix", "Include candidate matrix"],
+                    ["include_model_status", "Include model status"],
+                    ["include_reproducibility", "Include reproducibility"],
+                    ["include_limitations", "Include limitations"],
+                  ].map(([key, label]) => (
+                    <label className="toggle-row" key={key}>
+                      <input
+                        type="checkbox"
+                        checked={projectReportOptions[key]}
+                        onChange={(event) => updateProjectReportOption(key, event.target.checked)}
+                      />
+                      {label}
+                    </label>
+                  ))}
+                  <button type="button" onClick={createProjectWorkspaceReport} disabled={projectLoading}>
+                    {projectLoading ? "Creating..." : "Create Project Report"}
+                  </button>
+                </div>
+                {projectWorkspaceReportResult && (
+                  <p className="status-message">
+                    Project report #{projectWorkspaceReportResult.report_id} created. PDF, DOCX, and JSON are ready.
+                  </p>
+                )}
+                {projectWorkspaceReports.length ? (
+                  <div className="responsive-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Report ID</th>
+                          <th>Created</th>
+                          <th>Warnings</th>
+                          <th>Downloads</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {projectWorkspaceReports.map((item) => (
+                          <tr key={item.report_id}>
+                            <td>{item.report_id}</td>
+                            <td>{item.created_at}</td>
+                            <td>{item.warnings?.length ? item.warnings.join("; ") : "None"}</td>
+                            <td>
+                              <div className="candidate-actions left-actions">
+                                <button className="small-button" onClick={() => downloadProjectWorkspaceReport(item, "pdf")}>PDF</button>
+                                <button className="small-button" onClick={() => downloadProjectWorkspaceReport(item, "docx")}>DOCX</button>
+                                <button className="small-button" onClick={() => downloadProjectWorkspaceReport(item, "json")}>JSON</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="muted">No project workspace reports generated yet.</p>
+                )}
+              </div>
 
               <form className="finder-search" onSubmit={attachProjectItem}>
                 <label>

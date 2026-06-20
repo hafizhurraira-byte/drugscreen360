@@ -1292,6 +1292,66 @@ Project-specific Research Export packages include:
 - `PROJECT_WORKSPACE/candidate_decision_matrix.csv`
 - `PROJECT_WORKSPACE/project_recommendations.md`
 
+## Project Workspace Reports
+
+Project Workspace Reports generate professional PDF, DOCX, and JSON summaries for saved projects.
+
+Use them for:
+
+- supervisor review
+- thesis/research documentation
+- project meetings
+- candidate follow-up planning
+- local research archive records
+
+Create a report from the UI:
+
+1. Open `Projects`.
+2. Select a saved project.
+3. Review the `Project Dashboard` and `Candidate Decision Matrix`.
+4. In `Project Workspace Report`, choose whether to include the candidate matrix, model status, reproducibility, and limitations.
+5. Click `Create Project Report`.
+6. Download PDF, DOCX, or JSON from the generated report list.
+
+Backend endpoints:
+
+```text
+POST /api/projects/{project_id}/report/create
+GET  /api/projects/{project_id}/reports
+GET  /api/projects/{project_id}/report/{report_id}/pdf
+GET  /api/projects/{project_id}/report/{report_id}/docx
+GET  /api/projects/{project_id}/report/{report_id}/json
+```
+
+Report contents:
+
+- title page and disclaimer
+- project metadata, disease area, target, description, and notes
+- attached item summary
+- project dashboard summary
+- candidate decision matrix, when available
+- model status summary
+- local model validation summary
+- risk and evidence summary
+- recommended next steps
+- scientific limitations
+- reproducibility notes
+
+Generated files are stored locally under:
+
+```text
+backend/project_workspace_reports/
+```
+
+This folder is ignored by Git and Docker.
+
+Limitations:
+
+- Reports include only available saved project data.
+- Missing values are shown as `not available` or `not evaluated`.
+- No fake ADMET, toxicity, ML, safety, efficacy, clinical, regulatory, or market-readiness claims are created.
+- Candidate labels are conservative decision-support labels and require laboratory validation and expert review.
+
 ## External ADMET Provider Adapter V1
 
 DrugScreen360 includes a safe external-provider adapter for future real ADMET/toxicity services. By default it is unavailable and no external prediction call is made. The rule-based ADMET/Tox adapter remains the fallback baseline.

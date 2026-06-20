@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Response
+from fastapi.responses import FileResponse
 
 from app.models.project_workspace_models import (
     ProjectDashboardResponse,
@@ -8,6 +9,11 @@ from app.models.project_workspace_models import (
     ProjectItem,
     ProjectSummary,
     ProjectUpdateRequest,
+)
+from app.models.project_workspace_report_models import (
+    ProjectWorkspaceReportCreateRequest,
+    ProjectWorkspaceReportCreateResponse,
+    ProjectWorkspaceReportListItem,
 )
 from app.services.project_workspace_service import (
     archive_project,
@@ -19,6 +25,11 @@ from app.services.project_workspace_service import (
     project_decision_matrix_csv,
     project_summary,
     update_project,
+)
+from app.services.project_workspace_reports import (
+    create_project_workspace_report,
+    get_project_workspace_report_path,
+    list_project_workspace_reports,
 )
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -72,3 +83,31 @@ def project_decision_matrix_csv_endpoint(project_id: int):
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="drugscreen360-project-{project_id}-decision-matrix.csv"'},
     )
+
+
+@router.post("/{project_id}/report/create", response_model=ProjectWorkspaceReportCreateResponse)
+def create_project_workspace_report_endpoint(project_id: int, payload: ProjectWorkspaceReportCreateRequest):
+    return create_project_workspace_report(project_id, payload)
+
+
+@router.get("/{project_id}/reports", response_model=list[ProjectWorkspaceReportListItem])
+def list_project_workspace_reports_endpoint(project_id: int):
+    return list_project_workspace_reports(project_id)
+
+
+@router.get("/{project_id}/report/{report_id}/pdf")
+def project_workspace_report_pdf_endpoint(project_id: int, report_id: int):
+    path = get_project_workspace_report_path(project_id, report_id, "pdf")
+    return FileResponse(path, media_type="application/pdf", filename=path.name)
+
+
+@router.get("/{project_id}/report/{report_id}/docx")
+def project_workspace_report_docx_endpoint(project_id: int, report_id: int):
+    path = get_project_workspace_report_path(project_id, report_id, "docx")
+    return FileResponse(path, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=path.name)
+
+
+@router.get("/{project_id}/report/{report_id}/json")
+def project_workspace_report_json_endpoint(project_id: int, report_id: int):
+    path = get_project_workspace_report_path(project_id, report_id, "json")
+    return FileResponse(path, media_type="application/json", filename=path.name)

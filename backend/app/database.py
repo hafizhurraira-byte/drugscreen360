@@ -333,3 +333,17 @@ def init_db() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS project_workspace_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL,
+                filename_pdf TEXT NOT NULL,
+                filename_docx TEXT NOT NULL,
+                filename_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                warnings_json TEXT NOT NULL,
+                FOREIGN KEY(project_id) REFERENCES projects(id)
+            )
+            """
+        )

@@ -28,6 +28,7 @@ from app.services.project_workspace_service import (
     project_decision_matrix_csv,
     project_recommendations_markdown,
 )
+from app.services.project_workspace_reports import REPORT_DIR
 from app.services.reports import build_docx_report, build_pdf_report
 from app.services.version import app_version
 
@@ -297,6 +298,21 @@ def create_research_export(payload: ResearchExportRequest) -> ResearchExportCrea
             _write_json(zip_file, f"{root}/PROJECT_WORKSPACE/project_dashboard.json", dashboard.model_dump(), manifest)
             _write_text(zip_file, f"{root}/PROJECT_WORKSPACE/candidate_decision_matrix.csv", project_decision_matrix_csv(project_detail.id), manifest, "csv")
             _write_text(zip_file, f"{root}/PROJECT_WORKSPACE/project_recommendations.md", project_recommendations_markdown(project_detail.id), manifest, "markdown")
+            with get_connection() as connection:
+                workspace_report_rows = connection.execute(
+                    "SELECT * FROM project_workspace_reports WHERE project_id = ? ORDER BY datetime(created_at) DESC, id DESC",
+                    (project_detail.id,),
+                ).fetchall()
+            if workspace_report_rows:
+                for report_row in workspace_report_rows:
+                    for column, file_type in [("filename_pdf", "pdf"), ("filename_docx", "docx"), ("filename_json", "json")]:
+                        report_path = REPORT_DIR / report_row[column]
+                        if report_path.exists():
+                            _write_bytes(zip_file, f"{root}/PROJECT_WORKSPACE/REPORTS/{report_path.name}", report_path.read_bytes(), manifest, file_type)
+                        else:
+                            warnings.append(f"Project workspace report file was missing: {report_row[column]}")
+            else:
+                _write_text(zip_file, f"{root}/PROJECT_WORKSPACE/REPORTS/no_project_workspace_reports.txt", "No generated project workspace reports were found for this project.", manifest)
             if not dashboard.candidate_matrix:
                 warnings.append("Project dashboard did not find candidate-level attached data for a decision matrix.")
             warnings.append("Project-scoped export includes project metadata and attached item list. Older records may not be fully project-linked.")

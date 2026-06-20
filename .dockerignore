@@ -10,6 +10,7 @@ backups
 backend/uploads
 backend/reports
 backend/research_exports
+backend/project_workspace_reports
 backend/app/uploads
 __pycache__
 **/__pycache__
