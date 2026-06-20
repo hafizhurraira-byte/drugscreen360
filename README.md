@@ -1032,6 +1032,70 @@ Current tests cover:
 9. Run Batch Upload with the example CSV.
 10. Run `.\scripts\backup_local_data.ps1` and confirm a new timestamped folder appears under `backups`.
 
+## Local ADMET Model Adapter
+
+DrugScreen360 includes a safe local ADMET model adapter for future real trained model files. No real local ADMET, hERG, Ames, hepatotoxicity, CYP, BBB, solubility, or toxicity model is included with this MVP.
+
+Default backend environment:
+
+```powershell
+$env:LOCAL_ADMET_MODEL_ENABLED="false"
+$env:LOCAL_ADMET_MODEL_DIR="backend/models/admet"
+$env:LOCAL_ADMET_MODEL_TIMEOUT_SECONDS="30"
+```
+
+Model folder:
+
+```text
+backend/models/admet/
+```
+
+The active manifest file, when you later have a real validated model, should be:
+
+```text
+backend/models/admet/model_manifest.json
+```
+
+The included file below is only an example and is not treated as an active model:
+
+```text
+backend/models/admet/model_manifest.example.json
+```
+
+Manifest fields:
+
+```json
+{
+  "model_id": "local_admet_model_v1",
+  "model_name": "Local ADMET Model",
+  "version": "0.1.0",
+  "tasks": ["herg", "ames", "hepatotoxicity"],
+  "input_type": "rdkit_descriptors",
+  "limitations": "Example manifest only. Predictions require real model artifacts.",
+  "artifact_files": []
+}
+```
+
+Status behavior:
+
+- If `LOCAL_ADMET_MODEL_ENABLED=false`, the adapter is disabled.
+- If enabled but `model_manifest.json` is missing, the adapter is unavailable.
+- If the manifest is invalid JSON, the adapter reports an error safely.
+- If manifest artifact files are missing, the adapter is unavailable.
+- The adapter does not generate predictions unless a real supported local predictor implementation is supplied.
+- The adapter does not reuse rule-based outputs under the local model name.
+
+Large model artifacts are ignored by Git by default:
+
+- `.pkl`
+- `.joblib`
+- `.onnx`
+- `.pt`
+- `.h5`
+- `.bin`
+
+This keeps DrugScreen360 scientifically honest: unavailable models remain unavailable, and no fake ML predictions are shown.
+
 ## External ADMET Provider Adapter V1
 
 DrugScreen360 includes a safe external-provider adapter for future real ADMET/toxicity services. By default it is unavailable and no external prediction call is made. The rule-based ADMET/Tox adapter remains the fallback baseline.

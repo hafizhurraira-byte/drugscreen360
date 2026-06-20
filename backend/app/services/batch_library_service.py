@@ -346,6 +346,10 @@ def screen_batch_library(batch_id: int | None, compounds: list[ParsedCompound], 
         (model for model in status["available_models"] + status["unavailable_models"] if model.model_id == "external_admet_provider_v1"),
         None,
     )
+    local_info = next(
+        (model for model in status["available_models"] + status["unavailable_models"] if model.model_id == "local_admet_model"),
+        None,
+    )
     response = BatchLibraryScreenResponse(
         batch_id=batch_id,
         screened_count=len(results),
@@ -363,6 +367,9 @@ def screen_batch_library(batch_id: int | None, compounds: list[ParsedCompound], 
             "external_provider_status": external_info.status if external_info else "not_registered",
             "external_model_available": bool(external_info and external_info.status == "available"),
             "external_model_warning": external_info.warning if external_info else "External ADMET provider adapter is not registered.",
+            "local_model_status": local_info.status if local_info else "not_registered",
+            "local_model_available": bool(local_info and local_info.status == "available"),
+            "local_model_warning": local_info.warning if local_info else "Local ADMET model adapter is not registered.",
             "prediction_source_used": "Rule-based ADMET/Tox adapter plus unavailable-model messages when requested.",
         },
         limitations=[LIMITATION, "Evidence quality not evaluated because uploaded compounds are not target-linked candidates."],

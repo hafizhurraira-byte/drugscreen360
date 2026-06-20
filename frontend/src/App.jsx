@@ -252,6 +252,9 @@ function ModelPredictionPanel({ predictions }) {
           <Field label="External provider status" value={predictions.model_status_summary.external_model_status || "not requested"} />
           <Field label="External provider available" value={String(predictions.model_status_summary.external_model_available ?? false)} />
           <Field label="External warning" value={predictions.model_status_summary.external_model_warning || "None"} />
+          <Field label="Local model status" value={predictions.model_status_summary.local_model_status || "not requested"} />
+          <Field label="Local model available" value={String(predictions.model_status_summary.local_model_available ?? false)} />
+          <Field label="Local warning" value={predictions.model_status_summary.local_model_warning || "None"} />
         </div>
       )}
       <div className="example-grid">
@@ -3041,6 +3044,11 @@ export default function App() {
                   <Field label="Type" value={model.model_type} />
                   <Field label="Tasks" value={(model.prediction_tasks || []).join(", ")} />
                   <Field label="Source" value={model.source} />
+                  <Field label="Enabled" value={model.enabled == null ? "Not applicable" : model.enabled ? "yes" : "no"} />
+                  <Field label="Model directory" value={model.model_dir || "Not applicable"} />
+                  <Field label="Manifest found" value={model.manifest_found == null ? "Not applicable" : model.manifest_found ? "yes" : "no"} />
+                  <Field label="Artifacts found" value={model.artifacts_found == null ? "Not applicable" : model.artifacts_found ? "yes" : "no"} />
+                  <Field label="Version" value={model.version || "Not available"} />
                   <Field label="Base URL configured" value={model.base_url_configured == null ? "Not applicable" : model.base_url_configured ? "yes" : "no"} />
                   <Field label="API key configured" value={model.api_key_configured == null ? "Not applicable" : model.api_key_configured ? "yes" : "no"} />
                   <Field label="Last checked" value={model.last_checked_at} />

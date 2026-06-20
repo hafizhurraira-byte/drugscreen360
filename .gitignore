@@ -18,6 +18,12 @@ backups/
 backend/uploads/
 backend/reports/
 backend/app/uploads/
+backend/models/**/*.pkl
+backend/models/**/*.joblib
+backend/models/**/*.onnx
+backend/models/**/*.pt
+backend/models/**/*.h5
+backend/models/**/*.bin
 
 # Environment files
 .env

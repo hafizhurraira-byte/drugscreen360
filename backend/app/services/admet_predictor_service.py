@@ -60,13 +60,19 @@ def predict_admet(smiles: str, model_ids: list[str], include_unavailable: bool =
     mock_used = any(item.model_status == "mock" for item in outputs)
     rule_based_used = any(item.model_id == "rule_based_admet_v1" and item.model_status == "available" for item in outputs)
     external_bundle = next((item for item in outputs if item.model_id == "external_admet_provider_v1"), None)
+    local_bundle = next((item for item in outputs if item.model_id == "local_admet_model"), None)
     external_warning = "; ".join(external_bundle.warnings) if external_bundle and external_bundle.warnings else None
+    local_warning = "; ".join(local_bundle.warnings) if local_bundle and local_bundle.warnings else None
     model_status_summary = {
         "rule_based_used": rule_based_used,
         "external_model_used": bool(external_bundle and external_bundle.model_status in {"available", "mock"}),
         "external_model_available": bool(external_bundle and external_bundle.model_status == "available"),
         "external_model_status": external_bundle.model_status if external_bundle else "not_requested",
         "external_model_warning": external_warning,
+        "local_model_used": bool(local_bundle and local_bundle.model_status == "available"),
+        "local_model_available": bool(local_bundle and local_bundle.model_status == "available"),
+        "local_model_status": local_bundle.model_status if local_bundle else "not_requested",
+        "local_model_warning": local_warning,
         "mock_provider_used": mock_used,
     }
     interpretation = (

@@ -19,6 +19,10 @@ class ModelInfo(BaseModel):
     last_checked_at: str
     base_url_configured: bool | None = None
     api_key_configured: bool | None = None
+    enabled: bool | None = None
+    model_dir: str | None = None
+    manifest_found: bool | None = None
+    artifacts_found: bool | None = None
     warning: str | None = None
 
 

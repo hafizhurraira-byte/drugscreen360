@@ -225,6 +225,10 @@ def run_benchmark(selected_ids: list[str], group_name: str | None, max_items: in
         (model for model in model_status["available_models"] + model_status["unavailable_models"] if model.model_id == "external_admet_provider_v1"),
         None,
     )
+    local_info = next(
+        (model for model in model_status["available_models"] + model_status["unavailable_models"] if model.model_id == "local_admet_model"),
+        None,
+    )
     response = BenchmarkRunResponse(
         selected_group=group_name,
         summary=summary,
@@ -244,6 +248,9 @@ def run_benchmark(selected_ids: list[str], group_name: str | None, max_items: in
             "external_model_available": bool(external_info and external_info.status == "available"),
             "mock_provider_used": bool(external_info and external_info.status == "mock"),
             "external_model_warning": external_info.warning if external_info else "External ADMET provider adapter is not registered.",
+            "local_model_status": local_info.status if local_info else "not_registered",
+            "local_model_available": bool(local_info and local_info.status == "available"),
+            "local_model_warning": local_info.warning if local_info else "Local ADMET model adapter is not registered.",
             "message": "Only rule-based ADMET/Tox screening is active unless a real adapter is configured.",
         },
         created_at=datetime.now(timezone.utc).isoformat(),

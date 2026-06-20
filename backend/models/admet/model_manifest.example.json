@@ -1,0 +1,9 @@
+{
+  "model_id": "local_admet_model_v1",
+  "model_name": "Local ADMET Model",
+  "version": "0.1.0",
+  "tasks": ["herg", "ames", "hepatotoxicity"],
+  "input_type": "rdkit_descriptors",
+  "limitations": "Example manifest only. Predictions require real model artifacts.",
+  "artifact_files": []
+}

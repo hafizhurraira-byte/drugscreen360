@@ -4,6 +4,7 @@ from typing import Protocol
 from app.models.model_registry_models import ModelInfo, ModelPredictionBundle, PredictionResult
 from app.services.admet_toxicity_engine import evaluate_admet_toxicity
 from app.services.admet_external_provider import check_external_provider_status, predict_external_admet
+from app.services.local_admet_model import check_local_admet_model_status, predict_local_admet
 
 TASKS = [
     "solubility",
@@ -221,10 +222,24 @@ class ExternalAdmetProviderAdapter:
         return predict_external_admet(smiles)
 
 
+class LocalAdmetModelAdapter:
+    model_id = "local_admet_model"
+    model_name = "Local ADMET Model Adapter"
+
+    def is_available(self) -> bool:
+        return self.get_model_info().status == "available"
+
+    def get_model_info(self) -> ModelInfo:
+        return check_local_admet_model_status()
+
+    def predict(self, smiles: str) -> ModelPredictionBundle:
+        return predict_local_admet(smiles)
+
+
 ADAPTERS: dict[str, PredictorAdapter] = {
     "rule_based_admet_v1": RuleBasedAdmetAdapter(),
     "external_admet_provider_v1": ExternalAdmetProviderAdapter(),
-    "local_admet_model": UnavailableAdapter("local_admet_model", "Local ADMET Model Adapter", "ml_placeholder", "Local configured model"),
+    "local_admet_model": LocalAdmetModelAdapter(),
     "external_admet_service": UnavailableAdapter("external_admet_service", "External ADMET Service Adapter", "external_placeholder", "External service"),
     "tox_model_adapter": UnavailableAdapter("tox_model_adapter", "Toxicity Model Adapter", "ml_placeholder", "Future toxicity model"),
 }
