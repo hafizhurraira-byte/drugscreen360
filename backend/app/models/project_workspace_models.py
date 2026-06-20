@@ -74,3 +74,36 @@ class ProjectAttachRequest(BaseModel):
     item_id: str = Field(..., min_length=1)
     item_title: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class CandidateDecisionMatrixRow(BaseModel):
+    candidate_name: str = "not available"
+    compound_id: str | None = None
+    source_id: str | None = None
+    source_workflow: str
+    target_name: str | None = None
+    disease_area: str | None = None
+    molecular_weight: float | str | None = None
+    logp: float | str | None = None
+    tpsa: float | str | None = None
+    lipinski_status: str = "not available"
+    veber_status: str = "not available"
+    admet_risk_summary: str = "not evaluated"
+    evidence_level: str = "not evaluated"
+    evidence_score: float | str | None = None
+    model_prediction_status: str = "not available"
+    decision_label: str
+    decision_reason: str
+    missing_data_warnings: list[str] = Field(default_factory=list)
+
+
+class ProjectDashboardResponse(BaseModel):
+    project: ProjectDetail
+    summary_cards: dict[str, Any] = Field(default_factory=dict)
+    item_counts: dict[str, int] = Field(default_factory=dict)
+    candidate_matrix: list[CandidateDecisionMatrixRow] = Field(default_factory=list)
+    model_status_summary: dict[str, Any] = Field(default_factory=dict)
+    risk_summary: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    recommended_next_steps: list[str] = Field(default_factory=list)

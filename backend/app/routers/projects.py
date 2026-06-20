@@ -1,6 +1,7 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 
 from app.models.project_workspace_models import (
+    ProjectDashboardResponse,
     ProjectAttachRequest,
     ProjectCreateRequest,
     ProjectDetail,
@@ -14,6 +15,8 @@ from app.services.project_workspace_service import (
     create_project,
     get_project,
     list_projects,
+    project_dashboard,
+    project_decision_matrix_csv,
     project_summary,
     update_project,
 )
@@ -54,3 +57,18 @@ def archive_project_endpoint(project_id: int):
 @router.get("/{project_id}/summary", response_model=ProjectSummary)
 def project_summary_endpoint(project_id: int):
     return project_summary(project_id)
+
+
+@router.get("/{project_id}/dashboard", response_model=ProjectDashboardResponse)
+def project_dashboard_endpoint(project_id: int):
+    return project_dashboard(project_id)
+
+
+@router.get("/{project_id}/decision-matrix.csv")
+def project_decision_matrix_csv_endpoint(project_id: int):
+    csv_text = project_decision_matrix_csv(project_id)
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="drugscreen360-project-{project_id}-decision-matrix.csv"'},
+    )

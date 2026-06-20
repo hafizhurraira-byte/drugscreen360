@@ -485,6 +485,7 @@ export default function App() {
   const [researchExportLoading, setResearchExportLoading] = useState(false);
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
+  const [projectDashboard, setProjectDashboard] = useState(null);
   const [projectLoading, setProjectLoading] = useState(false);
   const [projectForm, setProjectForm] = useState({
     title: "",
@@ -774,15 +775,26 @@ export default function App() {
   async function loadProjectDetail(projectId) {
     setProjectLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/projects/${projectId}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Could not load project.");
+      const [detailResponse, dashboardResponse] = await Promise.all([
+        fetch(`${API_BASE}/projects/${projectId}`),
+        fetch(`${API_BASE}/projects/${projectId}/dashboard`),
+      ]);
+      const data = await detailResponse.json();
+      const dashboardData = await dashboardResponse.json();
+      if (!detailResponse.ok) throw new Error(data.detail || "Could not load project.");
+      if (!dashboardResponse.ok) throw new Error(dashboardData.detail || "Could not load project dashboard.");
       setSelectedProject(data);
+      setProjectDashboard(dashboardData);
     } catch (err) {
       setError(err.message);
     } finally {
       setProjectLoading(false);
     }
+  }
+
+  function downloadProjectDecisionMatrix(projectId) {
+    if (!projectId) return;
+    window.location.href = `${API_BASE}/projects/${projectId}/decision-matrix.csv`;
   }
 
   async function updateSelectedProject(updates) {
@@ -3317,6 +3329,114 @@ export default function App() {
                   Create Research Export for Project
                 </button>
               </div>
+
+              {projectDashboard && (
+                <div className="result-section">
+                  <div className="status-row">
+                    <h3>Project Dashboard</h3>
+                    <span className="limitation-label">Available data only. Not a clinical recommendation. Requires laboratory validation.</span>
+                  </div>
+                  <div className="metric-grid compact-metrics">
+                    <Field label="Attached items" value={projectDashboard.summary_cards?.attached_items ?? 0} />
+                    <Field label="Candidate rows" value={projectDashboard.summary_cards?.candidate_rows ?? 0} />
+                    <Field label="Insufficient evidence" value={projectDashboard.summary_cards?.insufficient_evidence_rows ?? 0} />
+                    <Field label="Exports" value={projectDashboard.summary_cards?.exports ?? 0} />
+                  </div>
+
+                  <div className="summary-card-grid">
+                    <div className="summary-card">
+                      <h4>Item Counts</h4>
+                      {Object.keys(projectDashboard.item_counts || {}).length ? (
+                        Object.entries(projectDashboard.item_counts).map(([key, value]) => (
+                          <p key={key}><strong>{key.replaceAll("_", " ")}:</strong> {value}</p>
+                        ))
+                      ) : (
+                        <p className="muted">No attached items yet.</p>
+                      )}
+                    </div>
+                    <div className="summary-card">
+                      <h4>Risk Summary</h4>
+                      {Object.keys(projectDashboard.risk_summary?.decision_label_counts || {}).length ? (
+                        Object.entries(projectDashboard.risk_summary.decision_label_counts).map(([key, value]) => (
+                          <p key={key}><strong>{key}:</strong> {value}</p>
+                        ))
+                      ) : (
+                        <p className="muted">No candidate decisions available yet.</p>
+                      )}
+                    </div>
+                    <div className="summary-card">
+                      <h4>Model Status</h4>
+                      <p><strong>Available:</strong> {(projectDashboard.model_status_summary?.available_models || []).join(", ") || "not available"}</p>
+                      <p><strong>Unavailable:</strong> {(projectDashboard.model_status_summary?.unavailable_models || []).join(", ") || "none listed"}</p>
+                    </div>
+                  </div>
+
+                  <h3>Recommended next steps</h3>
+                  <ul className="compact-list">
+                    {(projectDashboard.recommended_next_steps || []).map((item) => <li key={item}>{item}</li>)}
+                  </ul>
+                  {(projectDashboard.warnings || []).map((item) => <p className="warning-text" key={item}>{item}</p>)}
+
+                  <div className="status-row">
+                    <h3>Candidate Decision Matrix</h3>
+                    <button className="secondary-button" onClick={() => downloadProjectDecisionMatrix(selectedProject.id)}>
+                      Download Matrix CSV
+                    </button>
+                  </div>
+                  {projectDashboard.candidate_matrix?.length ? (
+                    <div className="responsive-table">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Candidate</th>
+                            <th>Workflow</th>
+                            <th>Target</th>
+                            <th>MW</th>
+                            <th>LogP</th>
+                            <th>TPSA</th>
+                            <th>Lipinski</th>
+                            <th>Veber</th>
+                            <th>ADMET/Tox</th>
+                            <th>Evidence</th>
+                            <th>Model</th>
+                            <th>Decision</th>
+                            <th>Missing data</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {projectDashboard.candidate_matrix.map((row, index) => (
+                            <tr key={`${row.source_workflow}-${row.source_id}-${index}`}>
+                              <td>{row.candidate_name}</td>
+                              <td>{row.source_workflow}</td>
+                              <td>{row.target_name || "not available"}</td>
+                              <td>{row.molecular_weight ?? "not available"}</td>
+                              <td>{row.logp ?? "not available"}</td>
+                              <td>{row.tpsa ?? "not available"}</td>
+                              <td>{row.lipinski_status}</td>
+                              <td>{row.veber_status}</td>
+                              <td>{row.admet_risk_summary}</td>
+                              <td>{row.evidence_level}{row.evidence_score ? ` (${row.evidence_score})` : ""}</td>
+                              <td>{row.model_prediction_status}</td>
+                              <td>
+                                <Badge tone={toneForRisk(row.decision_label.includes("Not recommended") ? "High" : row.decision_label.includes("caution") || row.decision_label.includes("Insufficient") ? "Warning" : "Good")}>
+                                  {row.decision_label}
+                                </Badge>
+                                <p className="muted">{row.decision_reason}</p>
+                              </td>
+                              <td>{row.missing_data_warnings?.length ? row.missing_data_warnings.join("; ") : "None"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="empty-state-card">
+                      <h3>No candidate matrix yet.</h3>
+                      <p>Attach screening, batch, or project report records that contain candidate-level results.</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <form className="finder-search" onSubmit={attachProjectItem}>
                 <label>

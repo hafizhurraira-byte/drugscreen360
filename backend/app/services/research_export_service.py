@@ -21,7 +21,13 @@ from app.services.cache_service import cache_stats
 from app.services.local_admet_model import validate_local_admet_model
 from app.services.model_registry import model_status_response
 from app.services.project_reports import build_project_csv, build_project_docx, build_project_pdf
-from app.services.project_workspace_service import get_project, link_project_export
+from app.services.project_workspace_service import (
+    get_project,
+    link_project_export,
+    project_dashboard,
+    project_decision_matrix_csv,
+    project_recommendations_markdown,
+)
 from app.services.reports import build_docx_report, build_pdf_report
 from app.services.version import app_version
 
@@ -284,9 +290,15 @@ def create_research_export(payload: ResearchExportRequest) -> ResearchExportCrea
         _write_json(zip_file, f"{root}/PROJECT_METADATA.json", metadata, manifest)
         if project_detail:
             sections.append("PROJECT_WORKSPACE")
+            dashboard = project_dashboard(project_detail.id)
             _write_json(zip_file, f"{root}/PROJECT_WORKSPACE/project_detail.json", project_detail.model_dump(), manifest)
             _write_json(zip_file, f"{root}/PROJECT_WORKSPACE/attached_items.json", [item.model_dump() for item in project_detail.items], manifest)
             _write_json(zip_file, f"{root}/PROJECT_WORKSPACE/project_summary.json", project_detail.model_dump(exclude={"items", "exports"}), manifest)
+            _write_json(zip_file, f"{root}/PROJECT_WORKSPACE/project_dashboard.json", dashboard.model_dump(), manifest)
+            _write_text(zip_file, f"{root}/PROJECT_WORKSPACE/candidate_decision_matrix.csv", project_decision_matrix_csv(project_detail.id), manifest, "csv")
+            _write_text(zip_file, f"{root}/PROJECT_WORKSPACE/project_recommendations.md", project_recommendations_markdown(project_detail.id), manifest, "markdown")
+            if not dashboard.candidate_matrix:
+                warnings.append("Project dashboard did not find candidate-level attached data for a decision matrix.")
             warnings.append("Project-scoped export includes project metadata and attached item list. Older records may not be fully project-linked.")
         _write_json(zip_file, f"{root}/MODEL_STATUS.json", model_status, manifest)
         _write_json(zip_file, f"{root}/LOCAL_MODEL_VALIDATION.json", local_validation, manifest)

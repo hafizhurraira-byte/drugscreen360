@@ -250,6 +250,13 @@ button:disabled {
   gap: 16px;
 }
 
+.summary-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
 .summary-card,
 .admet-card,
 .history-panel {
@@ -265,6 +272,14 @@ button:disabled {
   gap: 12px;
   align-items: center;
   padding: 14px;
+}
+
+.summary-card-grid .summary-card {
+  display: block;
+}
+
+.summary-card-grid .summary-card h4 {
+  margin: 0 0 10px;
 }
 
 .metric-card {
@@ -338,6 +353,13 @@ button:disabled {
   margin: 10px 0 0;
   color: #764300;
   font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.warning-text {
+  margin: 8px 0 0;
+  color: #8a4a00;
+  font-size: 0.88rem;
   font-weight: 750;
 }
 
@@ -773,6 +795,7 @@ th {
   .workspace-grid,
   .dashboard,
   .summary-grid,
+  .summary-card-grid,
   .admet-grid,
   .identity-layout,
   .grid-list,

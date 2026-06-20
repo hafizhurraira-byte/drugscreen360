@@ -1248,6 +1248,8 @@ PUT  /api/projects/{project_id}
 POST /api/projects/{project_id}/attach-item
 POST /api/projects/{project_id}/archive
 GET  /api/projects/{project_id}/summary
+GET  /api/projects/{project_id}/dashboard
+GET  /api/projects/{project_id}/decision-matrix.csv
 ```
 
 Limitations:
@@ -1257,6 +1259,38 @@ Limitations:
 - Projects do not change descriptors, ADMET/Tox rules, model status, or evidence scores.
 - No fake predictions are created.
 - A workspace does not prove safety, efficacy, clinical success, regulatory approval, or market readiness.
+
+## Project Dashboard & Candidate Decision Matrix
+
+Each saved project includes a dashboard that summarizes only the records attached to that project.
+
+The dashboard shows:
+
+- project metadata and status
+- attached item counts by type
+- latest project activity
+- model status summary
+- risk and evidence summary
+- recommended next steps
+- candidate decision matrix where candidate-level data is available
+
+The Candidate Decision Matrix is conservative. It uses only saved values already produced by DrugScreen360, such as descriptors, Lipinski/Veber status, ADMET/Tox rule summaries, evidence metadata, model status, and existing screening decisions. If data is missing, the row clearly shows `not available`, `not evaluated`, or `Insufficient evidence`.
+
+Decision labels:
+
+- `Strong follow-up candidate`
+- `Reasonable follow-up candidate`
+- `Review with caution`
+- `Insufficient evidence`
+- `Not recommended based on available data`
+
+These labels are project-review labels only. They are not medical advice, clinical recommendations, regulatory conclusions, or proof of safety or efficacy. Laboratory validation and expert review are required.
+
+Project-specific Research Export packages include:
+
+- `PROJECT_WORKSPACE/project_dashboard.json`
+- `PROJECT_WORKSPACE/candidate_decision_matrix.csv`
+- `PROJECT_WORKSPACE/project_recommendations.md`
 
 ## External ADMET Provider Adapter V1
 
