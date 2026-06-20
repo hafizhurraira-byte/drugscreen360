@@ -7,12 +7,14 @@ backend/.venv/
 backend/.venv312/
 backend/__pycache__/
 backend/**/__pycache__/
+**/__pycache__/
 *.pyc
 
 # Local databases and generated files
 *.db
 *.sqlite
 *.sqlite3
+backups/
 backend/uploads/
 backend/reports/
 backend/app/uploads/

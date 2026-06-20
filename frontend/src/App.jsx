@@ -463,6 +463,8 @@ export default function App() {
   const [selectedBenchmarkDetail, setSelectedBenchmarkDetail] = useState(null);
   const [modelStatus, setModelStatus] = useState(null);
   const [modelStatusLoading, setModelStatusLoading] = useState(false);
+  const [systemHealth, setSystemHealth] = useState(null);
+  const [systemHealthLoading, setSystemHealthLoading] = useState(false);
   const [batchUploadFile, setBatchUploadFile] = useState(null);
   const [batchParseResult, setBatchParseResult] = useState(null);
   const [batchUploadResult, setBatchUploadResult] = useState(null);
@@ -560,6 +562,7 @@ export default function App() {
     loadExamples();
     loadBenchmarkCompounds();
     loadModelStatus();
+    loadSystemHealth();
   }, []);
 
   useEffect(() => {
@@ -606,6 +609,25 @@ export default function App() {
       setError(err.message);
     } finally {
       setModelStatusLoading(false);
+    }
+  }
+
+  async function loadSystemHealth() {
+    setSystemHealthLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/health`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load backend health.");
+      setSystemHealth({ reachable: true, ...data });
+    } catch (err) {
+      setSystemHealth({
+        reachable: false,
+        status: "unreachable",
+        message: err.message,
+        timestamp: new Date().toISOString(),
+      });
+    } finally {
+      setSystemHealthLoading(false);
     }
   }
 
@@ -1374,6 +1396,7 @@ export default function App() {
           className={activeView === "system" ? "tab-active" : ""}
           onClick={() => {
             setActiveView("system");
+            loadSystemHealth();
             loadCacheStats();
           }}
         >
@@ -2910,6 +2933,10 @@ export default function App() {
         <div className="finder-dashboard">
           <Section title="System" icon={Settings} wide>
             <div className="candidate-actions left-actions">
+              <button onClick={loadSystemHealth} disabled={systemHealthLoading}>
+                <ShieldCheck size={18} aria-hidden="true" />
+                {systemHealthLoading ? "Checking health..." : "Refresh System Health"}
+              </button>
               <button onClick={loadCacheStats} disabled={cacheLoading}>
                 <Settings size={18} aria-hidden="true" />
                 {cacheLoading ? "Loading cache stats..." : "Refresh Cache Stats"}
@@ -2930,6 +2957,20 @@ export default function App() {
               Use Demo Fallback When Live APIs Fail
             </label>
             <p className="limitation-label">Demo fallback asks for confirmation and labels results as demo data.</p>
+            <article className="evidence-panel">
+              <h3>Backend Health</h3>
+              <div className="metric-grid compact-metrics">
+                <Field label="Backend reachable" value={systemHealth?.reachable ? "yes" : "no"} />
+                <Field label="Health status" value={systemHealth?.status || "Not checked"} />
+                <Field label="API base URL" value={API_ROOT} />
+                <Field label="Version" value={systemHealth?.version || "Not checked"} />
+                <Field label="Database status" value={systemHealth?.database?.status || "Not checked"} />
+                <Field label="Cache status" value={systemHealth?.cache?.status || "Not checked"} />
+                <Field label="Cached responses" value={systemHealth?.cache?.total_cached_items ?? "Not checked"} />
+                <Field label="Model registry" value={systemHealth?.model_registry ? `${systemHealth.model_registry.available_count} available / ${systemHealth.model_registry.unavailable_count} unavailable` : "Not checked"} />
+              </div>
+              {systemHealth?.message && <p className="limitation-label">{systemHealth.message}</p>}
+            </article>
             {cacheStats ? (
               <>
                 <div className="metric-grid compact-metrics">

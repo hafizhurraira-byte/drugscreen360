@@ -1,0 +1,37 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8010:8010"
+    environment:
+      ADMET_PROVIDER_ENABLED: ${ADMET_PROVIDER_ENABLED:-false}
+      ADMET_PROVIDER_BASE_URL: ${ADMET_PROVIDER_BASE_URL:-}
+      ADMET_PROVIDER_API_KEY: ${ADMET_PROVIDER_API_KEY:-}
+      ADMET_PROVIDER_TIMEOUT_SECONDS: ${ADMET_PROVIDER_TIMEOUT_SECONDS:-30}
+      ADMET_PROVIDER_MOCK_MODE: ${ADMET_PROVIDER_MOCK_MODE:-false}
+      APP_ENV: ${APP_ENV:-local}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////app/data/drugscreen360.sqlite3}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://127.0.0.1:5173,http://localhost:5173}
+    volumes:
+      - drugscreen360_sqlite:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/api/health', timeout=5).read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE_URL: http://127.0.0.1:8010
+    depends_on:
+      - backend
+
+volumes:
+  drugscreen360_sqlite:

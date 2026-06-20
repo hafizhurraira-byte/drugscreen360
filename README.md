@@ -55,8 +55,109 @@ drugscreen360/
   frontend/
     src/
     package.json
+  scripts/
+    start_backend.ps1
+    start_frontend.ps1
+    start_all.ps1
+    run_tests.ps1
+    backup_local_data.ps1
+  docker-compose.yml
+  VERSION
   README.md
 ```
+
+## How to Run DrugScreen360 Locally
+
+### Option A: Manual PowerShell
+
+Backend:
+
+```powershell
+cd "D:\DRUG CONJUGATE\drugscreen360\backend"
+.\.venv312\Scripts\Activate.ps1
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8010
+```
+
+Frontend:
+
+```powershell
+cd "D:\DRUG CONJUGATE\drugscreen360\frontend"
+npm run dev -- --host 127.0.0.1 --port 5173
+```
+
+### Option B: One-Command Scripts
+
+Run all checks:
+
+```powershell
+cd "D:\DRUG CONJUGATE\drugscreen360"
+.\scripts\run_tests.ps1
+```
+
+Start backend and frontend in separate PowerShell windows:
+
+```powershell
+cd "D:\DRUG CONJUGATE\drugscreen360"
+.\scripts\start_all.ps1
+```
+
+Start only backend:
+
+```powershell
+cd "D:\DRUG CONJUGATE\drugscreen360"
+.\scripts\start_backend.ps1
+```
+
+Start only frontend:
+
+```powershell
+cd "D:\DRUG CONJUGATE\drugscreen360"
+.\scripts\start_frontend.ps1
+```
+
+Backup local data:
+
+```powershell
+cd "D:\DRUG CONJUGATE\drugscreen360"
+.\scripts\backup_local_data.ps1
+```
+
+### Option C: Docker Compose
+
+```powershell
+cd "D:\DRUG CONJUGATE\drugscreen360"
+docker compose up --build
+```
+
+Stop Docker containers:
+
+```powershell
+docker compose down
+```
+
+Docker runs the backend on `http://127.0.0.1:8010` and the frontend on `http://127.0.0.1:5173`. SQLite data is stored in a Docker volume.
+
+### Environment Files
+
+Copy the examples only if you need local overrides:
+
+```powershell
+Copy-Item backend\.env.example backend\.env
+Copy-Item frontend\.env.example frontend\.env
+```
+
+Do not put real API keys into source control.
+
+### Troubleshooting
+
+- Backend port already in use: change `--port 8010` or stop the process using that port.
+- Frontend cannot fetch backend: confirm `frontend\.env` has `VITE_API_BASE_URL=http://127.0.0.1:8010`.
+- Missing `.env`: local defaults work without `.env`; use `.env.example` only for overrides.
+- Python environment not activated: run `.\.venv312\Scripts\Activate.ps1` before backend commands.
+- `ModuleNotFoundError: fastapi`: install dependencies inside `.venv312` with `pip install -r requirements.txt`.
+- `npm` package errors: run `npm install` inside `frontend`.
+- RDKit install issue: use Python 3.12 and install from `backend\requirements.txt`.
+- Database/cache reset: stop the app and delete local `*.sqlite3` files or use the System tab `Clear Cache` button.
 
 ## Installation
 
@@ -123,6 +224,7 @@ VITE_API_BASE_URL=http://127.0.0.1:8010
 
 ```text
 GET    /
+GET    /api/health
 POST   /api/screen
 GET    /api/screening/history
 GET    /api/screening/history/{id}
@@ -898,6 +1000,19 @@ Current tests cover:
 9. Confirm the disease search shows `Cached`.
 10. Return to `System` and click `Refresh Cache Stats`.
 11. Confirm cached items appear for `chembl` and `open_targets`.
+
+### Deployment / One-Command Run Checklist
+
+1. Run `.\scripts\run_tests.ps1`.
+2. Run `.\scripts\start_all.ps1`.
+3. Open `http://127.0.0.1:5173`.
+4. Open `System`.
+5. Click `Refresh System Health`.
+6. Confirm backend reachable is `yes`, version is `0.1.0-local-mvp`, database status is `ok`, cache status is `ok`, and model registry counts are visible.
+7. Run Aspirin screening.
+8. Run EGFR Drug Finder.
+9. Run Batch Upload with the example CSV.
+10. Run `.\scripts\backup_local_data.ps1` and confirm a new timestamped folder appears under `backups`.
 
 ## External ADMET Provider Adapter V1
 

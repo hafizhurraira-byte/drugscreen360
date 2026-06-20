@@ -1,10 +1,32 @@
 from pathlib import Path
 import sqlite3
+import os
+from urllib.parse import unquote, urlparse
 
-DB_PATH = Path(__file__).resolve().parents[2] / "drugscreen360.sqlite3"
+
+def _database_path() -> Path:
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if database_url.startswith("sqlite:///"):
+        parsed = urlparse(database_url)
+        if parsed.netloc:
+            return Path(unquote(f"//{parsed.netloc}{parsed.path}"))
+        path = unquote(parsed.path)
+        if path.startswith("/./"):
+            path = path[1:]
+        if os.name != "nt" and path.startswith("//"):
+            path = path[1:]
+        if path.startswith("/") and not path.startswith("//") and len(path) > 2 and path[2] == ":":
+            path = path.lstrip("/")
+        db_path = Path(path)
+        return db_path if db_path.is_absolute() else Path.cwd() / db_path
+    return Path(__file__).resolve().parents[2] / "drugscreen360.sqlite3"
+
+
+DB_PATH = _database_path()
 
 
 def get_connection() -> sqlite3.Connection:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
     return connection
