@@ -246,11 +246,19 @@ function ModelPredictionPanel({ predictions }) {
     <article className="evidence-panel">
       <h3>Model-Based Predictions</h3>
       <p className="limitation-label">{predictions.combined_interpretation}</p>
+      {predictions.model_status_summary && (
+        <div className="metric-grid compact-metrics">
+          <Field label="Rule-based used" value={String(predictions.model_status_summary.rule_based_used ?? false)} />
+          <Field label="External provider status" value={predictions.model_status_summary.external_model_status || "not requested"} />
+          <Field label="External provider available" value={String(predictions.model_status_summary.external_model_available ?? false)} />
+          <Field label="External warning" value={predictions.model_status_summary.external_model_warning || "None"} />
+        </div>
+      )}
       <div className="example-grid">
         {(predictions.model_outputs || []).map((bundle) => (
           <article className="example-card" key={bundle.model_id}>
             <h3>{bundle.model_name}</h3>
-            <Badge tone={bundle.model_status === "available" ? "good" : "bad"}>{bundle.model_status}</Badge>
+            <Badge tone={bundle.model_status === "available" ? "good" : bundle.model_status === "mock" ? "warn" : "bad"}>{bundle.model_status}</Badge>
             <Field label="Source" value={bundle.prediction_source} />
             <Field label="Confidence" value={bundle.confidence} />
             <p>{(bundle.warnings || []).join(" ")}</p>
@@ -310,6 +318,10 @@ function BatchDetailPanel({ candidate, onClose }) {
         <Field label="ADMET prediction source" value={candidate.admet_prediction_source || "Rule-based"} />
         <Field label="Model status" value={candidate.model_status || "available"} />
         <Field label="Model confidence" value={candidate.model_confidence || "Not available"} />
+        <Field label="Rule-based used" value={String(candidate.rule_based_used ?? true)} />
+        <Field label="External model used" value={String(candidate.external_model_used ?? false)} />
+        <Field label="External model available" value={String(candidate.external_model_available ?? false)} />
+        <Field label="External warning" value={candidate.external_model_warning || "None"} />
         <Field label="Model warnings" value={(candidate.model_warnings || []).join("; ") || "None"} />
       </dl>
       <p className="limitation-label">{candidate.recommended_next_step || "Review with expert team."}</p>
@@ -2326,6 +2338,10 @@ export default function App() {
                   <Field label="Used models" value={(benchmarkResult.model_status_summary?.used_models || []).join(", ")} />
                   <Field label="Only rule-based output used" value={String(benchmarkResult.model_status_summary?.only_rule_based_output_used ?? true)} />
                   <Field label="Unavailable model count" value={benchmarkResult.model_status_summary?.unavailable_model_count ?? 0} />
+                  <Field label="External provider status" value={benchmarkResult.model_status_summary?.external_provider_status || "not_registered"} />
+                  <Field label="External provider available" value={String(benchmarkResult.model_status_summary?.external_model_available ?? false)} />
+                  <Field label="Mock provider used" value={String(benchmarkResult.model_status_summary?.mock_provider_used ?? false)} />
+                  <Field label="External warning" value={benchmarkResult.model_status_summary?.external_model_warning || "None"} />
                   <Field label="Summary" value={benchmarkResult.model_status_summary?.message} />
                 </div>
               </article>
@@ -2548,6 +2564,10 @@ export default function App() {
                     <Field label="Drug-likeness" value={selectedUploadDetail.drug_likeness_status} />
                     <Field label="ADMET/Tox" value={`${selectedUploadDetail.concern_level} (${selectedUploadDetail.overall_admet_tox_concern_score}/100)`} />
                     <Field label="Model status" value={`${selectedUploadDetail.admet_prediction_source} / ${selectedUploadDetail.model_status}`} />
+                    <Field label="Rule-based used" value={String(selectedUploadDetail.rule_based_used ?? true)} />
+                    <Field label="External model used" value={String(selectedUploadDetail.external_model_used ?? false)} />
+                    <Field label="External model available" value={String(selectedUploadDetail.external_model_available ?? false)} />
+                    <Field label="External warning" value={selectedUploadDetail.external_model_warning || "None"} />
                     <Field label="Evidence" value={selectedUploadDetail.evidence_note} />
                     <Field label="Required tests" value={(selectedUploadDetail.required_tests || []).join("; ")} />
                     <Field label="Limitations" value={(selectedUploadDetail.limitations || []).join("; ")} />
@@ -2976,11 +2996,14 @@ export default function App() {
               {[...(modelStatus?.available_models || []), ...(modelStatus?.unavailable_models || [])].map((model) => (
                 <article className="example-card" key={model.model_id}>
                   <h3>{model.model_name}</h3>
-                  <Badge tone={model.status === "available" ? "good" : "bad"}>{model.status}</Badge>
+                  <Badge tone={model.status === "available" ? "good" : model.status === "mock" ? "warn" : "bad"}>{model.status}</Badge>
                   <Field label="Type" value={model.model_type} />
                   <Field label="Tasks" value={(model.prediction_tasks || []).join(", ")} />
                   <Field label="Source" value={model.source} />
+                  <Field label="Base URL configured" value={model.base_url_configured == null ? "Not applicable" : model.base_url_configured ? "yes" : "no"} />
+                  <Field label="API key configured" value={model.api_key_configured == null ? "Not applicable" : model.api_key_configured ? "yes" : "no"} />
                   <Field label="Last checked" value={model.last_checked_at} />
+                  <Field label="Warning" value={model.warning || "None"} />
                   <p>{(model.limitations || []).join(" ")}</p>
                 </article>
               ))}

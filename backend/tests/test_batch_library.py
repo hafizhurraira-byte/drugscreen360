@@ -49,6 +49,8 @@ def test_screen_parsed_compounds():
     assert response.screened_count == 1
     assert response.results[0].evidence_level == "Not evaluated"
     assert response.results[0].batch_rank == 1
+    assert response.results[0].external_model_available is False
+    assert response.model_status_summary["external_provider_status"] in {"unavailable", "error", "mock", "available"}
 
 
 def test_batch_ranking_prefers_lower_risk():

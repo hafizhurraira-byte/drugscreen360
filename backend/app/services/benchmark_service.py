@@ -220,6 +220,11 @@ def run_benchmark(selected_ids: list[str], group_name: str | None, max_items: in
     selected = _select_items(selected_ids, group_name, max_items)
     results = [evaluate_benchmark_item(item) for item in selected]
     summary = _summary(results)
+    model_status = model_status_response()
+    external_info = next(
+        (model for model in model_status["available_models"] + model_status["unavailable_models"] if model.model_id == "external_admet_provider_v1"),
+        None,
+    )
     response = BenchmarkRunResponse(
         selected_group=group_name,
         summary=summary,
@@ -234,7 +239,11 @@ def run_benchmark(selected_ids: list[str], group_name: str | None, max_items: in
         model_status_summary={
             "used_models": ["rule_based_admet_v1"],
             "only_rule_based_output_used": True,
-            "unavailable_model_count": len(model_status_response()["unavailable_models"]),
+            "unavailable_model_count": len(model_status["unavailable_models"]),
+            "external_provider_status": external_info.status if external_info else "not_registered",
+            "external_model_available": bool(external_info and external_info.status == "available"),
+            "mock_provider_used": bool(external_info and external_info.status == "mock"),
+            "external_model_warning": external_info.warning if external_info else "External ADMET provider adapter is not registered.",
             "message": "Only rule-based ADMET/Tox screening is active unless a real adapter is configured.",
         },
         created_at=datetime.now(timezone.utc).isoformat(),

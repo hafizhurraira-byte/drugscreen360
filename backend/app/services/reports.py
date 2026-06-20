@@ -100,6 +100,8 @@ def _model_prediction_rows(report: ScreeningReport) -> list[list[str]]:
     rows = [["Model", "Status / Source / Confidence"]]
     for bundle in predictions.model_outputs:
         rows.append([bundle.model_name, f"{bundle.model_status} / {bundle.prediction_source} / {bundle.confidence}"])
+    for key, value in predictions.model_status_summary.items():
+        rows.append([key.replace("_", " ").title(), str(value)])
     rows.append(["Interpretation", predictions.combined_interpretation])
     rows.append(["Warnings", "; ".join(predictions.warnings) or "None"])
     return rows

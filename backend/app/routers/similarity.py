@@ -78,8 +78,9 @@ def screen_selected_analogs(payload: SimilarityScreenRequest):
         descriptors = calculate_descriptors(compound.canonical_smiles)
         rules = evaluate_rules(descriptors)
         admet_tox = evaluate_admet_toxicity(compound.canonical_smiles, descriptors)
-        model_predictions = predict_admet(compound.canonical_smiles, ["rule_based_admet_v1", "local_admet_model"], True)
+        model_predictions = predict_admet(compound.canonical_smiles, ["rule_based_admet_v1", "external_admet_provider_v1", "local_admet_model"], True)
         rule_model = model_predictions.model_outputs[0] if model_predictions.model_outputs else None
+        model_summary = model_predictions.model_status_summary
         tests = plan_experimental_tests(descriptors, rules)
         decision = build_decision(rules, tests)
         priority = _analog_priority(
@@ -123,6 +124,10 @@ def screen_selected_analogs(payload: SimilarityScreenRequest):
             model_status=rule_model.model_status if rule_model else "available",
             model_confidence=rule_model.confidence if rule_model else admet_tox.overall.confidence_level,
             model_warnings=model_predictions.warnings,
+            rule_based_used=bool(model_summary.get("rule_based_used", True)),
+            external_model_used=bool(model_summary.get("external_model_used", False)),
+            external_model_available=bool(model_summary.get("external_model_available", False)),
+            external_model_warning=model_summary.get("external_model_warning"),
         )
         results.append(summary)
         row = summary.model_dump()

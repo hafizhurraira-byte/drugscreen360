@@ -123,6 +123,10 @@ class CandidateScreeningSummary(BaseModel):
     model_status: str | None = None
     model_confidence: str | None = None
     model_warnings: list[str] = Field(default_factory=list)
+    rule_based_used: bool = True
+    external_model_used: bool = False
+    external_model_available: bool = False
+    external_model_warning: str | None = None
 
 
 class BatchScreeningResponse(BaseModel):

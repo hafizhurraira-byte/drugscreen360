@@ -68,6 +68,10 @@ class BatchLibraryResultRow(BaseModel):
     model_status: str
     model_confidence: str
     model_warnings: list[str] = Field(default_factory=list)
+    rule_based_used: bool = True
+    external_model_used: bool = False
+    external_model_available: bool = False
+    external_model_warning: str | None = None
     required_tests: list[str] = Field(default_factory=list)
     batch_priority_score: float
     priority_label: str

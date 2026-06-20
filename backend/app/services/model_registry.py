@@ -3,6 +3,7 @@ from typing import Protocol
 
 from app.models.model_registry_models import ModelInfo, ModelPredictionBundle, PredictionResult
 from app.services.admet_toxicity_engine import evaluate_admet_toxicity
+from app.services.admet_external_provider import check_external_provider_status, predict_external_admet
 
 TASKS = [
     "solubility",
@@ -206,8 +207,23 @@ class UnavailableAdapter:
         )
 
 
+class ExternalAdmetProviderAdapter:
+    model_id = "external_admet_provider_v1"
+    model_name = "External ADMET Provider Adapter"
+
+    def is_available(self) -> bool:
+        return self.get_model_info().status in {"available", "mock"}
+
+    def get_model_info(self) -> ModelInfo:
+        return check_external_provider_status()
+
+    def predict(self, smiles: str) -> ModelPredictionBundle:
+        return predict_external_admet(smiles)
+
+
 ADAPTERS: dict[str, PredictorAdapter] = {
     "rule_based_admet_v1": RuleBasedAdmetAdapter(),
+    "external_admet_provider_v1": ExternalAdmetProviderAdapter(),
     "local_admet_model": UnavailableAdapter("local_admet_model", "Local ADMET Model Adapter", "ml_placeholder", "Local configured model"),
     "external_admet_service": UnavailableAdapter("external_admet_service", "External ADMET Service Adapter", "external_placeholder", "External service"),
     "tox_model_adapter": UnavailableAdapter("tox_model_adapter", "Toxicity Model Adapter", "ml_placeholder", "Future toxicity model"),
@@ -223,12 +239,13 @@ def get_adapters(model_ids: list[str] | None = None) -> list[PredictorAdapter]:
 def model_status_response():
     infos = [adapter.get_model_info() for adapter in ADAPTERS.values()]
     return {
-        "available_models": [info for info in infos if info.status == "available"],
-        "unavailable_models": [info for info in infos if info.status != "available"],
+        "available_models": [info for info in infos if info.status in {"available", "mock"}],
+        "unavailable_models": [info for info in infos if info.status not in {"available", "mock"}],
         "supported_tasks": TASKS,
         "limitations": [
-            "Only rule-based ADMET/Tox screening is available by default.",
+            "Only rule-based ADMET/Tox screening is available by default unless an external provider is configured.",
             "Unavailable adapters do not generate fake predictions.",
+            "Mock provider mode is for software testing only and must not be used scientifically.",
             "No clinical or regulatory validation is implied.",
         ],
     }

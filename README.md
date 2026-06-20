@@ -899,10 +899,83 @@ Current tests cover:
 10. Return to `System` and click `Refresh Cache Stats`.
 11. Confirm cached items appear for `chembl` and `open_targets`.
 
+## External ADMET Provider Adapter V1
+
+DrugScreen360 includes a safe external-provider adapter for future real ADMET/toxicity services. By default it is unavailable and no external prediction call is made. The rule-based ADMET/Tox adapter remains the fallback baseline.
+
+Backend environment example:
+
+```powershell
+$env:ADMET_PROVIDER_ENABLED="false"
+$env:ADMET_PROVIDER_BASE_URL=""
+$env:ADMET_PROVIDER_API_KEY=""
+$env:ADMET_PROVIDER_TIMEOUT_SECONDS="30"
+$env:ADMET_PROVIDER_MOCK_MODE="false"
+```
+
+Expected provider endpoint:
+
+`POST {ADMET_PROVIDER_BASE_URL}/predict`
+
+Payload:
+
+```json
+{
+  "smiles": "CCO",
+  "tasks": [
+    "solubility",
+    "permeability",
+    "bbb",
+    "cyp_inhibition",
+    "herg",
+    "ames",
+    "hepatotoxicity",
+    "general_toxicity"
+  ]
+}
+```
+
+Expected response:
+
+```json
+{
+  "model_id": "provider_model_id",
+  "model_name": "Configured ADMET Provider",
+  "version": "1.0",
+  "predictions": [
+    {
+      "task_name": "herg",
+      "prediction_label": "low_risk",
+      "prediction_score": 0.21,
+      "probability": 0.21,
+      "confidence": "medium",
+      "limitations": "Provider-specific limitation text."
+    }
+  ],
+  "warnings": []
+}
+```
+
+Behavior:
+
+- If `ADMET_PROVIDER_ENABLED=false` or `ADMET_PROVIDER_BASE_URL` is empty, `/api/models/status` returns `external_admet_provider_v1` as unavailable.
+- If configured but the health check or prediction call fails, the adapter returns `error` with a clear warning.
+- If response parsing fails, the adapter returns `error` and does not fake missing tasks.
+- If `ADMET_PROVIDER_MOCK_MODE=true`, outputs are labeled `mock` and include: `Mock predictions are for software testing only and must not be used scientifically.`
+- Mock mode is disabled by default and should not be used for scientific reporting.
+
+Manual check:
+
+1. Open `System`.
+2. Click `Refresh Model Status`.
+3. Confirm `External ADMET Provider Adapter` is shown.
+4. With default settings, confirm status is `unavailable` and the warning says the provider is not configured.
+5. Run Aspirin screening and confirm the report still shows rule-based ADMET/Tox output.
+
 ## Known Limitations
 
-- ADMET prediction models are not integrated yet.
-- Toxicity and genicity prediction models are not integrated yet.
+- External ADMET/toxicity model integration requires a real configured provider.
+- If no provider is configured, only the rule-based ADMET/Tox adapter is active.
 - The current decision engine is rule-based and transparent, not an ML model.
 - Evidence Quality Engine V1 scores metadata quality only. It is not an efficacy model.
 - PubChem availability affects lookup by name, CID, InChI, InChIKey, and SMILES.

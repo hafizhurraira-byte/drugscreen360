@@ -229,9 +229,15 @@ def build_project_pdf(payload: ProjectReportPayload) -> bytes:
     story.append(Paragraph("Chemistry/developability, in vitro ADME, drug-drug interaction, safety/toxicity, genotoxicity, and nonclinical studies should be selected based on the candidate risk profile.", styles["BodyText"]))
     story.append(Paragraph("Prediction Model Status", styles["Heading2"]))
     status = model_status_response()
+    external_info = next(
+        (model for model in status["available_models"] + status["unavailable_models"] if model.model_id == "external_admet_provider_v1"),
+        None,
+    )
     story.append(_pdf_table(_pairs({
         "available_models": ", ".join(model.model_id for model in status["available_models"]),
         "unavailable_models": ", ".join(model.model_id for model in status["unavailable_models"]),
+        "external_provider_status": external_info.status if external_info else "not_registered",
+        "external_provider_warning": external_info.warning if external_info else "External ADMET provider adapter is not registered.",
         "prediction_source_used": "Rule-based ADMET/Tox baseline unless real adapters are configured",
     })))
     story.append(Paragraph("Final Recommendation", styles["Heading2"]))
@@ -294,8 +300,14 @@ def build_project_docx(payload: ProjectReportPayload) -> bytes:
         document.add_paragraph(item, style="List Bullet")
     document.add_heading("Prediction Model Status", level=1)
     status = model_status_response()
+    external_info = next(
+        (model for model in status["available_models"] + status["unavailable_models"] if model.model_id == "external_admet_provider_v1"),
+        None,
+    )
     document.add_paragraph(f"Available models: {', '.join(model.model_id for model in status['available_models'])}")
     document.add_paragraph(f"Unavailable models: {', '.join(model.model_id for model in status['unavailable_models'])}")
+    document.add_paragraph(f"External provider status: {external_info.status if external_info else 'not_registered'}")
+    document.add_paragraph(f"External provider warning: {external_info.warning if external_info else 'External ADMET provider adapter is not registered.'}")
     document.add_paragraph("Prediction source used: Rule-based ADMET/Tox baseline unless real adapters are configured.")
     document.add_heading("Final Recommendation", level=1)
     document.add_paragraph(f"Top candidate: {summary.get('top_candidate') or 'Not available'}. Review high-risk and weak-evidence candidates before advancing.")

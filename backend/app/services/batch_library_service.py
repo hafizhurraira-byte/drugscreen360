@@ -289,11 +289,12 @@ def screen_batch_library(batch_id: int | None, compounds: list[ParsedCompound], 
             tests = plan_experimental_tests(descriptors, rules)
             decision = build_decision(rules, tests)
             model_predictions = (
-                predict_admet(item.canonical_smiles, ["rule_based_admet_v1", "local_admet_model"], True)
+                predict_admet(item.canonical_smiles, ["rule_based_admet_v1", "external_admet_provider_v1", "local_admet_model"], True)
                 if run_model_predictions
                 else None
             )
             rule_model = model_predictions.model_outputs[0] if model_predictions and model_predictions.model_outputs else None
+            model_summary = model_predictions.model_status_summary if model_predictions else {}
             model_status = rule_model.model_status if rule_model else "not_run"
             score, label = _priority_score(rules, admet, model_status)
             results.append(
@@ -319,6 +320,10 @@ def screen_batch_library(batch_id: int | None, compounds: list[ParsedCompound], 
                     model_status=model_status,
                     model_confidence=rule_model.confidence if rule_model else "Not run",
                     model_warnings=model_predictions.warnings if model_predictions else ["Model predictions were not run."],
+                    rule_based_used=bool(model_summary.get("rule_based_used", run_model_predictions)),
+                    external_model_used=bool(model_summary.get("external_model_used", False)),
+                    external_model_available=bool(model_summary.get("external_model_available", False)),
+                    external_model_warning=model_summary.get("external_model_warning"),
                     required_tests=[test.name for test in tests] + admet.recommended_followup_tests,
                     batch_priority_score=score,
                     priority_label=label,
@@ -337,6 +342,10 @@ def screen_batch_library(batch_id: int | None, compounds: list[ParsedCompound], 
     for index, row in enumerate(results, start=1):
         row.batch_rank = index
     status = model_status_response()
+    external_info = next(
+        (model for model in status["available_models"] + status["unavailable_models"] if model.model_id == "external_admet_provider_v1"),
+        None,
+    )
     response = BatchLibraryScreenResponse(
         batch_id=batch_id,
         screened_count=len(results),
@@ -351,6 +360,9 @@ def screen_batch_library(batch_id: int | None, compounds: list[ParsedCompound], 
         model_status_summary={
             "available_models": [model.model_id for model in status["available_models"]],
             "unavailable_models": [model.model_id for model in status["unavailable_models"]],
+            "external_provider_status": external_info.status if external_info else "not_registered",
+            "external_model_available": bool(external_info and external_info.status == "available"),
+            "external_model_warning": external_info.warning if external_info else "External ADMET provider adapter is not registered.",
             "prediction_source_used": "Rule-based ADMET/Tox adapter plus unavailable-model messages when requested.",
         },
         limitations=[LIMITATION, "Evidence quality not evaluated because uploaded compounds are not target-linked candidates."],

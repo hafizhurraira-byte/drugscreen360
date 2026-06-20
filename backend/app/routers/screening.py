@@ -51,7 +51,11 @@ def screen_compound(payload: ScreeningRequest):
     identity.structure_image_base64 = render_structure_image_base64(smiles)
     rules = evaluate_rules(descriptors)
     admet_toxicity = evaluate_admet_toxicity(smiles, descriptors)
-    model_predictions = predict_admet(smiles, ["rule_based_admet_v1", "local_admet_model", "external_admet_service", "tox_model_adapter"], True)
+    model_predictions = predict_admet(
+        smiles,
+        ["rule_based_admet_v1", "external_admet_provider_v1", "local_admet_model", "external_admet_service", "tox_model_adapter"],
+        True,
+    )
     lab_tests = plan_experimental_tests(descriptors, rules)
     decision = build_decision(rules, lab_tests)
     admet_placeholder, toxicity_placeholder = build_placeholder_modules()

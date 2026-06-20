@@ -57,24 +57,39 @@ def predict_admet(smiles: str, model_ids: list[str], include_unavailable: bool =
     if not outputs:
         warnings.append("No requested models are available.")
     real_available = any(item.model_status == "available" and item.model_id != "rule_based_admet_v1" for item in outputs)
+    mock_used = any(item.model_status == "mock" for item in outputs)
+    rule_based_used = any(item.model_id == "rule_based_admet_v1" and item.model_status == "available" for item in outputs)
+    external_bundle = next((item for item in outputs if item.model_id == "external_admet_provider_v1"), None)
+    external_warning = "; ".join(external_bundle.warnings) if external_bundle and external_bundle.warnings else None
+    model_status_summary = {
+        "rule_based_used": rule_based_used,
+        "external_model_used": bool(external_bundle and external_bundle.model_status in {"available", "mock"}),
+        "external_model_available": bool(external_bundle and external_bundle.model_status == "available"),
+        "external_model_status": external_bundle.model_status if external_bundle else "not_requested",
+        "external_model_warning": external_warning,
+        "mock_provider_used": mock_used,
+    }
     interpretation = (
         "Rule-based ADMET/Tox output plus available model outputs. Review disagreements cautiously."
         if real_available
         else "Only rule-based ADMET/Tox screening is available. No validated ML toxicity model is currently active."
     )
+    if mock_used:
+        interpretation += " Mock predictions are active for software testing only and are not scientifically valid."
     return PredictAdmetResponse(
         canonical_smiles=canonical,
         model_outputs=outputs,
         combined_interpretation=interpretation,
         warnings=list(dict.fromkeys(warnings)),
+        model_status_summary=model_status_summary,
         disclaimer=DISCLAIMER,
     )
 
 
 def compare_models(smiles: str, model_ids: list[str]) -> CompareModelsResponse:
     response = predict_admet(smiles, model_ids, include_unavailable=True)
-    available = [item for item in response.model_outputs if item.model_status == "available"]
-    unavailable = [item for item in response.model_outputs if item.model_status != "available"]
+    available = [item for item in response.model_outputs if item.model_status in {"available", "mock"}]
+    unavailable = [item for item in response.model_outputs if item.model_status not in {"available", "mock"}]
     agreement = (
         f"{len(available)} available model output(s), {len(unavailable)} unavailable model adapter(s). "
         "No real ML/external model agreement can be assessed unless additional available models are configured."
