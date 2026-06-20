@@ -1,5 +1,7 @@
 # DrugScreen360
 
+[![DrugScreen360 CI](https://github.com/hafizhurraira-byte/drugscreen360/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/hafizhurraira-byte/drugscreen360/actions/workflows/ci.yml)
+
 DrugScreen360 is an MVP web platform for single-molecule drug lookup and rule-based screening report generation.
 
 It uses PubChem for compound identity, RDKit for molecular descriptors and 2D structure images, SQLite for screening history, ReportLab for PDF export, and python-docx for DOCX export.
@@ -147,6 +149,22 @@ Copy-Item frontend\.env.example frontend\.env
 ```
 
 Do not put real API keys into source control.
+
+## Continuous Integration
+
+GitHub Actions CI runs automatically on pushes to `main`, pull requests targeting `main`, and manual `workflow_dispatch` runs.
+
+The CI workflow checks:
+
+- Backend tests with Python 3.12 using `backend/requirements.txt`.
+- Frontend tests and production build with Node.js 22.
+- Docker Compose configuration with `docker compose config`.
+
+For local checks before pushing, keep using:
+
+```powershell
+.\scripts\run_tests.ps1
+```
 
 ### Troubleshooting
 
