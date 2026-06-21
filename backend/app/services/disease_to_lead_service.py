@@ -4,6 +4,7 @@ from fastapi import HTTPException
 
 from app.models.disease_to_lead_models import DiseaseToLeadRequest
 from app.services import open_targets_service, chembl_service, similarity_service
+from app.services.pubchem import resolve_compound
 from app.services.descriptors import calculate_descriptors
 from app.services.rules import evaluate_rules, build_decision, plan_experimental_tests
 from app.services.admet_toxicity_engine import evaluate_admet_toxicity
@@ -16,6 +17,60 @@ from app.services.validation_planner_service import create_validation_plan
 from app.models.validation_planner_models import ExperimentalValidationPlanRequest, ValidationCandidateInput
 from app.services.final_report_service import create_final_project_report
 from app.models.final_report_models import FinalProjectReportRequest
+
+FRIENDLY_EXTERNAL_WARNING = "External candidate discovery is temporarily unavailable. Continuing with known/demo candidate data where possible."
+NO_CANDIDATE_WARNING = "No candidates could be retrieved. Enter a known compound or run the guided demo."
+KNOWN_COMPOUND_SMILES = {
+    "aspirin": "CC(=O)OC1=CC=CC=C1C(=O)O",
+    "caffeine": "CN1C=NC2=C1C(=O)N(C(=O)N2C)C",
+    "ibuprofen": "CC(C)CC1=CC=C(C=C1)C(C)C(=O)O",
+    "acetaminophen": "CC(=O)NC1=CC=C(C=C1)O",
+    "paracetamol": "CC(=O)NC1=CC=C(C=C1)O",
+    "metformin": "CN(C)C(=N)NC(=N)N",
+}
+
+
+def _add_warning(warnings: list[str], message: str) -> None:
+    if message not in warnings:
+        warnings.append(message)
+
+
+def _known_compound_candidate(name: str | None) -> dict[str, Any] | None:
+    if not name:
+        return None
+    cleaned = name.strip()
+    if not cleaned:
+        return None
+    try:
+        identity = resolve_compound(cleaned, "name")
+        if identity.canonical_smiles:
+            return {
+                "molecule_chembl_id": f"KNOWN-{cleaned.upper().replace(' ', '-')}",
+                "compound_name": identity.compound_name or cleaned,
+                "canonical_smiles": identity.canonical_smiles,
+                "activity_type": "not_available",
+                "activity_value": None,
+                "activity_units": None,
+                "target_chembl_id": "known_compound_fallback",
+                "source": "known_compound_fallback",
+                "ranking_reason": "Known compound supplied by user; used because external candidate discovery was unavailable or incomplete.",
+            }
+    except Exception:
+        fallback_smiles = KNOWN_COMPOUND_SMILES.get(cleaned.lower())
+        if fallback_smiles:
+            return {
+                "molecule_chembl_id": f"KNOWN-{cleaned.upper().replace(' ', '-')}",
+                "compound_name": cleaned,
+                "canonical_smiles": fallback_smiles,
+                "activity_type": "not_available",
+                "activity_value": None,
+                "activity_units": None,
+                "target_chembl_id": "known_compound_fallback",
+                "source": "known_compound_fallback",
+                "ranking_reason": "Local known-compound fallback used because external lookup was unavailable.",
+            }
+    return None
+
 
 def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any]:
     warnings = []
@@ -36,8 +91,8 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
                 target_name = selected_t.preferred_name or selected_t.target_chembl_id
             else:
                 warnings.append(f"No ChEMBL target found for target_name: {target_name}")
-        except Exception as e:
-            warnings.append(f"ChEMBL target search failed: {e}")
+        except Exception:
+            _add_warning(warnings, FRIENDLY_EXTERNAL_WARNING)
             
     if not target_id and payload.disease_name:
         # Search Open Targets
@@ -55,14 +110,15 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
                             selected_t = human_target or targets[0]
                             target_id = selected_t.target_chembl_id
                             target_name = selected_t.preferred_name or selected_t.target_chembl_id
-                    except:
+                    except Exception:
+                        _add_warning(warnings, FRIENDLY_EXTERNAL_WARNING)
                         pass
                 else:
                     warnings.append(f"No Open Targets associated with disease: {payload.disease_name}")
             else:
                 warnings.append(f"No Open Targets disease found matching: {payload.disease_name}")
-        except Exception as e:
-            warnings.append(f"Open Targets disease search failed: {e}")
+        except Exception:
+            _add_warning(warnings, FRIENDLY_EXTERNAL_WARNING)
             
     # Fallback: search ChEMBL with disease name
     if not target_id and payload.disease_name:
@@ -72,23 +128,35 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
                 selected_t = targets[0]
                 target_id = selected_t.target_chembl_id
                 target_name = selected_t.preferred_name or selected_t.target_chembl_id
-        except Exception as e:
-            warnings.append(f"ChEMBL fallback target search failed: {e}")
+        except Exception:
+            _add_warning(warnings, FRIENDLY_EXTERNAL_WARNING)
             
     if not target_id:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Could not resolve target for disease: '{payload.disease_name}' and target: '{payload.target_name}'."
-        )
+        known = _known_compound_candidate(payload.known_compound)
+        if known:
+            target_id = "known_compound_fallback"
+            target_name = payload.target_name or "Known compound fallback"
+            _add_warning(warnings, FRIENDLY_EXTERNAL_WARNING)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="No candidates could be retrieved. Enter a known compound or run the guided demo."
+            )
         
     # 2. Candidate Discovery
     candidates = []
     try:
         raw_candidates = chembl_service.get_target_candidates(target_id, limit=payload.candidate_limit)
         candidates = [c.model_dump() for c in raw_candidates]
-    except Exception as e:
-        warnings.append(f"Could not load candidates from ChEMBL for target {target_id}: {e}")
+    except Exception:
+        _add_warning(warnings, FRIENDLY_EXTERNAL_WARNING)
         missing_steps.append("candidate_discovery")
+    known_candidate = _known_compound_candidate(payload.known_compound)
+    if known_candidate and not any(c.get("canonical_smiles") == known_candidate["canonical_smiles"] for c in candidates):
+        candidates.insert(0, known_candidate)
+        _add_warning(warnings, "Known compound was used as a fallback starting candidate.")
+    if not candidates:
+        _add_warning(warnings, NO_CANDIDATE_WARNING)
         
     # 3. Similarity Expansion
     similar_candidates = []
@@ -108,8 +176,8 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
                 limit=payload.similarity_limit
             )
             similar_candidates = [s.model_dump() for s in raw_similars]
-        except Exception as e:
-            warnings.append(f"Similarity expansion failed for reference compound '{ref_compound}': {e}")
+        except Exception:
+            _add_warning(warnings, "Similarity expansion is unavailable right now. Continuing with available candidates.")
             missing_steps.append("similarity_expansion")
             
     # 4. Project Initialization
@@ -128,8 +196,11 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
                 )
             )
             project_id = proj.id
-        except Exception as e:
-            warnings.append(f"Failed to create new project: {e}")
+        except Exception:
+            _add_warning(
+                warnings,
+                "Could not create a project automatically. Please create/select a project before generating final reports.",
+            )
             
     # Attach candidates to project
     attached_candidate_ids = []
@@ -297,6 +368,7 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
             
     # 7. Validation Planner
     validation_plan_id = None
+    planner_status = "not_available"
     validation_candidates = []
     for li in lead_inputs[:5]:
         validation_candidates.append(
@@ -326,9 +398,17 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
                 )
             )
             validation_plan_id = val_res.plan_id
+            planner_status = "completed"
         except Exception as e:
-            warnings.append(f"Validation planner failed: {e}")
+            planner_status = "warning"
+            warnings.append(
+                "Validation planning could not be completed for the current candidates. "
+                "You can still review screening, ranking, and report outputs."
+            )
             missing_steps.append("validation_plan")
+    else:
+        warnings.append("No valid candidate set is available for validation planning. Run candidate discovery or lead prioritization first.")
+        missing_steps.append("validation_plan")
             
     # 8. Final Report Generation
     final_report_id = None
@@ -337,17 +417,22 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
             report_res = create_final_project_report(
                 FinalProjectReportRequest(
                     project_id=project_id,
+                    report_title=f"Disease-to-Lead Final Report: {payload.disease_name or target_name}",
                     include_screening=True,
-                    include_admet=True,
+                    include_admet_prediction=True,
+                    include_model_training=True,
+                    include_external_validation=True,
+                    include_applicability_domain=True,
                     include_explainability=True,
-                    include_prioritization=True,
-                    include_validation=True,
-                    include_experimental_feedback=True
+                    include_lead_prioritization=True,
+                    include_validation_planner=True,
+                    include_experimental_feedback=True,
+                    formats=["json", "pdf", "docx"],
                 )
             )
             final_report_id = report_res.report_id
-        except Exception as e:
-            warnings.append(f"Final report generation failed: {e}")
+        except Exception:
+            _add_warning(warnings, "Final report could not be generated right now. Screening and ranking outputs remain available.")
             missing_steps.append("final_report")
             
     return {
@@ -368,6 +453,7 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
         },
         "lead_prioritization_run_id": lead_run_id,
         "validation_plan_id": validation_plan_id,
+        "planner_status": planner_status,
         "final_report_id": final_report_id,
         "warnings": warnings,
         "missing_steps": missing_steps,

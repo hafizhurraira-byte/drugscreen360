@@ -4,7 +4,7 @@ from io import BytesIO
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import final_report_service, research_export_service
+from app.services import chembl_service, final_report_service, research_export_service
 
 client = TestClient(app)
 
@@ -43,6 +43,21 @@ def test_demo_workflow_run_works(tmp_path, monkeypatch):
     assert body["research_export_available"] is True
     assert "research_export_zip" in body["download_links"]
     assert any(step["step_id"] == "generate_final_report" and step["status"] == "completed" for step in body["workflow_steps"])
+    assert DEMO_NOTICE in body["scientific_notice"]
+
+
+def test_demo_workflow_does_not_depend_on_chembl(tmp_path, monkeypatch):
+    monkeypatch.setattr(final_report_service, "REPORT_DIR", tmp_path / "final_project_reports")
+    monkeypatch.setattr(research_export_service, "EXPORT_DIR", tmp_path / "research_exports")
+    monkeypatch.setattr(chembl_service, "search_targets", lambda *args, **kwargs: (_ for _ in ()).throw(Exception("ChEMBL returned HTTP 500")))
+    monkeypatch.setattr(chembl_service, "get_target_candidates", lambda *args, **kwargs: (_ for _ in ()).throw(Exception("ChEMBL returned HTTP 500")))
+
+    response = client.post("/api/demo-workflow/run", json={"project_title": "Offline Demo Check"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["demo_project_id"] > 0
+    assert body["created_items"]
     assert DEMO_NOTICE in body["scientific_notice"]
 
 

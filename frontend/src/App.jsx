@@ -2312,6 +2312,68 @@ export default function App() {
     }));
   };
 
+  const friendlyWorkflowMessage = (message = "") => {
+    if (/ChEMBL returned HTTP 500|HTTP 500|Not Found|Cannot read properties|stack|traceback/i.test(String(message))) {
+      return "External candidate discovery is temporarily unavailable. Continuing with known/demo candidate data where possible.";
+    }
+    return message || "The workflow step could not be completed. Review previous completed outputs and try again.";
+  };
+
+  const knownCompoundFallbackCandidate = (compoundName = workflowInput.known_compound) => {
+    const known = {
+      aspirin: "CC(=O)OC1=CC=CC=C1C(=O)O",
+      caffeine: "CN1C=NC2=C1C(=O)N(C(=O)N2C)C",
+      ibuprofen: "CC(C)CC1=CC=C(C=C1)C(C)C(=O)O",
+      acetaminophen: "CC(=O)NC1=CC=C(C=C1)O",
+      paracetamol: "CC(=O)NC1=CC=C(C=C1)O",
+      metformin: "CN(C)C(=N)NC(=N)N",
+    };
+    const cleaned = (compoundName || "").trim();
+    const smiles = known[cleaned.toLowerCase()];
+    if (!smiles) return null;
+    return {
+      molecule_chembl_id: `KNOWN-${cleaned.toUpperCase().replaceAll(" ", "-")}`,
+      compound_name: cleaned,
+      canonical_smiles: smiles,
+      activity_type: "not available",
+      activity_value: null,
+      activity_units: null,
+      target_chembl_id: workflowTarget?.target_chembl_id || "known_compound_fallback",
+      source: "known compound fallback",
+      ranking_reason: "Known compound supplied by the user; used because external candidate discovery was unavailable or incomplete.",
+    };
+  };
+
+  const ensureWorkflowProject = async (targetObj = workflowTarget) => {
+    if (activeProjectId) return activeProjectId;
+    try {
+      const response = await fetch(`${API_BASE}/projects/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: `Disease-to-Lead: ${workflowInput.disease_name || "Disease"} / ${workflowInput.target_name || targetObj?.preferred_name || "Target"}`,
+          description: "Auto-created Disease-to-Lead workflow workspace.",
+          disease_area: workflowInput.disease_name || "General",
+          target_name: targetObj?.preferred_name || workflowInput.target_name || "General",
+          project_type: "disease_screening",
+          status: "active",
+          notes: "Auto-created for computational decision-support workflow outputs."
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Project creation failed.");
+      setActiveProjectId(String(data.id));
+      setWorkflowProjectId(data.id);
+      setWorkflowWarnings((current) => [...current, "A project was created automatically for this workflow."]);
+      await loadActiveProjectOptions();
+      return data.id;
+    } catch {
+      const warning = "Could not create a project automatically. Please create/select a project before generating final reports.";
+      setWorkflowWarnings((current) => [...current, warning]);
+      return "";
+    }
+  };
+
   // Step 0: Disease / Target identification
   const runStep0_DiseaseTarget = async () => {
     setWorkflowLoading(true);
@@ -2333,8 +2395,25 @@ export default function App() {
       updateStepStatus(1, "ready");
       setActiveStep(1);
     } catch (err) {
-      setWorkflowError(err.message);
-      updateStepStatus(0, "error", err.message);
+      const fallback = knownCompoundFallbackCandidate();
+      if (fallback) {
+        const message = friendlyWorkflowMessage(err.message);
+        const fallbackTarget = {
+          target_chembl_id: "known_compound_fallback",
+          preferred_name: workflowInput.target_name || "Known compound fallback",
+          organism: "not available",
+          target_type: "fallback",
+        };
+        setWorkflowTarget(fallbackTarget);
+        setWorkflowWarnings((current) => [...current, message]);
+        updateStepStatus(0, "warning", message, { name: fallbackTarget.preferred_name });
+        updateStepStatus(1, "ready");
+        setActiveStep(1);
+      } else {
+        const message = "No candidates could be retrieved. Enter a known compound or run the guided demo.";
+        setWorkflowError(message);
+        updateStepStatus(0, "error", message);
+      }
     } finally {
       setWorkflowLoading(false);
     }
@@ -2368,8 +2447,20 @@ export default function App() {
       updateStepStatus(2, "ready");
       setActiveStep(2);
     } catch (err) {
-      setWorkflowError(err.message);
-      updateStepStatus(1, "error", err.message);
+      const fallback = knownCompoundFallbackCandidate();
+      if (fallback) {
+        const message = friendlyWorkflowMessage(err.message);
+        setWorkflowCandidates([fallback]);
+        setSelectedWorkflowCandidates({ [`${fallback.molecule_chembl_id}::${fallback.canonical_smiles}`]: fallback });
+        setWorkflowWarnings((current) => [...current, message, "Known compound was used as a fallback starting candidate."]);
+        updateStepStatus(1, "warning", message, { count: 1 });
+        updateStepStatus(2, "ready");
+        setActiveStep(2);
+      } else {
+        const message = "No candidates could be retrieved. Enter a known compound or run the guided demo.";
+        setWorkflowError(message);
+        updateStepStatus(1, "error", message);
+      }
     } finally {
       setWorkflowLoading(false);
     }
@@ -2423,7 +2514,7 @@ export default function App() {
       updateStepStatus(3, "ready");
       setActiveStep(3);
     } catch (err) {
-      updateStepStatus(2, "warning", `Similarity expansion skipped: ${err.message}`);
+      updateStepStatus(2, "warning", "Similarity expansion is unavailable right now. Continuing with available candidates.");
       updateStepStatus(3, "ready");
       setActiveStep(3);
     } finally {
@@ -2446,29 +2537,7 @@ export default function App() {
     setWorkflowError("");
     updateStepStatus(3, "running");
     try {
-      let targetProjectId = activeProjectId;
-      if (!targetProjectId) {
-        const responseProj = await fetch(`${API_BASE}/projects`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: `Disease-to-Lead: ${workflowInput.disease_name || "Workspace"}`,
-            description: `Guided stepper workflow auto-saved project.`,
-            disease_area: workflowInput.disease_name || "General",
-            target_name: workflowTarget?.preferred_name || workflowInput.target_name || "General",
-            project_type: "lead_optimization",
-            status: "active",
-            notes: "Decision-support auto-saved workflow."
-          })
-        });
-        const projData = await responseProj.json();
-        if (responseProj.ok) {
-          targetProjectId = projData.id;
-          setActiveProjectId(projData.id);
-          setWorkflowProjectId(projData.id);
-          await loadActiveProjectOptions();
-        }
-      }
+      let targetProjectId = await ensureWorkflowProject();
 
       const payload = {
         candidates: allSelected.map((c, idx) => ({
@@ -2492,7 +2561,7 @@ export default function App() {
       setWorkflowScreeningResults(data);
 
       if (targetProjectId) {
-        await fetch(`${API_BASE}/projects/${targetProjectId}/attach`, {
+        await fetch(`${API_BASE}/projects/${targetProjectId}/attach-item`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -2551,18 +2620,10 @@ export default function App() {
 
       setWorkflowPrioritizationRun(data);
       
-      const topLeads = (data.prioritized_candidates || []).slice(0, 5);
-      const initialFeedback = topLeads.map(l => ({
-        compound_name: l.compound_name,
-        smiles: l.smiles,
-        compound_id: l.compound_id || l.compound_name,
-        assay_type: "CYP3A4 Inhibition",
-        experimental_value: 0.0,
-        experimental_outcome: "active"
-      }));
-      setFeedbackInput(initialFeedback);
+      setFeedbackInput([]);
 
-      updateStepStatus(4, "completed", null, { run_id: data.run_id, count: (data.prioritized_candidates || []).length });
+      const rankedForDisplay = data.ranked_candidates || data.prioritized_candidates || [];
+      updateStepStatus(4, "completed", null, { run_id: data.run_id, count: rankedForDisplay.length });
       updateStepStatus(5, "ready");
       setActiveStep(5);
     } catch (err) {
@@ -2583,7 +2644,8 @@ export default function App() {
     setWorkflowError("");
     updateStepStatus(5, "running");
     try {
-      const candidatesInput = (workflowPrioritizationRun?.prioritized_candidates || []).slice(0, 5).map(l => ({
+      const rankedForPlanner = workflowPrioritizationRun?.ranked_candidates || workflowPrioritizationRun?.prioritized_candidates || [];
+      const candidatesInput = rankedForPlanner.slice(0, 5).map(l => ({
         compound_name: l.compound_name,
         smiles: l.smiles,
         compound_id: l.compound_id || l.compound_name,
@@ -2604,7 +2666,16 @@ export default function App() {
         custom_assays: []
       };
 
-      const response = await fetch(`${API_BASE}/validation-planner/plan`, {
+      if (candidatesInput.length === 0) {
+        const message = "No valid candidate set is available for validation planning. Run candidate discovery or lead prioritization first.";
+        setWorkflowError(message);
+        updateStepStatus(5, "warning", message);
+        updateStepStatus(6, "ready");
+        setActiveStep(6);
+        return;
+      }
+
+      const response = await fetch(`${API_BASE}/validation-planner/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -2617,8 +2688,11 @@ export default function App() {
       updateStepStatus(6, "ready");
       setActiveStep(6);
     } catch (err) {
-      setWorkflowError(err.message);
-      updateStepStatus(5, "error", err.message);
+      const message = "Validation planning could not be completed for the current candidates. You can still review screening, ranking, and report outputs.";
+      setWorkflowWarnings((current) => [...current, message]);
+      updateStepStatus(5, "warning", message);
+      updateStepStatus(6, "ready");
+      setActiveStep(6);
     } finally {
       setWorkflowLoading(false);
     }
@@ -2627,31 +2701,46 @@ export default function App() {
   // Step 6: Experimental Feedback
   const runStep6_ExperimentalFeedback = async () => {
     if (feedbackInput.length === 0) {
-      setWorkflowError("No feedback compounds available.");
+      const message = "No user-entered experimental results are available yet. Feedback comparison can be added after importing real assay results.";
+      setWorkflowWarnings((current) => [...current, message]);
+      updateStepStatus(6, "not_available", message);
+      updateStepStatus(7, "ready");
+      setActiveStep(7);
       return;
     }
     setWorkflowLoading(true);
     setWorkflowError("");
     updateStepStatus(6, "running");
     try {
-      const submitResponse = await fetch(`${API_BASE}/experimental-results`, {
+      const submitResponse = await fetch(`${API_BASE}/experimental-results/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           source_type: "manual",
           project_id: activeProjectId ? Number(activeProjectId) : null,
-          results: feedbackInput
+          results: feedbackInput.map((item) => ({
+            compound_name: item.compound_name,
+            smiles: item.smiles,
+            assay_name: item.assay_name || item.assay_type || "User-entered assay result",
+            assay_category: item.assay_category || "user_entered",
+            measured_value: item.measured_value || item.experimental_value || "not provided",
+            measurement_unit: item.measurement_unit || "",
+            qualitative_result: item.qualitative_result || item.experimental_outcome || "",
+            result_direction: item.result_direction || "inconclusive",
+            replicate_count: item.replicate_count || null,
+            notes: item.notes || "User-provided experimental feedback."
+          }))
         })
       });
       const submitData = await submitResponse.json();
       if (!submitResponse.ok) throw new Error(submitData.detail || "Failed to submit experimental results.");
 
-      const compareResponse = await fetch(`${API_BASE}/experimental-results/compare`, {
+      const compareResponse = await fetch(`${API_BASE}/experimental-feedback/compare`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           project_id: activeProjectId ? Number(activeProjectId) : null,
-          run_ids: [submitData.run_id]
+          result_batch_id: submitData.result_batch_id
         })
       });
       const compareData = await compareResponse.json();
@@ -2662,7 +2751,7 @@ export default function App() {
       updateStepStatus(7, "ready");
       setActiveStep(7);
     } catch (err) {
-      updateStepStatus(6, "warning", `Feedback submitted but comparison skipped: ${err.message}`);
+      updateStepStatus(6, "warning", "Experimental feedback could not be compared right now. You can still review screening, ranking, and report outputs.");
       updateStepStatus(7, "ready");
       setActiveStep(7);
     } finally {
@@ -2672,25 +2761,37 @@ export default function App() {
 
   // Step 7: Final Report
   const runStep7_FinalReport = async () => {
+    let ensuredProjectId = activeProjectId || workflowProjectId;
     if (!activeProjectId) {
-      setWorkflowError("A saved project is required to build a final report.");
-      return;
+      ensuredProjectId = await ensureWorkflowProject();
     }
     setWorkflowLoading(true);
     setWorkflowError("");
     updateStepStatus(7, "running");
     try {
-      const response = await fetch(`${API_BASE}/final-report`, {
+      const projectForReport = ensuredProjectId || activeProjectId || workflowProjectId;
+      if (!projectForReport) {
+        const warning = "Could not create a project automatically. Please create/select a project before generating final reports.";
+        setWorkflowWarnings((current) => [...current, warning]);
+        updateStepStatus(7, "warning", warning);
+        return;
+      }
+      const response = await fetch(`${API_BASE}/final-report/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          project_id: Number(activeProjectId),
+          project_id: Number(projectForReport),
+          report_title: `Disease-to-Lead Final Report: ${workflowInput.disease_name || workflowInput.target_name || "Workflow"}`,
           include_screening: true,
-          include_admet: true,
+          include_admet_prediction: true,
+          include_model_training: true,
+          include_external_validation: true,
+          include_applicability_domain: true,
           include_explainability: true,
-          include_prioritization: true,
-          include_validation: true,
-          include_experimental_feedback: true
+          include_lead_prioritization: true,
+          include_validation_planner: true,
+          include_experimental_feedback: true,
+          formats: ["json", "pdf", "docx"]
         })
       });
       const data = await response.json();
@@ -2698,10 +2799,11 @@ export default function App() {
 
       setWorkflowFinalReport(data);
       updateStepStatus(7, "completed", null, { report_id: data.report_id });
-      await loadProjectDetail(activeProjectId);
+      await loadProjectDetail(projectForReport);
     } catch (err) {
-      setWorkflowError(err.message);
-      updateStepStatus(7, "error", err.message);
+      const message = "Final report could not be generated right now. Screening and ranking outputs remain available.";
+      setWorkflowWarnings((current) => [...current, message]);
+      updateStepStatus(7, "warning", message);
     } finally {
       setWorkflowLoading(false);
     }
@@ -2718,26 +2820,64 @@ export default function App() {
       const query = workflowInput.disease_name || workflowInput.target_name;
       if (!query) throw new Error("Please enter a disease or target name to start.");
       
-      const res0 = await fetch(`${API_BASE}/finder/targets?query=${encodeURIComponent(query)}`);
-      const data0 = await res0.json();
-      if (!res0.ok) throw new Error(`Step 1 (Target Finder) failed: ${data0.detail}`);
-      const bestTarget = selectBestChemblTarget(data0.targets);
-      if (!bestTarget) throw new Error("Could not select a best target from results.");
+      let bestTarget = null;
+      try {
+        const res0 = await fetch(`${API_BASE}/finder/targets?query=${encodeURIComponent(query)}`);
+        const data0 = await res0.json();
+        if (!res0.ok) throw new Error(data0.detail || "Target search failed.");
+        bestTarget = selectBestChemblTarget(data0.targets);
+      } catch (targetError) {
+        const message = friendlyWorkflowMessage(targetError.message);
+        setWorkflowWarnings((current) => [...current, message]);
+        updateStepStatus(0, "warning", message);
+      }
+      if (!bestTarget) {
+        if (!knownCompoundFallbackCandidate()) throw new Error("No candidates could be retrieved. Enter a known compound or run the guided demo.");
+        bestTarget = {
+          target_chembl_id: "known_compound_fallback",
+          preferred_name: workflowInput.target_name || "Known compound fallback",
+          organism: "not available",
+          target_type: "fallback",
+        };
+      }
       setWorkflowTarget(bestTarget);
-      updateStepStatus(0, "completed", null, { name: bestTarget.preferred_name || bestTarget.target_chembl_id });
+      updateStepStatus(
+        0,
+        bestTarget.target_chembl_id === "known_compound_fallback" ? "warning" : "completed",
+        bestTarget.target_chembl_id === "known_compound_fallback" ? "External target discovery is unavailable right now. Continuing with known compound fallback." : null,
+        { name: bestTarget.preferred_name || bestTarget.target_chembl_id }
+      );
 
       // Step 1
       updateStepStatus(1, "running");
-      const res1 = await fetch(`${API_BASE}/finder/target/${bestTarget.target_chembl_id}/candidates?limit=${workflowInput.candidate_limit}`);
-      const data1 = await res1.json();
-      if (!res1.ok) throw new Error(`Step 2 (Candidate Discovery) failed: ${data1.detail}`);
+      let data1 = { candidates: [] };
+      if (bestTarget.target_chembl_id !== "known_compound_fallback") {
+        try {
+          const res1 = await fetch(`${API_BASE}/finder/target/${bestTarget.target_chembl_id}/candidates?limit=${workflowInput.candidate_limit}`);
+          data1 = await res1.json();
+          if (!res1.ok) throw new Error(data1.detail || "Candidate discovery failed.");
+        } catch (candidateError) {
+          const message = friendlyWorkflowMessage(candidateError.message);
+          setWorkflowWarnings((current) => [...current, message]);
+          updateStepStatus(1, "warning", message);
+          data1 = { candidates: [] };
+        }
+      }
+      const fallbackCandidate = knownCompoundFallbackCandidate();
+      if (fallbackCandidate && !(data1.candidates || []).some((candidate) => candidate.canonical_smiles === fallbackCandidate.canonical_smiles)) {
+        data1.candidates = [fallbackCandidate, ...(data1.candidates || [])];
+        setWorkflowWarnings((current) => [...current, "Known compound was used as a fallback starting candidate."]);
+      }
+      if (!(data1.candidates || []).length) {
+        throw new Error("No candidates could be retrieved. Enter a known compound or run the guided demo.");
+      }
       setWorkflowCandidates(data1.candidates || []);
       const initialSelection = {};
       (data1.candidates || []).slice(0, 5).forEach(c => {
         initialSelection[`${c.molecule_chembl_id}::${c.canonical_smiles}`] = c;
       });
       setSelectedWorkflowCandidates(initialSelection);
-      updateStepStatus(1, "completed", null, { count: (data1.candidates || []).length });
+      updateStepStatus(1, bestTarget.target_chembl_id === "known_compound_fallback" ? "warning" : "completed", null, { count: (data1.candidates || []).length });
 
       // Step 2
       updateStepStatus(2, "running");
@@ -2768,7 +2908,7 @@ export default function App() {
             updateStepStatus(2, "warning", "Similarity expansion returned no matches.");
           }
         } catch (e) {
-          updateStepStatus(2, "warning", `Similarity search skipped: ${e.message}`);
+          updateStepStatus(2, "warning", "Similarity expansion is unavailable right now. Continuing with available candidates.");
         }
       } else {
         updateStepStatus(2, "warning", "No reference compound found. Step skipped.");
@@ -2778,31 +2918,12 @@ export default function App() {
       updateStepStatus(3, "running");
       const listC = Object.values(initialSelection);
       const listS = Object.values(simSelection);
-      const allS = [...listC, ...listS];
+      const fallbackForAnalysis = knownCompoundFallbackCandidate();
+      const allS = [...listC, ...listS, ...(listC.length || listS.length || !fallbackForAnalysis ? [] : [fallbackForAnalysis])];
       if (allS.length === 0) throw new Error("No candidate compounds selected for analysis.");
 
       // Create Auto-saved project
-      const responseProj = await fetch(`${API_BASE}/projects`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: `Disease-to-Lead: ${workflowInput.disease_name || "Workspace"}`,
-          description: `Guided stepper workflow auto-saved project.`,
-          disease_area: workflowInput.disease_name || "General",
-          target_name: bestTarget.preferred_name || "General",
-          project_type: "disease_screening",
-          status: "active",
-          notes: "Decision-support auto-saved workflow."
-        })
-      });
-      const projData = await responseProj.json();
-      let targetProjectId = activeProjectId;
-      if (responseProj.ok) {
-        targetProjectId = projData.id;
-        setActiveProjectId(projData.id);
-        setWorkflowProjectId(projData.id);
-        await loadActiveProjectOptions();
-      }
+      let targetProjectId = await ensureWorkflowProject(bestTarget);
 
       const res3 = await fetch(`${API_BASE}/finder/screen-candidates`, {
         method: "POST",
@@ -2813,7 +2934,7 @@ export default function App() {
             molecule_chembl_id: c.molecule_chembl_id,
             compound_name: c.compound_name || c.molecule_chembl_id,
             canonical_smiles: c.canonical_smiles,
-            target_chembl_id: bestTarget.target_chembl_id
+          target_chembl_id: bestTarget.target_chembl_id
           })),
           max_candidates: 25
         })
@@ -2846,92 +2967,75 @@ export default function App() {
       if (!res4.ok) throw new Error(`Step 5 (Lead Prioritization) failed: ${data4.detail}`);
       setWorkflowPrioritizationRun(data4);
       updateStepStatus(4, "completed", null, { run_id: data4.run_id });
+      const rankedCandidates = data4.ranked_candidates || data4.prioritized_candidates || [];
 
       // Step 5
       updateStepStatus(5, "running");
-      const res5 = await fetch(`${API_BASE}/validation-planner/plan`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          source_type: "manual",
-          project_id: targetProjectId ? Number(targetProjectId) : null,
-          plan_title: `Validation Plan: ${workflowInput.disease_name || "Lead Expansion"}`,
-          candidates: (data4.prioritized_candidates || []).slice(0, 5).map(l => ({
-            compound_name: l.compound_name,
-            smiles: l.smiles,
-            compound_id: l.compound_id || l.compound_name,
-            priority_label: l.priority_label,
-            evidence_strength: l.evidence_strength || "Moderate",
-            warnings: l.warnings || []
-          })),
-          include_toxicity_assays: true,
-          include_cyp_assays: true,
-          include_herg_assays: true,
-          include_hepatotoxicity_assays: true,
-          custom_assays: []
-        })
-      });
-      const data5 = await res5.json();
-      if (!res5.ok) throw new Error(`Step 6 (Planner) failed: ${data5.detail}`);
-      setWorkflowValidationPlan(data5);
-      updateStepStatus(5, "completed", null, { plan_id: data5.plan_id });
+      const plannerCandidates = rankedCandidates.slice(0, 5).filter((candidate) => candidate.smiles || candidate.canonical_smiles).map(l => ({
+        compound_name: l.compound_name,
+        smiles: l.smiles || l.canonical_smiles,
+        compound_id: l.compound_id || l.compound_name,
+        priority_label: l.priority_label,
+        evidence_strength: l.evidence_strength || l.explainability_evidence_strength || "not available",
+        warnings: l.warnings || []
+      }));
+      if (plannerCandidates.length === 0) {
+        const plannerMessage = "No valid candidate set is available for validation planning. Run candidate discovery or lead prioritization first.";
+        setWorkflowWarnings((current) => [...current, plannerMessage]);
+        updateStepStatus(5, "warning", plannerMessage);
+      } else {
+        try {
+          const res5 = await fetch(`${API_BASE}/validation-planner/create`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              source_type: "manual",
+              project_id: targetProjectId ? Number(targetProjectId) : null,
+              plan_title: `Validation Plan: ${workflowInput.disease_name || "Lead Expansion"}`,
+              candidates: plannerCandidates,
+              include_toxicity_assays: true,
+              include_adme_assays: true,
+              include_target_assays: true,
+              include_controls: true
+            })
+          });
+          const data5 = await res5.json();
+          if (!res5.ok) throw new Error(data5.detail || "Validation plan generation failed.");
+          setWorkflowValidationPlan(data5);
+          updateStepStatus(5, "completed", null, { plan_id: data5.plan_id });
+        } catch (plannerError) {
+          const plannerMessage = "Validation planning could not be completed for the current candidates. You can still review screening, ranking, and report outputs.";
+          setWorkflowWarnings((current) => [...current, plannerMessage]);
+          updateStepStatus(5, "warning", plannerMessage);
+        }
+      }
 
       // Step 6
       updateStepStatus(6, "running");
-      const feedInputs = (data4.prioritized_candidates || []).slice(0, 3).map(l => ({
-        compound_name: l.compound_name,
-        smiles: l.smiles,
-        compound_id: l.compound_id || l.compound_name,
-        assay_type: "CYP3A4 Inhibition",
-        experimental_value: 1.2,
-        experimental_outcome: "inactive"
-      }));
-      setFeedbackInput(feedInputs);
-      
-      const res6_submit = await fetch(`${API_BASE}/experimental-results`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          source_type: "manual",
-          project_id: targetProjectId ? Number(targetProjectId) : null,
-          results: feedInputs
-        })
-      });
-      const data6_sub = await res6_submit.json();
-      if (res6_submit.ok) {
-        const res6_comp = await fetch(`${API_BASE}/experimental-results/compare`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            project_id: targetProjectId ? Number(targetProjectId) : null,
-            run_ids: [data6_sub.run_id]
-          })
-        });
-        const data6_comp = await res6_comp.json();
-        if (res6_comp.ok) {
-          setFeedbackCompareResult(data6_comp);
-          updateStepStatus(6, "completed", null, { run_id: data6_sub.run_id });
-        } else {
-          updateStepStatus(6, "warning", "Feedback comparison failed.");
-        }
-      } else {
-        updateStepStatus(6, "warning", "Feedback submission failed.");
-      }
+      setFeedbackInput([]);
+      const feedbackMessage = "No user-entered experimental results are available yet. Feedback comparison can be added after importing real assay results.";
+      setWorkflowWarnings((current) => [...current, feedbackMessage]);
+      updateStepStatus(6, "not_available", feedbackMessage);
 
       // Step 7
       updateStepStatus(7, "running");
       if (targetProjectId) {
-        const res7 = await fetch(`${API_BASE}/final-report`, {
+        const res7 = await fetch(`${API_BASE}/final-report/create`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             project_id: Number(targetProjectId),
+            report_title: `Disease-to-Lead Final Report: ${workflowInput.disease_name || workflowInput.target_name || "Workflow"}`,
             include_screening: true,
-            include_admet: true,
+            include_admet_prediction: true,
+            include_model_training: true,
+            include_external_validation: true,
+            include_applicability_domain: true,
             include_explainability: true,
-            include_prioritization: true,
-            include_validation: true,
-            include_experimental_feedback: true
+            include_lead_prioritization: true,
+            include_validation_planner: true,
+            include_experimental_feedback: true,
+            formats: ["json", "pdf", "docx"]
           })
         });
         const data7 = await res7.json();
@@ -2948,7 +3052,7 @@ export default function App() {
 
       setActiveStep(7);
     } catch (err) {
-      setWorkflowError(err.message);
+      setWorkflowError(friendlyWorkflowMessage(err.message));
     } finally {
       setWorkflowLoading(false);
     }
@@ -4346,7 +4450,7 @@ export default function App() {
                           <h3>Workspace PDF Report</h3>
                           <p>Download structured PDF layout containing target matching, prioritized compounds table, and disclaimers.</p>
                           <a
-                            href={`${API_BASE}/final-report/${workflowFinalReport?.report_id}/download/pdf`}
+                            href={`${API_BASE}/final-report/reports/${workflowFinalReport?.report_id}/pdf`}
                             className="primary-button"
                             target="_blank"
                             rel="noopener noreferrer"
@@ -4360,7 +4464,7 @@ export default function App() {
                           <h3>Workspace DOCX Report</h3>
                           <p>Microsoft Word document version of the final project report.</p>
                           <a
-                            href={`${API_BASE}/final-report/${workflowFinalReport?.report_id}/download/docx`}
+                            href={`${API_BASE}/final-report/reports/${workflowFinalReport?.report_id}/docx`}
                             className="primary-button"
                             target="_blank"
                             rel="noopener noreferrer"
