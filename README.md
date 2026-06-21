@@ -18,6 +18,36 @@ Evidence Quality Engine V1 adds transparent ChEMBL bioactivity evidence scoring 
 
 This report is computational and decision-support only. It does not prove safety, efficacy, clinical success, regulatory approval, or market readiness.
 
+## MVP Release Overview
+
+DrugScreen360 is a local research-support MVP for organizing early compound screening workflows. It can look up molecules, calculate descriptors, run transparent rule-based checks, curate ADMET datasets, train experimental baseline models from user-provided labelled data, review model/domain/uncertainty evidence, explain predictions where real model artifacts allow it, prioritize candidates for review, plan validation assays, compare user-entered experimental results with computational outputs, and generate project reports/exports.
+
+What DrugScreen360 does not do:
+
+- It does not prove clinical safety, efficacy, approval, or market readiness.
+- It does not generate wet-lab results.
+- It does not create fake ADMET/toxicity predictions.
+- It does not replace qualified scientific, laboratory, clinical, or regulatory review.
+
+Full local workflow:
+
+```text
+Compound or dataset input
+-> identity/descriptor screening
+-> rule-based ADMET/Tox checks
+-> optional curated dataset and experimental baseline model training
+-> model status, external validation, applicability domain, uncertainty, and explainability review
+-> lead prioritization
+-> experimental validation planning
+-> user-entered experimental feedback comparison
+-> saved project dashboard
+-> final report and research export
+```
+
+Demo path:
+
+Use `System -> Guided Demo Workflow -> Run Full Demo Workflow` to create a labelled demo project, generate a demo final report, and create a research export. Demo data is for software demonstration only and is not experimental or clinical evidence.
+
 ## Current MVP Features
 
 - Input one compound by drug name, PubChem CID, SMILES, InChI, or InChIKey.
@@ -1618,7 +1648,7 @@ Scientific scope:
 - No fake labels are generated.
 - No fake predictions are created.
 - Training is refused if the dataset is too small or unsuitable.
-- Outputs are experimental, dataset-dependent, and not clinically validated.
+- Outputs are experimental, dataset-dependent, and not validated for clinical use.
 - Models are not automatically enabled for live prediction.
 
 Supported task types:
@@ -1898,7 +1928,7 @@ Manual testing:
 
 1. Open `ADMET Data`.
 2. Create or select a validation plan.
-3. Enter a real experimental result manually or import a CSV.
+3. Enter a user-provided experimental result manually or import a CSV.
 4. Save the result batch.
 5. Run feedback comparison.
 6. Confirm supported/contradicted/inconclusive/not-comparable counts appear.
