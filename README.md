@@ -1842,6 +1842,119 @@ Manual testing:
 6. Download CSV and JSON.
 7. Confirm all text says planning support only and does not show assay results.
 
+## Experimental Results Import & Prediction Feedback Loop
+
+DrugScreen360 can store real user-entered or CSV-imported assay results and compare them with available computational context such as validation plans, lead prioritization runs, rule-based ADMET/Tox concerns, applicability-domain status, uncertainty, and explainability evidence strength.
+
+Required notice:
+
+```text
+Experimental feedback summary only. Interpretation requires qualified scientific review.
+```
+
+Supported manual/CSV fields:
+
+- `compound_name`
+- `smiles`
+- `canonical_smiles`
+- `assay_name`
+- `assay_category`
+- `measured_value`
+- `measurement_unit`
+- `qualitative_result`
+- `result_direction`: `favorable`, `unfavorable`, `neutral`, `inconclusive`, `not_applicable`
+- `replicate_count`
+- `notes`
+
+Feedback labels are deliberately conservative:
+
+- `prediction_supported`
+- `prediction_contradicted`
+- `inconclusive`
+- `not_comparable`
+- `insufficient_context`
+
+The feedback loop does not invent experimental results, does not simulate wet-lab outcomes, and does not automatically retrain models. It only compares real imported or manually entered result directions against available computational context. A single assay result is not clinical validation and does not prove safety, efficacy, regulatory approval, or market readiness.
+
+API endpoints:
+
+- `POST /api/experimental-results/create`
+- `POST /api/experimental-results/import-csv`
+- `GET /api/experimental-results/batches`
+- `GET /api/experimental-results/batches/{batch_id}`
+- `GET /api/experimental-results/batches/{batch_id}/csv`
+- `POST /api/experimental-feedback/compare`
+- `GET /api/experimental-feedback/summaries`
+- `GET /api/experimental-feedback/summaries/{feedback_id}`
+- `GET /api/experimental-feedback/summaries/{feedback_id}/report.json`
+
+Project and export integration:
+
+- If an active project is selected, result batches and feedback summaries are attached automatically.
+- Project dashboards can show experimental result and feedback items.
+- Research Export packages include result batches and feedback reports under `EXPERIMENTAL_RESULTS/`.
+
+Manual testing:
+
+1. Open `ADMET Data`.
+2. Create or select a validation plan.
+3. Enter a real experimental result manually or import a CSV.
+4. Save the result batch.
+5. Run feedback comparison.
+6. Confirm supported/contradicted/inconclusive/not-comparable counts appear.
+7. Download result CSV and feedback JSON.
+8. Confirm the UI does not claim clinical validation or generate assay outcomes.
+
+## Final End-to-End Project Report
+
+DrugScreen360 can generate a final project report that combines available stored records from the full local workflow:
+
+- molecule screening and descriptor summaries
+- rule-based ADMET/Tox and model status
+- ADMET dataset curation and model training summaries
+- trained model prediction availability
+- external validation and calibration records
+- applicability-domain and uncertainty records
+- prediction explainability and evidence strength
+- ADMET lead prioritization and candidate ranking
+- experimental validation planner assay recommendations
+- imported/manual experimental results and prediction feedback summaries
+- final limitations, reproducibility notes, and next recommended steps
+
+Required notice:
+
+```text
+Computational decision-support report only. Experimental and clinical interpretation requires qualified scientific review.
+```
+
+The final report is not a clinical or regulatory report. It does not prove safety, efficacy, clinical success, regulatory approval, or market readiness. It does not invent experimental results or fill missing records. If a requested section has no stored data, the report lists it under missing sections and records a warning.
+
+API endpoints:
+
+- `POST /api/final-report/create`
+- `GET /api/final-report/reports`
+- `GET /api/final-report/reports/{report_id}`
+- `GET /api/final-report/reports/{report_id}/json`
+- `GET /api/final-report/reports/{report_id}/pdf`
+- `GET /api/final-report/reports/{report_id}/docx`
+
+Project and export integration:
+
+- If a project is selected, the final report is attached to that project.
+- Project dashboards can show final report items.
+- Research Export packages include generated final reports under `FINAL_PROJECT_REPORTS/`.
+
+Manual testing:
+
+1. Open `System`.
+2. Go to `Final End-to-End Project Report`.
+3. Select an active/saved project or leave it global.
+4. Choose the sections to include.
+5. Generate the report.
+6. Confirm included and missing sections are shown.
+7. Download JSON, PDF, and DOCX.
+8. Confirm the report contains the required decision-support notice and does not invent experimental data.
+
 ## External ADMET Provider Adapter V1
 
 DrugScreen360 includes a safe external-provider adapter for future real ADMET/toxicity services. By default it is unavailable and no external prediction call is made. The rule-based ADMET/Tox adapter remains the fallback baseline.

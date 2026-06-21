@@ -519,6 +519,22 @@ export default function App() {
   const [researchExportResult, setResearchExportResult] = useState(null);
   const [researchExports, setResearchExports] = useState([]);
   const [researchExportLoading, setResearchExportLoading] = useState(false);
+  const [finalReportForm, setFinalReportForm] = useState({
+    project_id: "",
+    report_title: "DrugScreen360 Final Project Report",
+    include_screening: true,
+    include_admet_prediction: true,
+    include_model_training: true,
+    include_external_validation: true,
+    include_applicability_domain: true,
+    include_explainability: true,
+    include_lead_prioritization: true,
+    include_validation_planner: true,
+    include_experimental_feedback: true,
+  });
+  const [finalReportResult, setFinalReportResult] = useState(null);
+  const [finalReports, setFinalReports] = useState([]);
+  const [finalReportLoading, setFinalReportLoading] = useState(false);
   const [projects, setProjects] = useState([]);
   const [activeProjectOptions, setActiveProjectOptions] = useState([]);
   const [activeProjectId, setActiveProjectId] = useState(() => localStorage.getItem("drugscreen360-active-project-id") || "");
@@ -650,6 +666,32 @@ export default function App() {
   const [validationPlans, setValidationPlans] = useState([]);
   const [validationPlanLoading, setValidationPlanLoading] = useState(false);
   const [validationPlanError, setValidationPlanError] = useState("");
+  const [experimentalResultForm, setExperimentalResultForm] = useState({
+    compound_name: "Aspirin",
+    smiles: "CC(=O)OC1=CC=CC=C1C(=O)O",
+    assay_name: "Cytotoxicity follow-up assay",
+    assay_category: "cytotoxicity",
+    measured_value: "not provided",
+    measurement_unit: "",
+    qualitative_result: "User-entered result",
+    result_direction: "favorable",
+    replicate_count: "3",
+    notes: "",
+    validation_plan_id: "",
+  });
+  const [experimentalCsvFile, setExperimentalCsvFile] = useState(null);
+  const [experimentalBatchResult, setExperimentalBatchResult] = useState(null);
+  const [experimentalBatches, setExperimentalBatches] = useState([]);
+  const [experimentalFeedbackForm, setExperimentalFeedbackForm] = useState({
+    result_batch_id: "",
+    validation_plan_id: "",
+    lead_prioritization_run_id: "",
+    model_id: "",
+  });
+  const [experimentalFeedbackResult, setExperimentalFeedbackResult] = useState(null);
+  const [experimentalFeedbackSummaries, setExperimentalFeedbackSummaries] = useState([]);
+  const [experimentalResultsLoading, setExperimentalResultsLoading] = useState(false);
+  const [experimentalResultsError, setExperimentalResultsError] = useState("");
 
   const synonyms = useMemo(() => {
     const list = report?.compound_identity?.synonyms || [];
@@ -752,6 +794,7 @@ export default function App() {
     loadModelStatus();
     loadLocalModelValidation();
     loadResearchExports();
+    loadFinalReports();
     loadProjects();
     loadActiveProjectOptions();
     loadAdmetDatasets();
@@ -765,6 +808,8 @@ export default function App() {
     loadExplanationReports();
     loadLeadRuns();
     loadValidationPlans();
+    loadExperimentalBatches();
+    loadExperimentalFeedbackSummaries();
   }, []);
 
   useEffect(() => {
@@ -909,6 +954,55 @@ export default function App() {
   function downloadResearchExport(exportItem) {
     if (!exportItem?.download_url) return;
     window.location.href = `${API_ROOT}${exportItem.download_url}`;
+  }
+
+  async function loadFinalReports() {
+    try {
+      const response = await fetch(`${API_BASE}/final-report/reports`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load final reports.");
+      setFinalReports(data);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function updateFinalReportOption(key, value) {
+    setFinalReportForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function createFinalReport() {
+    setFinalReportLoading(true);
+    setError("");
+    try {
+      const projectId = finalReportForm.project_id || activeProjectId;
+      const response = await fetch(`${API_BASE}/final-report/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...finalReportForm,
+          project_id: projectId ? Number(projectId) : null,
+          formats: ["json", "pdf", "docx"],
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not create final project report.");
+      setFinalReportResult(data);
+      await loadFinalReports();
+      await loadDashboardSummary();
+      if (selectedProject?.id && String(selectedProject.id) === String(projectId)) {
+        await loadProjectDetail(selectedProject.id);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setFinalReportLoading(false);
+    }
+  }
+
+  function downloadFinalReport(reportItem, format) {
+    const url = reportItem?.generated_files?.[format];
+    if (url) window.location.href = `${API_ROOT}${url}`;
   }
 
   async function loadProjects() {
@@ -1731,6 +1825,142 @@ export default function App() {
       setValidationPlanError(err.message);
     } finally {
       setValidationPlanLoading(false);
+    }
+  }
+
+  async function loadExperimentalBatches() {
+    try {
+      const response = await fetch(`${API_BASE}/experimental-results/batches`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load experimental result batches.");
+      setExperimentalBatches(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function loadExperimentalFeedbackSummaries() {
+    try {
+      const response = await fetch(`${API_BASE}/experimental-feedback/summaries`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load experimental feedback summaries.");
+      setExperimentalFeedbackSummaries(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function saveManualExperimentalResult(event) {
+    if (event) event.preventDefault();
+    setExperimentalResultsLoading(true);
+    setExperimentalResultsError("");
+    try {
+      const response = await fetch(`${API_BASE}/experimental-results/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: activeProjectId ? Number(activeProjectId) : null,
+          validation_plan_id: experimentalResultForm.validation_plan_id ? Number(experimentalResultForm.validation_plan_id) : null,
+          source_type: experimentalResultForm.validation_plan_id ? "validation_plan_followup" : "manual",
+          results: [
+            {
+              compound_name: experimentalResultForm.compound_name,
+              smiles: experimentalResultForm.smiles,
+              assay_name: experimentalResultForm.assay_name,
+              assay_category: experimentalResultForm.assay_category,
+              measured_value: experimentalResultForm.measured_value,
+              measurement_unit: experimentalResultForm.measurement_unit,
+              qualitative_result: experimentalResultForm.qualitative_result,
+              result_direction: experimentalResultForm.result_direction,
+              replicate_count: experimentalResultForm.replicate_count ? Number(experimentalResultForm.replicate_count) : null,
+              notes: experimentalResultForm.notes,
+            },
+          ],
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not save experimental result.");
+      setExperimentalBatchResult(data);
+      setExperimentalFeedbackForm((current) => ({
+        ...current,
+        result_batch_id: String(data.result_batch_id),
+        validation_plan_id: data.validation_plan_id ? String(data.validation_plan_id) : current.validation_plan_id,
+      }));
+      await loadExperimentalBatches();
+      await loadDashboardSummary();
+      if (selectedProject?.id && String(selectedProject.id) === String(activeProjectId)) {
+        await loadProjectDetail(selectedProject.id);
+      }
+    } catch (err) {
+      setExperimentalResultsError(err.message);
+    } finally {
+      setExperimentalResultsLoading(false);
+    }
+  }
+
+  async function uploadExperimentalCsv(event) {
+    if (event) event.preventDefault();
+    if (!experimentalCsvFile) {
+      setExperimentalResultsError("Choose a CSV file before importing experimental results.");
+      return;
+    }
+    setExperimentalResultsLoading(true);
+    setExperimentalResultsError("");
+    try {
+      const formData = new FormData();
+      formData.append("file", experimentalCsvFile);
+      if (activeProjectId) formData.append("project_id", String(activeProjectId));
+      if (experimentalResultForm.validation_plan_id) formData.append("validation_plan_id", String(experimentalResultForm.validation_plan_id));
+      const response = await fetch(`${API_BASE}/experimental-results/import-csv`, { method: "POST", body: formData });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "CSV import failed.");
+      setExperimentalBatchResult(data);
+      setExperimentalFeedbackForm((current) => ({
+        ...current,
+        result_batch_id: String(data.result_batch_id),
+        validation_plan_id: data.validation_plan_id ? String(data.validation_plan_id) : current.validation_plan_id,
+      }));
+      await loadExperimentalBatches();
+      await loadDashboardSummary();
+    } catch (err) {
+      setExperimentalResultsError(err.message);
+    } finally {
+      setExperimentalResultsLoading(false);
+    }
+  }
+
+  async function runExperimentalFeedback(event) {
+    if (event) event.preventDefault();
+    if (!experimentalFeedbackForm.result_batch_id) {
+      setExperimentalResultsError("Select a saved experimental result batch before running feedback comparison.");
+      return;
+    }
+    setExperimentalResultsLoading(true);
+    setExperimentalResultsError("");
+    try {
+      const response = await fetch(`${API_BASE}/experimental-feedback/compare`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: activeProjectId ? Number(activeProjectId) : null,
+          result_batch_id: Number(experimentalFeedbackForm.result_batch_id),
+          model_id: experimentalFeedbackForm.model_id || null,
+          lead_prioritization_run_id: experimentalFeedbackForm.lead_prioritization_run_id ? Number(experimentalFeedbackForm.lead_prioritization_run_id) : null,
+          validation_plan_id: experimentalFeedbackForm.validation_plan_id ? Number(experimentalFeedbackForm.validation_plan_id) : null,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Feedback comparison failed.");
+      setExperimentalFeedbackResult(data);
+      await loadExperimentalFeedbackSummaries();
+      await loadDashboardSummary();
+      if (selectedProject?.id && String(selectedProject.id) === String(activeProjectId)) {
+        await loadProjectDetail(selectedProject.id);
+      }
+    } catch (err) {
+      setExperimentalResultsError(err.message);
+    } finally {
+      setExperimentalResultsLoading(false);
     }
   }
 
@@ -5433,6 +5663,228 @@ export default function App() {
             )}
           </Section>
 
+          <Section title="Experimental Results & Prediction Feedback" icon={Beaker} wide>
+            <p className="limitation-label">
+              Experimental feedback summary only. Interpretation requires qualified scientific review. Enter or import only real assay results; DrugScreen360 does not simulate wet-lab outcomes.
+            </p>
+            <form className="finder-search" onSubmit={saveManualExperimentalResult}>
+              <label>
+                Linked validation plan
+                <select
+                  value={experimentalResultForm.validation_plan_id}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setExperimentalResultForm((current) => ({ ...current, validation_plan_id: value }));
+                    setExperimentalFeedbackForm((current) => ({ ...current, validation_plan_id: value }));
+                  }}
+                >
+                  <option value="">No linked plan</option>
+                  {validationPlans.map((plan) => (
+                    <option key={plan.plan_id} value={plan.plan_id}>
+                      Plan #{plan.plan_id} - {plan.plan_title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Compound name
+                <input value={experimentalResultForm.compound_name} onChange={(event) => setExperimentalResultForm((current) => ({ ...current, compound_name: event.target.value }))} />
+              </label>
+              <label className="wide-field">
+                SMILES
+                <input value={experimentalResultForm.smiles} onChange={(event) => setExperimentalResultForm((current) => ({ ...current, smiles: event.target.value }))} />
+              </label>
+              <label>
+                Assay name
+                <input value={experimentalResultForm.assay_name} onChange={(event) => setExperimentalResultForm((current) => ({ ...current, assay_name: event.target.value }))} required />
+              </label>
+              <label>
+                Assay category
+                <input value={experimentalResultForm.assay_category} onChange={(event) => setExperimentalResultForm((current) => ({ ...current, assay_category: event.target.value }))} required />
+              </label>
+              <label>
+                Result direction
+                <select value={experimentalResultForm.result_direction} onChange={(event) => setExperimentalResultForm((current) => ({ ...current, result_direction: event.target.value }))}>
+                  <option value="favorable">favorable</option>
+                  <option value="unfavorable">unfavorable</option>
+                  <option value="neutral">neutral</option>
+                  <option value="inconclusive">inconclusive</option>
+                  <option value="not_applicable">not applicable</option>
+                </select>
+              </label>
+              <label>
+                Measured value
+                <input value={experimentalResultForm.measured_value} onChange={(event) => setExperimentalResultForm((current) => ({ ...current, measured_value: event.target.value }))} />
+              </label>
+              <label>
+                Unit
+                <input value={experimentalResultForm.measurement_unit} onChange={(event) => setExperimentalResultForm((current) => ({ ...current, measurement_unit: event.target.value }))} />
+              </label>
+              <label>
+                Replicates
+                <input type="number" min="0" value={experimentalResultForm.replicate_count} onChange={(event) => setExperimentalResultForm((current) => ({ ...current, replicate_count: event.target.value }))} />
+              </label>
+              <label className="wide-field">
+                Qualitative result
+                <textarea rows={3} value={experimentalResultForm.qualitative_result} onChange={(event) => setExperimentalResultForm((current) => ({ ...current, qualitative_result: event.target.value }))} />
+              </label>
+              <label className="wide-field">
+                Notes
+                <textarea rows={3} value={experimentalResultForm.notes} onChange={(event) => setExperimentalResultForm((current) => ({ ...current, notes: event.target.value }))} />
+              </label>
+              <button type="submit" disabled={experimentalResultsLoading}>
+                {experimentalResultsLoading ? "Saving..." : "Save Manual Result"}
+              </button>
+            </form>
+
+            <form className="finder-search" onSubmit={uploadExperimentalCsv}>
+              <label>
+                CSV import
+                <input type="file" accept=".csv" onChange={(event) => setExperimentalCsvFile(event.target.files?.[0] || null)} />
+              </label>
+              <button type="submit" disabled={experimentalResultsLoading || !experimentalCsvFile}>Import CSV Results</button>
+              <button type="button" className="secondary-button" onClick={loadExperimentalBatches}>Refresh Result Batches</button>
+            </form>
+            {experimentalResultsError && <p className="warning-text">{experimentalResultsError}</p>}
+
+            {experimentalBatchResult && (
+              <article className="evidence-panel" style={{ marginTop: "15px" }}>
+                <div className="summary-grid">
+                  <SummaryCard label="Batch" value={experimentalBatchResult.result_batch_id} icon={ClipboardList} />
+                  <SummaryCard label="Accepted" value={experimentalBatchResult.accepted_count} icon={CheckCircle2} />
+                  <SummaryCard label="Rejected" value={experimentalBatchResult.rejected_count} icon={AlertTriangle} />
+                  <SummaryCard label="Source" value={experimentalBatchResult.source_type.replaceAll("_", " ")} icon={History} />
+                </div>
+                <div className="candidate-actions left-actions">
+                  <a className="small-button" href={`${API_BASE}/experimental-results/batches/${experimentalBatchResult.result_batch_id}/csv`}>Download Results CSV</a>
+                </div>
+                {(experimentalBatchResult.invalid_rows || []).map((row) => (
+                  <p className="warning-text" key={`${row.row_number}-${row.error_reason}`}>
+                    Row {row.row_number}: {row.error_reason}
+                  </p>
+                ))}
+                <p className="limitation-label">{experimentalBatchResult.scientific_notice}</p>
+              </article>
+            )}
+
+            <form className="finder-search" onSubmit={runExperimentalFeedback}>
+              <label>
+                Result batch
+                <select
+                  value={experimentalFeedbackForm.result_batch_id}
+                  onChange={(event) => setExperimentalFeedbackForm((current) => ({ ...current, result_batch_id: event.target.value }))}
+                  required
+                >
+                  <option value="">Select batch</option>
+                  {experimentalBatches.map((batch) => (
+                    <option key={batch.result_batch_id} value={batch.result_batch_id}>
+                      Batch #{batch.result_batch_id} - {batch.accepted_count} accepted
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Validation plan
+                <select value={experimentalFeedbackForm.validation_plan_id} onChange={(event) => setExperimentalFeedbackForm((current) => ({ ...current, validation_plan_id: event.target.value }))}>
+                  <option value="">Use batch-linked plan if available</option>
+                  {validationPlans.map((plan) => (
+                    <option key={plan.plan_id} value={plan.plan_id}>Plan #{plan.plan_id}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Lead prioritization run
+                <select value={experimentalFeedbackForm.lead_prioritization_run_id} onChange={(event) => setExperimentalFeedbackForm((current) => ({ ...current, lead_prioritization_run_id: event.target.value }))}>
+                  <option value="">None</option>
+                  {leadRuns.map((run) => (
+                    <option key={run.run_id} value={run.run_id}>Run #{run.run_id}</option>
+                  ))}
+                </select>
+              </label>
+              <button type="submit" disabled={experimentalResultsLoading}>
+                {experimentalResultsLoading ? "Comparing..." : "Run Feedback Comparison"}
+              </button>
+              <button type="button" className="secondary-button" onClick={loadExperimentalFeedbackSummaries}>Refresh Feedback</button>
+            </form>
+
+            {experimentalFeedbackResult && (
+              <article className="evidence-panel" style={{ marginTop: "15px" }}>
+                <div className="summary-grid">
+                  <SummaryCard label="Feedback" value={experimentalFeedbackResult.feedback_id} icon={ClipboardList} />
+                  <SummaryCard label="Supported" value={experimentalFeedbackResult.supported_count} icon={CheckCircle2} />
+                  <SummaryCard label="Contradicted" value={experimentalFeedbackResult.contradicted_count} icon={AlertTriangle} />
+                  <SummaryCard label="Follow-up" value={experimentalFeedbackResult.validation_plan_followup_status.replaceAll("_", " ")} icon={Beaker} />
+                </div>
+                <div className="candidate-actions left-actions">
+                  <a className="small-button" href={`${API_BASE}/experimental-feedback/summaries/${experimentalFeedbackResult.feedback_id}/report.json`}>Download Feedback JSON</a>
+                </div>
+                <div className="responsive-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Compound</th>
+                        <th>Assay</th>
+                        <th>Direction</th>
+                        <th>Feedback</th>
+                        <th>Ranking feedback</th>
+                        <th>Next step</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {experimentalFeedbackResult.candidate_feedback.map((item, index) => (
+                        <tr key={`${item.canonical_smiles || item.compound_name}-${index}`}>
+                          <td>{item.compound_name || item.canonical_smiles || "Unnamed"}</td>
+                          <td>{item.assay_name}</td>
+                          <td>{item.experimental_result_summary?.result_direction || "not available"}</td>
+                          <td><Badge tone={toneForRisk(item.feedback_label)}>{item.feedback_label.replaceAll("_", " ")}</Badge></td>
+                          <td>{item.ranking_feedback.replaceAll("_", " ")}</td>
+                          <td>{item.recommended_next_step}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {(experimentalFeedbackResult.warnings || []).map((warning) => <p className="warning-text" key={warning}>{warning}</p>)}
+                {(experimentalFeedbackResult.limitations || []).map((limitation) => <p className="limitation-label" key={limitation}>{limitation}</p>)}
+                <p className="limitation-label">{experimentalFeedbackResult.scientific_notice}</p>
+              </article>
+            )}
+
+            {experimentalFeedbackSummaries.length > 0 && (
+              <article className="evidence-panel" style={{ marginTop: "15px" }}>
+                <h3>Recent Feedback Summaries</h3>
+                <div className="responsive-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Feedback</th>
+                        <th>Batch</th>
+                        <th>Overall</th>
+                        <th>Supported</th>
+                        <th>Contradicted</th>
+                        <th>Inconclusive</th>
+                        <th>Export</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {experimentalFeedbackSummaries.slice(0, 8).map((item) => (
+                        <tr key={item.feedback_id}>
+                          <td>{item.feedback_id}</td>
+                          <td>{item.result_batch_id}</td>
+                          <td>{item.overall_feedback_label?.replaceAll("_", " ")}</td>
+                          <td>{item.supported_count}</td>
+                          <td>{item.contradicted_count}</td>
+                          <td>{item.inconclusive_count}</td>
+                          <td><a className="small-button" href={`${API_BASE}/experimental-feedback/summaries/${item.feedback_id}/report.json`}>JSON</a></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+            )}
+          </Section>
+
           <Section title="External Validation & Calibration" icon={ShieldCheck} wide>
             <p className="limitation-label">
               Evaluate a trained ADMET model on an independent curated dataset. Review metrics drops, potential overfitting, and predicted probability calibration.
@@ -6640,6 +7092,112 @@ export default function App() {
               <div className="empty-state-card">
                 <h3>Active trained model status not loaded yet.</h3>
                 <p>Click Refresh Trained Model Status to inspect active local models.</p>
+              </div>
+            )}
+          </Section>
+
+          <Section title="Final End-to-End Project Report" icon={FileText} wide>
+            <p className="limitation-label">
+              Computational decision-support report only. Experimental and clinical interpretation requires qualified scientific review.
+              The report summarizes stored data and clearly marks missing sections.
+            </p>
+            <div className="finder-search">
+              <label>
+                Report title
+                <input
+                  value={finalReportForm.report_title}
+                  onChange={(event) => updateFinalReportOption("report_title", event.target.value)}
+                />
+              </label>
+              <label>
+                Saved project
+                <select value={finalReportForm.project_id || activeProjectId} onChange={(event) => updateFinalReportOption("project_id", event.target.value)}>
+                  <option value="">No saved project</option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>{project.title}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="option-grid">
+              {[
+                ["include_screening", "Molecule screening"],
+                ["include_admet_prediction", "ADMET prediction/model status"],
+                ["include_model_training", "Dataset and training"],
+                ["include_external_validation", "External validation"],
+                ["include_applicability_domain", "Applicability domain"],
+                ["include_explainability", "Explainability"],
+                ["include_lead_prioritization", "Lead prioritization"],
+                ["include_validation_planner", "Validation planner"],
+                ["include_experimental_feedback", "Experimental feedback"],
+              ].map(([key, label]) => (
+                <label className="toggle-row" key={key}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(finalReportForm[key])}
+                    onChange={(event) => updateFinalReportOption(key, event.target.checked)}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <div className="candidate-actions left-actions">
+              <button onClick={createFinalReport} disabled={finalReportLoading}>
+                <FileText size={18} aria-hidden="true" />
+                {finalReportLoading ? "Generating..." : "Generate Final Report"}
+              </button>
+              <button className="secondary-button" onClick={loadFinalReports} disabled={finalReportLoading}>
+                Refresh Final Reports
+              </button>
+            </div>
+            {finalReportResult && (
+              <article className="evidence-panel">
+                <h3>Final report #{finalReportResult.report_id}</h3>
+                <div className="metric-grid compact-metrics">
+                  <Field label="Included sections" value={(finalReportResult.included_sections || []).join(", ") || "None"} />
+                  <Field label="Missing sections" value={(finalReportResult.missing_sections || []).join(", ") || "None"} />
+                  <Field label="Warnings" value={(finalReportResult.warnings || []).join("; ") || "None"} />
+                </div>
+                <div className="candidate-actions left-actions">
+                  <button className="small-button" onClick={() => downloadFinalReport(finalReportResult, "json")}>JSON</button>
+                  <button className="small-button" onClick={() => downloadFinalReport(finalReportResult, "pdf")}>PDF</button>
+                  <button className="small-button" onClick={() => downloadFinalReport(finalReportResult, "docx")}>DOCX</button>
+                </div>
+                <p className="limitation-label">{finalReportResult.scientific_notice}</p>
+              </article>
+            )}
+            {finalReports.length > 0 && (
+              <div className="responsive-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Report</th>
+                      <th>Project</th>
+                      <th>Title</th>
+                      <th>Included</th>
+                      <th>Created</th>
+                      <th>Downloads</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {finalReports.slice(0, 10).map((item) => (
+                      <tr key={item.report_id}>
+                        <td>{item.report_id}</td>
+                        <td>{item.project_id || "Global"}</td>
+                        <td>{item.report_title}</td>
+                        <td className="smiles-cell">{(item.included_sections || []).join(", ")}</td>
+                        <td>{item.created_at}</td>
+                        <td>
+                          <div className="candidate-actions left-actions">
+                            <button className="small-button" onClick={() => downloadFinalReport(item, "json")}>JSON</button>
+                            <button className="small-button" onClick={() => downloadFinalReport(item, "pdf")}>PDF</button>
+                            <button className="small-button" onClick={() => downloadFinalReport(item, "docx")}>DOCX</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </Section>

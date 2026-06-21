@@ -498,6 +498,14 @@ def _records_for_item(item: ProjectItem) -> list[dict[str, Any]]:
     if item.item_type == "experimental_validation_plan":
         plan_records = _as_list(metadata.get("candidate_plans"))
         return [{**_as_dict(record), "source_workflow": item.item_type, "source_id": item.item_id} for record in plan_records] or [metadata]
+    if item.item_type == "experimental_result_batch":
+        result_records = _as_list(metadata.get("results"))
+        return [{**_as_dict(record), "source_workflow": item.item_type, "source_id": item.item_id} for record in result_records] or [metadata]
+    if item.item_type == "experimental_feedback_summary":
+        feedback_records = _as_list(metadata.get("candidate_feedback"))
+        return [{**_as_dict(record), "source_workflow": item.item_type, "source_id": item.item_id} for record in feedback_records] or [metadata]
+    if item.item_type == "final_project_report":
+        return [metadata]
     return [metadata]
 
 
@@ -647,6 +655,10 @@ def project_dashboard(project_id: int) -> ProjectDashboardResponse:
         recommended.append("Review high-risk candidates carefully before considering additional experimental work.")
     if item_counts.get("experimental_validation_plan"):
         recommended.append("Review the latest experimental validation plan before scheduling wet-lab work.")
+    if item_counts.get("experimental_feedback_summary"):
+        recommended.append("Review experimental feedback contradictions before changing candidate priority or model interpretation.")
+    if item_counts.get("final_project_report"):
+        recommended.append("Use the latest final report as a documentation summary, not as clinical or regulatory evidence.")
     recommended.append("Confirm all public database and rule-based outputs with qualified expert review.")
     return ProjectDashboardResponse(
         project=detail,

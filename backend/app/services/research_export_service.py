@@ -575,6 +575,81 @@ def create_research_export(payload: ResearchExportRequest) -> ResearchExportCrea
         except Exception as exc:
             warnings.append(f"Could not include experimental validation planner data in export: {exc}")
 
+        # Experimental Results and Prediction Feedback Export
+        sections.append("EXPERIMENTAL_RESULTS")
+        try:
+            from app.services.experimental_results_service import (
+                experimental_feedback_report_json,
+                experimental_results_csv,
+                list_experimental_feedback,
+            )
+
+            result_batch_rows = _rows("experimental_result_batches")
+            feedback_rows = list_experimental_feedback()
+            _write_text(
+                zip_file,
+                f"{root}/EXPERIMENTAL_RESULTS/limitations.md",
+                "# Experimental Results Feedback Limitations\n\n- Only user-entered or imported results are exported.\n- DrugScreen360 does not simulate assay outcomes.\n- Feedback summaries are comparison support only and require qualified scientific review.\n- A single assay result is not clinical validation and does not prove safety, efficacy, regulatory approval, or market readiness.\n",
+                manifest,
+                "markdown",
+            )
+            _write_text(
+                zip_file,
+                f"{root}/EXPERIMENTAL_RESULTS/scientific_notice.md",
+                "Experimental feedback summary only. Interpretation requires qualified scientific review.\n",
+                manifest,
+                "markdown",
+            )
+            _write_json(zip_file, f"{root}/EXPERIMENTAL_RESULTS/result_batches/result_batch_records.json", result_batch_rows, manifest)
+            for row in result_batch_rows:
+                batch_id = row["id"]
+                _write_text(zip_file, f"{root}/EXPERIMENTAL_RESULTS/result_batches/result_batch_{batch_id}.csv", experimental_results_csv(batch_id), manifest, "csv")
+            _write_text(
+                zip_file,
+                f"{root}/EXPERIMENTAL_RESULTS/results.csv",
+                "\n".join([experimental_results_csv(row["id"]).strip() for row in result_batch_rows if row.get("id")]),
+                manifest,
+                "csv",
+            )
+            _write_json(zip_file, f"{root}/EXPERIMENTAL_RESULTS/feedback_summaries/feedback_summary_records.json", feedback_rows, manifest)
+            for feedback in feedback_rows:
+                feedback_id = feedback["feedback_id"]
+                _write_json(zip_file, f"{root}/EXPERIMENTAL_RESULTS/feedback_summaries/feedback_{feedback_id}_report.json", experimental_feedback_report_json(feedback_id), manifest)
+        except Exception as exc:
+            warnings.append(f"Could not include experimental results feedback data in export: {exc}")
+
+        # Final End-to-End Project Reports Export
+        sections.append("FINAL_PROJECT_REPORTS")
+        try:
+            from app.services.final_report_service import REPORT_DIR as FINAL_REPORT_DIR
+
+            final_report_rows = _rows("final_project_reports")
+            _write_text(
+                zip_file,
+                f"{root}/FINAL_PROJECT_REPORTS/limitations.md",
+                "# Final Project Report Limitations\n\n- Computational decision-support report only.\n- Experimental and clinical interpretation requires qualified scientific review.\n- Stored reports summarize available DrugScreen360 records only; missing data is not inferred.\n- No experimental results are invented or simulated.\n- No safety, efficacy, regulatory approval, or market-readiness claim is made.\n",
+                manifest,
+                "markdown",
+            )
+            _write_text(
+                zip_file,
+                f"{root}/FINAL_PROJECT_REPORTS/scientific_notice.md",
+                "Computational decision-support report only. Experimental and clinical interpretation requires qualified scientific review.\n",
+                manifest,
+                "markdown",
+            )
+            _write_json(zip_file, f"{root}/FINAL_PROJECT_REPORTS/final_report_records.json", final_report_rows, manifest)
+            for row in final_report_rows:
+                files = json.loads(row.get("files_json") or "{}")
+                for fmt, final_filename in files.items():
+                    path = FINAL_REPORT_DIR / final_filename
+                    if path.exists():
+                        _write_bytes(zip_file, f"{root}/FINAL_PROJECT_REPORTS/report_{row['id']}/{path.name}", path.read_bytes(), manifest, fmt)
+                    else:
+                        warnings.append(f"Final project report file was missing: {final_filename}")
+        except Exception as exc:
+            warnings.append(f"Could not include final project reports in export: {exc}")
+
         _write_json(zip_file, f"{root}/SCREENING_RESULTS/similarity_search_records.json", similarity_rows, manifest)
         _write_json(zip_file, f"{root}/SCREENING_RESULTS/finder_search_records.json", finder_rows, manifest)
 

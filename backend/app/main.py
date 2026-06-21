@@ -18,6 +18,9 @@ from app.routers.cache import router as cache_router
 from app.routers.disease_finder import router as disease_finder_router
 from app.routers.evidence import router as evidence_router
 from app.routers.examples import router as examples_router
+from app.routers.experimental_results import feedback_router as experimental_feedback_router
+from app.routers.experimental_results import results_router as experimental_results_router
+from app.routers.final_report import router as final_report_router
 from app.routers.finder import router as finder_router
 from app.routers.health import router as health_router
 from app.routers.models import router as models_router
@@ -83,3 +86,6 @@ app.include_router(health_router, prefix="/api")
 app.include_router(research_export_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
 app.include_router(validation_planner_router, prefix="/api")
+app.include_router(experimental_results_router, prefix="/api")
+app.include_router(experimental_feedback_router, prefix="/api")
+app.include_router(final_report_router, prefix="/api")

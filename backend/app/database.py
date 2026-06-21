@@ -561,6 +561,76 @@ def init_db() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS experimental_result_batches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER,
+                validation_plan_id INTEGER,
+                source_type TEXT NOT NULL,
+                result_count INTEGER NOT NULL,
+                accepted_count INTEGER NOT NULL,
+                rejected_count INTEGER NOT NULL,
+                summary_json TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS experimental_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id INTEGER NOT NULL,
+                project_id INTEGER,
+                validation_plan_id INTEGER,
+                compound_name TEXT,
+                smiles TEXT,
+                canonical_smiles TEXT,
+                assay_name TEXT NOT NULL,
+                assay_category TEXT NOT NULL,
+                measured_value TEXT,
+                measurement_unit TEXT,
+                qualitative_result TEXT,
+                result_direction TEXT NOT NULL,
+                replicate_count INTEGER,
+                notes TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(batch_id) REFERENCES experimental_result_batches(id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS prediction_feedback_summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER,
+                result_batch_id INTEGER NOT NULL,
+                linked_model_id TEXT,
+                linked_prioritization_run_id INTEGER,
+                linked_validation_plan_id INTEGER,
+                feedback_summary_json TEXT NOT NULL,
+                agreement_summary_json TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(result_batch_id) REFERENCES experimental_result_batches(id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS final_project_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER,
+                report_title TEXT NOT NULL,
+                included_sections_json TEXT NOT NULL,
+                summary_json TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                files_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
 
 
 
