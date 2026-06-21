@@ -7,7 +7,9 @@ import {
   FileJson,
   FileText,
   FlaskConical,
+  FolderPlus,
   History,
+  PlayCircle,
   Search,
   Settings,
   ShieldCheck,
@@ -535,6 +537,10 @@ export default function App() {
   const [finalReportResult, setFinalReportResult] = useState(null);
   const [finalReports, setFinalReports] = useState([]);
   const [finalReportLoading, setFinalReportLoading] = useState(false);
+  const [guidedDemoResult, setGuidedDemoResult] = useState(null);
+  const [guidedDemoStatus, setGuidedDemoStatus] = useState(null);
+  const [guidedDemoLoading, setGuidedDemoLoading] = useState(false);
+  const [guidedDemoTitle, setGuidedDemoTitle] = useState("DrugScreen360 Demo Project");
   const [projects, setProjects] = useState([]);
   const [activeProjectOptions, setActiveProjectOptions] = useState([]);
   const [activeProjectId, setActiveProjectId] = useState(() => localStorage.getItem("drugscreen360-active-project-id") || "");
@@ -1002,6 +1008,79 @@ export default function App() {
 
   function downloadFinalReport(reportItem, format) {
     const url = reportItem?.generated_files?.[format];
+    if (url) window.location.href = `${API_ROOT}${url}`;
+  }
+
+  async function createGuidedDemoProject() {
+    setGuidedDemoLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`${API_BASE}/demo-workflow/create-project`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not create demo project.");
+      setGuidedDemoResult(data);
+      setGuidedDemoStatus(null);
+      await loadProjects();
+      await loadActiveProjectOptions();
+      setActiveProjectId(String(data.demo_project_id));
+      setActiveProjectNotice(`Active Project: ${data.project_title}`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGuidedDemoLoading(false);
+    }
+  }
+
+  async function runGuidedDemoWorkflow() {
+    setGuidedDemoLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`${API_BASE}/demo-workflow/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_title: guidedDemoTitle.trim() || "DrugScreen360 Demo Project",
+          include_screening: true,
+          include_lead_prioritization: true,
+          include_validation_plan: true,
+          include_experimental_feedback: true,
+          include_final_report: true,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not run guided demo workflow.");
+      setGuidedDemoResult(data);
+      setGuidedDemoStatus(null);
+      await Promise.all([loadProjects(), loadActiveProjectOptions(), loadFinalReports(), loadResearchExports()]);
+      setActiveProjectId(String(data.demo_project_id));
+      setActiveProjectNotice(`Active Project: ${data.project_title}`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGuidedDemoLoading(false);
+    }
+  }
+
+  async function loadGuidedDemoStatus(projectId = guidedDemoResult?.demo_project_id || activeProjectId) {
+    if (!projectId) {
+      setError("Create or select a demo project before checking guided demo status.");
+      return;
+    }
+    setGuidedDemoLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`${API_BASE}/demo-workflow/status/${projectId}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load guided demo workflow status.");
+      setGuidedDemoStatus(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGuidedDemoLoading(false);
+    }
+  }
+
+  function downloadGuidedDemoArtifact(url) {
     if (url) window.location.href = `${API_ROOT}${url}`;
   }
 
@@ -7093,6 +7172,104 @@ export default function App() {
                 <h3>Active trained model status not loaded yet.</h3>
                 <p>Click Refresh Trained Model Status to inspect active local models.</p>
               </div>
+            )}
+          </Section>
+
+          <Section title="Guided Demo Workflow" icon={PlayCircle} wide>
+            <p className="limitation-label">
+              Demo data is for software demonstration only and must not be interpreted as experimental or clinical evidence.
+              The demo creates labelled project records so you can preview reports and exports without live database preparation.
+            </p>
+            <div className="finder-search">
+              <label>
+                Demo project title
+                <input
+                  value={guidedDemoTitle}
+                  onChange={(event) => setGuidedDemoTitle(event.target.value)}
+                  placeholder="DrugScreen360 Demo Project"
+                />
+              </label>
+            </div>
+            <div className="candidate-actions left-actions">
+              <button onClick={createGuidedDemoProject} disabled={guidedDemoLoading}>
+                <FolderPlus size={18} aria-hidden="true" />
+                {guidedDemoLoading ? "Creating..." : "Create Demo Project"}
+              </button>
+              <button onClick={runGuidedDemoWorkflow} disabled={guidedDemoLoading}>
+                <PlayCircle size={18} aria-hidden="true" />
+                {guidedDemoLoading ? "Running..." : "Run Full Demo Workflow"}
+              </button>
+              <button className="secondary-button" onClick={() => loadGuidedDemoStatus()} disabled={guidedDemoLoading}>
+                Refresh Demo Status
+              </button>
+              {guidedDemoResult?.demo_project_id && (
+                <button className="secondary-button" onClick={() => {
+                  setActiveView("projects");
+                  loadProjectDetail(guidedDemoResult.demo_project_id);
+                }}>
+                  Open Demo Project
+                </button>
+              )}
+            </div>
+            {guidedDemoResult && (
+              <article className="evidence-panel">
+                <div className="status-row">
+                  <h3>{guidedDemoResult.project_title}</h3>
+                  <Badge tone="warn">Demo</Badge>
+                </div>
+                <div className="metric-grid compact-metrics">
+                  <Field label="Demo project ID" value={guidedDemoResult.demo_project_id} />
+                  <Field label="Final report ID" value={guidedDemoResult.final_report_id || "Not generated"} />
+                  <Field label="Research export" value={guidedDemoResult.research_export_available ? "Available" : "Not generated"} />
+                  <Field label="Warnings" value={(guidedDemoResult.warnings || []).join("; ") || "None"} />
+                </div>
+                <h4>Workflow progress</h4>
+                <div className="qa-list">
+                  {(guidedDemoResult.workflow_steps || []).map((step) => (
+                    <article className="qa-item" key={step.step_id}>
+                      <span>{step.label || step.step_id}</span>
+                      <Badge tone={step.status === "completed" ? "good" : step.status === "warning" ? "warn" : "neutral"}>{step.status}</Badge>
+                    </article>
+                  ))}
+                </div>
+                <div className="candidate-actions left-actions">
+                  {guidedDemoResult.download_links?.json && (
+                    <button className="small-button" onClick={() => downloadGuidedDemoArtifact(guidedDemoResult.download_links.json)}>Final JSON</button>
+                  )}
+                  {guidedDemoResult.download_links?.pdf && (
+                    <button className="small-button" onClick={() => downloadGuidedDemoArtifact(guidedDemoResult.download_links.pdf)}>Final PDF</button>
+                  )}
+                  {guidedDemoResult.download_links?.docx && (
+                    <button className="small-button" onClick={() => downloadGuidedDemoArtifact(guidedDemoResult.download_links.docx)}>Final DOCX</button>
+                  )}
+                  {guidedDemoResult.download_links?.research_export_zip && (
+                    <button className="small-button" onClick={() => downloadGuidedDemoArtifact(guidedDemoResult.download_links.research_export_zip)}>Research ZIP</button>
+                  )}
+                </div>
+                <p className="limitation-label">{guidedDemoResult.scientific_notice}</p>
+              </article>
+            )}
+            {guidedDemoStatus && (
+              <article className="evidence-panel">
+                <h3>Demo workflow status</h3>
+                <div className="metric-grid compact-metrics">
+                  <Field label="Completed steps" value={(guidedDemoStatus.completed_steps || []).join(", ") || "None"} />
+                  <Field label="Missing steps" value={(guidedDemoStatus.missing_steps || []).join(", ") || "None"} />
+                  <Field label="Artifacts" value={(guidedDemoStatus.generated_artifacts || []).length} />
+                  <Field label="Warnings" value={(guidedDemoStatus.warnings || []).join("; ") || "None"} />
+                </div>
+                <div className="candidate-actions left-actions">
+                  {guidedDemoStatus.download_links?.final_report_pdf && (
+                    <button className="small-button" onClick={() => downloadGuidedDemoArtifact(guidedDemoStatus.download_links.final_report_pdf)}>Final PDF</button>
+                  )}
+                  {guidedDemoStatus.download_links?.final_report_docx && (
+                    <button className="small-button" onClick={() => downloadGuidedDemoArtifact(guidedDemoStatus.download_links.final_report_docx)}>Final DOCX</button>
+                  )}
+                  {guidedDemoStatus.download_links?.research_export_zip && (
+                    <button className="small-button" onClick={() => downloadGuidedDemoArtifact(guidedDemoStatus.download_links.research_export_zip)}>Research ZIP</button>
+                  )}
+                </div>
+              </article>
             )}
           </Section>
 

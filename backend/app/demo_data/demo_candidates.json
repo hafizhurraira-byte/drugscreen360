@@ -1,0 +1,37 @@
+[
+  {
+    "compound_name": "Aspirin",
+    "compound_id": "DEMO-ASPIRIN",
+    "smiles": "CC(=O)OC1=CC=CC=C1C(=O)O",
+    "demo_mode": true,
+    "demo_label": "Demo data for software demonstration only. Not experimental or clinical evidence."
+  },
+  {
+    "compound_name": "Caffeine",
+    "compound_id": "DEMO-CAFFEINE",
+    "smiles": "CN1C=NC2=C1C(=O)N(C(=O)N2C)C",
+    "demo_mode": true,
+    "demo_label": "Demo data for software demonstration only. Not experimental or clinical evidence."
+  },
+  {
+    "compound_name": "Ibuprofen",
+    "compound_id": "DEMO-IBUPROFEN",
+    "smiles": "CC(C)CC1=CC=C(C=C1)C(C)C(=O)O",
+    "demo_mode": true,
+    "demo_label": "Demo data for software demonstration only. Not experimental or clinical evidence."
+  },
+  {
+    "compound_name": "Acetaminophen",
+    "compound_id": "DEMO-ACETAMINOPHEN",
+    "smiles": "CC(=O)NC1=CC=C(C=C1)O",
+    "demo_mode": true,
+    "demo_label": "Demo data for software demonstration only. Not experimental or clinical evidence."
+  },
+  {
+    "compound_name": "Metformin",
+    "compound_id": "DEMO-METFORMIN",
+    "smiles": "CN(C)C(=N)NC(=N)N",
+    "demo_mode": true,
+    "demo_label": "Demo data for software demonstration only. Not experimental or clinical evidence."
+  }
+]

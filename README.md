@@ -1955,6 +1955,35 @@ Manual testing:
 7. Download JSON, PDF, and DOCX.
 8. Confirm the report contains the required decision-support notice and does not invent experimental data.
 
+## Guided Demo Workflow
+
+Guided Demo Workflow V1 creates a clearly labelled local demo project so DrugScreen360 can be demonstrated without preparing live datasets, trained models, validation plans, or feedback records by hand.
+
+Demo data includes:
+
+- common reference molecules such as Aspirin, Caffeine, Ibuprofen, Acetaminophen, and Metformin
+- demo candidate records attached to a saved project
+- optional lead prioritization, validation planning, demo feedback, final report, and research export artifacts
+- bundled files under `backend/app/demo_data/`
+
+API endpoints:
+
+- `POST /api/demo-workflow/create-project`
+- `POST /api/demo-workflow/run`
+- `GET /api/demo-workflow/status/{project_id}`
+
+Manual testing:
+
+1. Open `System`.
+2. Go to `Guided Demo Workflow`.
+3. Click `Create Demo Project` for a lightweight labelled project, or `Run Full Demo Workflow` to generate the project, demo candidates, lead prioritization, validation plan, demo feedback, final report, and research export.
+4. Open the demo project dashboard.
+5. Download the final JSON/PDF/DOCX report or research ZIP if generated.
+
+Scientific limitation:
+
+Demo data is for software demonstration only and must not be interpreted as experimental or clinical evidence. Demo assay labels and feedback rows are not real wet-lab results. Demo outputs must not be used for scientific conclusions, clinical decisions, regulatory submissions, or market-readiness claims.
+
 ## External ADMET Provider Adapter V1
 
 DrugScreen360 includes a safe external-provider adapter for future real ADMET/toxicity services. By default it is unavailable and no external prediction call is made. The rule-based ADMET/Tox adapter remains the fallback baseline.

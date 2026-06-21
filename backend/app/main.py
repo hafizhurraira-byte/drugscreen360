@@ -15,6 +15,7 @@ from app.routers.admet_validation import router as admet_validation_router
 from app.routers.benchmark import router as benchmark_router
 from app.routers.batch_library import router as batch_library_router
 from app.routers.cache import router as cache_router
+from app.routers.demo_workflow import router as demo_workflow_router
 from app.routers.disease_finder import router as disease_finder_router
 from app.routers.evidence import router as evidence_router
 from app.routers.examples import router as examples_router
@@ -77,6 +78,7 @@ app.include_router(disease_finder_router, prefix="/api")
 app.include_router(evidence_router, prefix="/api")
 app.include_router(project_report_router, prefix="/api")
 app.include_router(cache_router, prefix="/api")
+app.include_router(demo_workflow_router, prefix="/api")
 app.include_router(similarity_router, prefix="/api")
 app.include_router(examples_router, prefix="/api")
 app.include_router(benchmark_router, prefix="/api")
