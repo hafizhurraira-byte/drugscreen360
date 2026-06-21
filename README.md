@@ -1683,6 +1683,106 @@ Generated files:
 
 The generated manifest is designed to be compatible with the Local ADMET Model Validation Wizard, but DrugScreen360 does not automatically activate the trained model for live prediction. A supported local model loader and external scientific validation are still required.
 
+## ADMET Prediction Explainability & Evidence Report
+
+DrugScreen360 can generate an explanation report for a trained local ADMET model prediction.
+
+Endpoint:
+
+```text
+POST /api/admet-explain/prediction
+POST /api/admet-explain/report/create
+GET /api/admet-explain/reports
+GET /api/admet-explain/reports/{report_id}/json
+GET /api/admet-explain/reports/{report_id}/pdf
+GET /api/admet-explain/reports/{report_id}/docx
+```
+
+The explanation uses only available data:
+
+- RDKit descriptor values for the query molecule
+- descriptor ranges and means from the training dataset
+- model-native `feature_importances_` when the estimator provides it
+- linear model coefficients when the estimator provides them
+- applicability-domain status and uncertainty
+- latest external validation summary, if available
+- model card, training summary, and metrics
+
+DrugScreen360 does not invent explanation values. If feature importance, coefficients, applicability-domain data, or external validation are missing, the API and UI show `not available` with a reason.
+
+Feature importance and coefficients are model diagnostics only. They are not biological causality, not mechanism-of-action proof, and not clinical validation.
+
+Evidence strength is conservative and may be:
+
+- `externally_supported`
+- `externally_weak`
+- `strong_internal_only`
+- `moderate_internal_only`
+- `weak_internal`
+- `uncertain`
+- `not_available`
+
+Every explanation is labelled:
+
+```text
+Computational explanation only. Requires experimental and external validation.
+```
+
+Generated files are stored locally under:
+
+```text
+backend/admet_explanation_reports/
+```
+
+This folder is ignored by Git and Docker.
+
+## ADMET Lead Prioritization & Candidate Ranking
+
+DrugScreen360 can rank candidate molecules for follow-up review using only available computational evidence.
+
+Endpoint:
+
+```text
+POST /api/admet-leads/prioritize
+GET /api/admet-leads/runs
+GET /api/admet-leads/runs/{run_id}
+GET /api/admet-leads/runs/{run_id}/csv
+GET /api/admet-leads/runs/{run_id}/report.json
+```
+
+Supported candidate sources:
+
+- manually pasted SMILES
+- active project attached candidate records
+- stored batch upload runs where available
+- workflow candidates that include SMILES metadata
+
+Scoring profiles:
+
+- `balanced_admet`: balanced descriptors, rule-based ADMET/Tox, model/domain evidence, and missing-data penalties
+- `toxicity_avoidance`: stronger penalties for ADMET/Tox and structural-alert concerns
+- `permeability_focused`: stronger penalties for developability/permeability-linked issues
+- `solubility_focused`: stronger penalties for solubility-linked concerns
+- `model_confidence_focused`: stronger penalties for outside-domain, high uncertainty, and weak explainability evidence
+
+Priority labels are deliberately conservative:
+
+- `high_priority_for_review`
+- `medium_priority_for_review`
+- `low_priority_for_review`
+- `deprioritize`
+- `insufficient_data`
+
+The ranking does not create fake scores or fake predictions. If trained-model, applicability-domain, external-validation, or explainability evidence is unavailable, DrugScreen360 records the missing evidence and applies a conservative missing-data penalty.
+
+Required notice:
+
+```text
+Computational prioritization only. Requires experimental validation.
+```
+
+The ranking is not clinical proof, not a safety or efficacy claim, not regulatory approval, and not market readiness.
+
 ## External ADMET Provider Adapter V1
 
 DrugScreen360 includes a safe external-provider adapter for future real ADMET/toxicity services. By default it is unavailable and no external prediction call is made. The rule-based ADMET/Tox adapter remains the fallback baseline.

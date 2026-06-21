@@ -11,6 +11,7 @@ backend/uploads
 backend/reports
 backend/research_exports
 backend/project_workspace_reports
+backend/admet_explanation_reports
 backend/models/admet/trained
 backend/app/uploads
 __pycache__

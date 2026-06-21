@@ -478,6 +478,58 @@ def init_db() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS admet_prediction_explanations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                model_id TEXT NOT NULL,
+                training_run_id INTEGER,
+                smiles TEXT NOT NULL,
+                canonical_smiles TEXT NOT NULL,
+                prediction_summary_json TEXT NOT NULL,
+                explanation_summary_json TEXT NOT NULL,
+                evidence_strength TEXT NOT NULL,
+                domain_status TEXT NOT NULL,
+                uncertainty_level TEXT NOT NULL,
+                report_files_json TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS admet_lead_prioritization_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER,
+                source_type TEXT NOT NULL,
+                candidate_count INTEGER NOT NULL,
+                ranked_count INTEGER NOT NULL,
+                excluded_count INTEGER NOT NULL,
+                scoring_profile TEXT NOT NULL,
+                summary_json TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS admet_lead_prioritization_candidates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL,
+                compound_name TEXT,
+                smiles TEXT NOT NULL,
+                canonical_smiles TEXT NOT NULL,
+                rank INTEGER NOT NULL,
+                priority_label TEXT NOT NULL,
+                score_summary_json TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(run_id) REFERENCES admet_lead_prioritization_runs(id)
+            )
+            """
+        )
 
 
 
