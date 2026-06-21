@@ -1,0 +1,6 @@
+compound_name,smiles,label_value,task_name,source,notes
+Aspirin,CC(=O)OC1=CC=CC=C1C(=O)O,0,demo_toxicity,DrugScreen360 demo,"Demo label for software workflow demonstration only; not a real assay label."
+Caffeine,CN1C=NC2=C1C(=O)N(C(=O)N2C)C,0,demo_toxicity,DrugScreen360 demo,"Demo label for software workflow demonstration only; not a real assay label."
+Ibuprofen,CC(C)CC1=CC=C(C=C1)C(C)C(=O)O,0,demo_toxicity,DrugScreen360 demo,"Demo label for software workflow demonstration only; not a real assay label."
+Acetaminophen,CC(=O)NC1=CC=C(C=C1)O,0,demo_toxicity,DrugScreen360 demo,"Demo label for software workflow demonstration only; not a real assay label."
+Metformin,CN(C)C(=N)NC(=N)N,0,demo_toxicity,DrugScreen360 demo,"Demo label for software workflow demonstration only; not a real assay label."

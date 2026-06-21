@@ -1,0 +1,4 @@
+compound_name,smiles,assay_name,assay_category,measured_value,measurement_unit,qualitative_result,result_direction,replicate_count,notes
+Aspirin,CC(=O)OC1=CC=CC=C1C(=O)O,Demo cytotoxicity follow-up,cytotoxicity,not provided,,Demo favorable placeholder for UI workflow only,favorable,3,"Demo data only; not a real wet-lab result."
+Caffeine,CN1C=NC2=C1C(=O)N(C(=O)N2C)C,Demo solubility follow-up,solubility,not provided,,Demo neutral placeholder for UI workflow only,neutral,3,"Demo data only; not a real wet-lab result."
+Ibuprofen,CC(C)CC1=CC=C(C=C1)C(C)C(=O)O,Demo permeability follow-up,permeability,not provided,,Demo inconclusive placeholder for UI workflow only,inconclusive,2,"Demo data only; not a real wet-lab result."

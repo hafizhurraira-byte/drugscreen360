@@ -322,6 +322,51 @@ def create_research_export(payload: ResearchExportRequest) -> ResearchExportCrea
             if not dashboard.candidate_matrix:
                 warnings.append("Project dashboard did not find candidate-level attached data for a decision matrix.")
             warnings.append("Project-scoped export includes project metadata and attached item list. Older records may not be fully project-linked.")
+            demo_items = [
+                item
+                for item in project_detail.items
+                if (item.metadata or {}).get("demo_mode") or (item.metadata or {}).get("data_source") == "demo" or "demo" in item.item_type
+            ]
+            if demo_items:
+                sections.append("DEMO_WORKFLOW")
+                demo_notice = "Demo data for software demonstration only. Not experimental or clinical evidence."
+                _write_json(
+                    zip_file,
+                    f"{root}/DEMO_WORKFLOW/demo_manifest.json",
+                    {
+                        "project_id": project_detail.id,
+                        "project_title": project_detail.title,
+                        "demo_item_count": len(demo_items),
+                        "demo_items": [item.model_dump() for item in demo_items],
+                        "scientific_notice": demo_notice,
+                    },
+                    manifest,
+                )
+                _write_text(
+                    zip_file,
+                    f"{root}/DEMO_WORKFLOW/demo_disclaimer.md",
+                    f"# Demo Workflow Disclaimer\n\n{demo_notice}\n\nDemo records are not wet-lab evidence, clinical validation, regulatory proof, safety proof, efficacy proof, or market-readiness evidence.\n",
+                    manifest,
+                    "markdown",
+                )
+                _write_json(
+                    zip_file,
+                    f"{root}/DEMO_WORKFLOW/workflow_steps.json",
+                    {
+                        "expected_steps": [
+                            "create_project",
+                            "load_candidates",
+                            "run_screening_demo_evidence",
+                            "prioritize_leads",
+                            "generate_validation_plan",
+                            "add_demo_experimental_feedback",
+                            "generate_final_report",
+                            "create_research_export",
+                        ],
+                        "completed_from_attached_items": [item.item_type for item in project_detail.items],
+                    },
+                    manifest,
+                )
         _write_json(zip_file, f"{root}/MODEL_STATUS.json", model_status, manifest)
         _write_json(zip_file, f"{root}/LOCAL_MODEL_VALIDATION.json", local_validation, manifest)
         

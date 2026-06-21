@@ -265,6 +265,9 @@ def _build_payload(request: FinalProjectReportRequest, created_at: str) -> dict[
     included = [section.section_id for section in sections if section.included]
     missing = [section.section_id for section in sections if not section.included and section.summary.get("status") != "not requested"]
     warnings = list(context.get("warnings") or [])
+    project_items = ((context.get("project") or {}).get("items") or []) if isinstance(context.get("project"), dict) else []
+    if any((item.get("metadata") or {}).get("demo_mode") or (item.get("metadata") or {}).get("data_source") == "demo" or "demo" in str(item.get("item_type", "")) for item in project_items):
+        warnings.append("Demo data for software demonstration only. Not experimental or clinical evidence.")
     for section in sections:
         warnings.extend(section.warnings)
     screening_count = next((section.summary.get("screening_run_count", 0) for section in sections if section.section_id == "screening"), 0)
