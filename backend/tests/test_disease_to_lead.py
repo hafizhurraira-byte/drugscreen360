@@ -140,6 +140,16 @@ def test_disease_to_lead_workflow_success(tmp_path, monkeypatch):
     assert body["validation_plan_id"] is not None
     assert body["planner_status"] == "completed"
     assert body["final_report_id"] is not None
+    report_id = body["final_report_id"]
+    report_json = client.get(f"/api/final-report/reports/{report_id}/json")
+    report_pdf = client.get(f"/api/final-report/reports/{report_id}/pdf")
+    report_docx = client.get(f"/api/final-report/reports/{report_id}/docx")
+    assert report_json.status_code == 200
+    assert report_pdf.status_code == 200
+    assert report_pdf.content.startswith(b"%PDF")
+    assert report_docx.status_code == 200
+    assert report_docx.content[:2] == b"PK"
+    assert "Computational decision-support report only" in str(report_json.json())
     assert DEMO_NOTICE in body["scientific_notice"]
 
 
@@ -247,6 +257,10 @@ def test_disease_to_lead_chembl_500_uses_known_compound_fallback(monkeypatch, tm
     assert body["project_id"] is not None
     assert body["selected_candidates"]
     assert body["selected_candidates"][0]["compound_name"] == "Aspirin"
+    assert body["final_report_id"] is not None
+    assert client.get(f"/api/final-report/reports/{body['final_report_id']}/json").status_code == 200
+    assert client.get(f"/api/final-report/reports/{body['final_report_id']}/pdf").status_code == 200
+    assert client.get(f"/api/final-report/reports/{body['final_report_id']}/docx").status_code == 200
     assert "External candidate discovery is temporarily unavailable" in warnings
     assert "Known compound was used as a fallback starting candidate." in body["warnings"]
     assert "ChEMBL returned HTTP 500" not in warnings
