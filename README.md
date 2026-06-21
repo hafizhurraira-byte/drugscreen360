@@ -1783,6 +1783,65 @@ Computational prioritization only. Requires experimental validation.
 
 The ranking is not clinical proof, not a safety or efficacy claim, not regulatory approval, and not market readiness.
 
+## Experimental Validation Planner & Assay Recommendation
+
+DrugScreen360 can create an experimental validation plan from manual SMILES, lead prioritization runs, or active project candidates. The planner recommends practical follow-up assays based on available descriptors, rule-based ADMET/Tox flags, trained-model/domain/uncertainty evidence when present, explainability evidence strength, and missing-data warnings.
+
+Recommended assay categories may include:
+
+- Cytotoxicity / general cell viability
+- hERG / cardiotoxicity follow-up
+- Ames / genotoxicity follow-up
+- Hepatotoxicity
+- Solubility
+- Caco-2 or PAMPA permeability
+- Microsomal and hepatocyte stability
+- Plasma protein binding
+- CYP inhibition / drug-drug interaction risk
+- Target-specific biochemical and cell-based functional assays when target context exists
+
+Each recommendation includes:
+
+- priority: `essential`, `recommended`, `optional`, or `not_applicable`
+- reason and linked computational evidence
+- suggested readout
+- suggested controls
+- general decision-threshold guidance
+- expected interpretation patterns
+- limitations and safety notes
+
+Required notice:
+
+```text
+Experimental planning support only. Actual assay design must be reviewed by qualified laboratory personnel.
+```
+
+The planner does not perform assays, does not invent assay results, does not define exact protocols, and does not provide medical or regulatory advice. All thresholds, controls, experimental designs, safety procedures, and final interpretations must be reviewed by qualified laboratory personnel.
+
+API endpoints:
+
+- `POST /api/validation-planner/create`
+- `GET /api/validation-planner/plans`
+- `GET /api/validation-planner/plans/{plan_id}`
+- `GET /api/validation-planner/plans/{plan_id}/report.json`
+- `GET /api/validation-planner/plans/{plan_id}/csv`
+
+Project and export integration:
+
+- If an active project is selected, new validation plans are attached automatically.
+- Project dashboards can show validation-plan items.
+- Research Export packages include validation plans under `EXPERIMENTAL_VALIDATION_PLANS/`.
+
+Manual testing:
+
+1. Open `ADMET Data`.
+2. Go to `Experimental Validation Planner`.
+3. Paste Aspirin and Caffeine SMILES or select a recent lead prioritization run.
+4. Create the plan.
+5. Confirm essential/recommended/optional assay recommendations appear.
+6. Download CSV and JSON.
+7. Confirm all text says planning support only and does not show assay results.
+
 ## External ADMET Provider Adapter V1
 
 DrugScreen360 includes a safe external-provider adapter for future real ADMET/toxicity services. By default it is unavailable and no external prediction call is made. The rule-based ADMET/Tox adapter remains the fallback baseline.

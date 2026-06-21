@@ -636,6 +636,20 @@ export default function App() {
   const [leadRuns, setLeadRuns] = useState([]);
   const [leadLoading, setLeadLoading] = useState(false);
   const [leadError, setLeadError] = useState("");
+  const [validationPlanForm, setValidationPlanForm] = useState({
+    source_type: "manual",
+    source_run_id: "",
+    plan_title: "Experimental Validation Plan",
+    manual_smiles_text: "CC(=O)OC1=CC=CC=C1C(=O)O\tAspirin\nCn1cnc2c1c(=O)n(C)c(=O)n2C\tCaffeine",
+    include_toxicity_assays: true,
+    include_adme_assays: true,
+    include_target_assays: true,
+    include_controls: true,
+  });
+  const [validationPlanResult, setValidationPlanResult] = useState(null);
+  const [validationPlans, setValidationPlans] = useState([]);
+  const [validationPlanLoading, setValidationPlanLoading] = useState(false);
+  const [validationPlanError, setValidationPlanError] = useState("");
 
   const synonyms = useMemo(() => {
     const list = report?.compound_identity?.synonyms || [];
@@ -750,6 +764,7 @@ export default function App() {
     loadExternalValidationRuns();
     loadExplanationReports();
     loadLeadRuns();
+    loadValidationPlans();
   }, []);
 
   useEffect(() => {
@@ -1658,6 +1673,64 @@ export default function App() {
       setLeadError(err.message);
     } finally {
       setLeadLoading(false);
+    }
+  }
+
+  async function loadValidationPlans() {
+    try {
+      const response = await fetch(`${API_BASE}/validation-planner/plans`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load validation plans.");
+      setValidationPlans(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function createValidationPlan(event) {
+    if (event) event.preventDefault();
+    if (validationPlanForm.source_type === "manual" && !validationPlanForm.manual_smiles_text.trim()) {
+      setValidationPlanError("Paste at least one SMILES line before creating a validation plan.");
+      return;
+    }
+    if (validationPlanForm.source_type === "active_project" && !activeProjectId) {
+      setValidationPlanError("Select an active project before planning from active project candidates.");
+      return;
+    }
+    setValidationPlanLoading(true);
+    setValidationPlanError("");
+    setValidationPlanResult(null);
+    try {
+      const response = await fetch(`${API_BASE}/validation-planner/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_type: validationPlanForm.source_type,
+          project_id: activeProjectId ? Number(activeProjectId) : null,
+          source_run_id: validationPlanForm.source_type === "lead_prioritization" && validationPlanForm.source_run_id
+            ? Number(validationPlanForm.source_run_id)
+            : null,
+          plan_title: validationPlanForm.plan_title || "Experimental Validation Plan",
+          manual_smiles_text: validationPlanForm.source_type === "manual" ? validationPlanForm.manual_smiles_text : "",
+          include_toxicity_assays: validationPlanForm.include_toxicity_assays,
+          include_adme_assays: validationPlanForm.include_adme_assays,
+          include_target_assays: validationPlanForm.include_target_assays,
+          include_controls: validationPlanForm.include_controls,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Validation plan creation failed.");
+      setValidationPlanResult(data);
+      setActiveProjectNotice(`Created experimental validation plan #${data.plan_id}.`);
+      await loadValidationPlans();
+      await loadDashboardSummary();
+      if (selectedProject?.id && String(selectedProject.id) === String(activeProjectId)) {
+        await loadProjectDetail(selectedProject.id);
+      }
+    } catch (err) {
+      setValidationPlanError(err.message);
+    } finally {
+      setValidationPlanLoading(false);
     }
   }
 
@@ -5136,6 +5209,219 @@ export default function App() {
                             <div className="candidate-actions left-actions">
                               <a className="small-button" href={`${API_BASE}/admet-leads/runs/${run.run_id}/csv`}>CSV</a>
                               <a className="small-button" href={`${API_BASE}/admet-leads/runs/${run.run_id}/report.json`}>JSON</a>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+            )}
+          </Section>
+
+          <Section title="Experimental Validation Planner" icon={FlaskConical} wide>
+            <p className="limitation-label">
+              Experimental planning support only. Actual assay design must be reviewed by qualified laboratory personnel. The plan recommends assays, controls, and decision points; it does not report experimental results.
+            </p>
+            <form className="finder-search" onSubmit={createValidationPlan}>
+              <label>
+                Candidate source
+                <select
+                  value={validationPlanForm.source_type}
+                  onChange={(event) => setValidationPlanForm((current) => ({ ...current, source_type: event.target.value }))}
+                >
+                  <option value="manual">manual SMILES</option>
+                  <option value="lead_prioritization">lead prioritization run</option>
+                  <option value="active_project">active project candidates</option>
+                </select>
+              </label>
+              <label>
+                Plan title
+                <input
+                  value={validationPlanForm.plan_title}
+                  onChange={(event) => setValidationPlanForm((current) => ({ ...current, plan_title: event.target.value }))}
+                />
+              </label>
+              {validationPlanForm.source_type === "lead_prioritization" && (
+                <label>
+                  Lead run
+                  <select
+                    value={validationPlanForm.source_run_id}
+                    onChange={(event) => setValidationPlanForm((current) => ({ ...current, source_run_id: event.target.value }))}
+                  >
+                    <option value="">Latest lead prioritization run</option>
+                    {leadRuns.map((run) => (
+                      <option key={run.run_id} value={run.run_id}>
+                        Run #{run.run_id} - {run.ranked_count} ranked
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {validationPlanForm.source_type === "manual" && (
+                <label className="wide-field">
+                  Candidates
+                  <textarea
+                    rows={6}
+                    value={validationPlanForm.manual_smiles_text}
+                    onChange={(event) => setValidationPlanForm((current) => ({ ...current, manual_smiles_text: event.target.value }))}
+                    placeholder={"SMILES<TAB>Name\nCCO\tEthanol"}
+                  />
+                </label>
+              )}
+              {validationPlanForm.source_type === "active_project" && (
+                <article className="empty-state-card">
+                  <h3>{activeProject ? `Using active project: ${activeProject.title}` : "No active project selected"}</h3>
+                  <p>Candidate-like attached records with SMILES will be converted into experimental planning recommendations where possible.</p>
+                </article>
+              )}
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={validationPlanForm.include_toxicity_assays}
+                  onChange={(event) => setValidationPlanForm((current) => ({ ...current, include_toxicity_assays: event.target.checked }))}
+                />
+                Include toxicity assays
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={validationPlanForm.include_adme_assays}
+                  onChange={(event) => setValidationPlanForm((current) => ({ ...current, include_adme_assays: event.target.checked }))}
+                />
+                Include ADME assays
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={validationPlanForm.include_target_assays}
+                  onChange={(event) => setValidationPlanForm((current) => ({ ...current, include_target_assays: event.target.checked }))}
+                />
+                Include target/functional assays when target context exists
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={validationPlanForm.include_controls}
+                  onChange={(event) => setValidationPlanForm((current) => ({ ...current, include_controls: event.target.checked }))}
+                />
+                Include control and decision guidance
+              </label>
+              <button type="submit" disabled={validationPlanLoading}>
+                {validationPlanLoading ? "Creating plan..." : "Create Validation Plan"}
+              </button>
+              <button type="button" className="secondary-button" onClick={loadValidationPlans}>Refresh Plans</button>
+            </form>
+            {validationPlanError && <p className="warning-text">{validationPlanError}</p>}
+
+            {validationPlanResult && (
+              <article className="evidence-panel" style={{ marginTop: "15px" }}>
+                <div className="summary-grid">
+                  <SummaryCard label="Plan ID" value={validationPlanResult.plan_id} icon={ClipboardList} />
+                  <SummaryCard label="Candidates" value={validationPlanResult.candidate_count} icon={Target} />
+                  <SummaryCard
+                    label="Essential Assays"
+                    value={validationPlanResult.candidate_plans.reduce((count, candidate) => count + (candidate.recommended_assays || []).filter((assay) => assay.recommendation_priority === "essential").length, 0)}
+                    icon={AlertTriangle}
+                  />
+                  <SummaryCard label="Source" value={validationPlanResult.source_type.replaceAll("_", " ")} icon={History} />
+                </div>
+                <div className="candidate-actions left-actions">
+                  <a className="small-button" href={`${API_BASE}/validation-planner/plans/${validationPlanResult.plan_id}/csv`}>Download CSV</a>
+                  <a className="small-button" href={`${API_BASE}/validation-planner/plans/${validationPlanResult.plan_id}/report.json`}>Download JSON Report</a>
+                </div>
+                <div className="responsive-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Compound</th>
+                        <th>Priority</th>
+                        <th>Domain</th>
+                        <th>Uncertainty</th>
+                        <th>Evidence</th>
+                        <th>Essential assays</th>
+                        <th>Recommended assays</th>
+                        <th>Next step</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {validationPlanResult.candidate_plans.map((candidate, index) => (
+                        <tr key={`${candidate.canonical_smiles || candidate.smiles}-${index}`}>
+                          <td>{candidate.compound_name || candidate.compound_id || "Unnamed"}</td>
+                          <td>{candidate.priority_label?.replaceAll("_", " ") || "not available"}</td>
+                          <td>{candidate.domain_status?.replaceAll("_", " ") || "not available"}</td>
+                          <td>{candidate.uncertainty_level || "unknown"}</td>
+                          <td>{candidate.evidence_strength?.replaceAll("_", " ") || "not available"}</td>
+                          <td>{(candidate.recommended_assays || []).filter((assay) => assay.recommendation_priority === "essential").length}</td>
+                          <td>{(candidate.recommended_assays || []).filter((assay) => assay.recommendation_priority === "recommended").length}</td>
+                          <td>{candidate.recommended_next_step}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {validationPlanResult.candidate_plans.map((candidate, index) => (
+                  <details key={`${candidate.canonical_smiles || candidate.smiles}-${index}-plan`} className="evidence-panel" style={{ marginTop: "10px" }}>
+                    <summary>{candidate.compound_name || candidate.canonical_smiles || candidate.smiles} assay plan</summary>
+                    <div className="metric-grid compact-metrics">
+                      <Field label="Canonical SMILES" value={candidate.canonical_smiles || "Not available"} />
+                      <Field label="ADMET concern" value={candidate.rule_based_admet_summary?.concern_level || "Not available"} />
+                      <Field label="Solubility risk" value={candidate.rule_based_admet_summary?.solubility_risk || "Not available"} />
+                      <Field label="Structural alert risk" value={candidate.rule_based_admet_summary?.structural_alert_risk || "Not available"} />
+                    </div>
+                    {(candidate.recommended_assays || []).map((assay) => (
+                      <article className="evidence-panel" key={`${candidate.canonical_smiles}-${assay.assay_name}`}>
+                        <h4>{assay.assay_name}</h4>
+                        <div className="metric-grid compact-metrics">
+                          <Field label="Category" value={assay.assay_category} />
+                          <Field label="Priority" value={assay.recommendation_priority} />
+                          <Field label="Readout" value={assay.suggested_readout} />
+                          <Field label="Controls" value={(assay.suggested_controls || []).join("; ") || "Define with qualified laboratory review"} />
+                        </div>
+                        <p className="limitation-label">{assay.reason}</p>
+                        <p className="limitation-label">{assay.decision_threshold_guidance}</p>
+                        <p className="warning-text">{assay.safety_note}</p>
+                      </article>
+                    ))}
+                  </details>
+                ))}
+                {(validationPlanResult.overall_recommendations || []).map((item) => <p className="limitation-label" key={item}>{item}</p>)}
+                {(validationPlanResult.warnings || []).map((warning) => <p className="warning-text" key={warning}>{warning}</p>)}
+                {(validationPlanResult.limitations || []).map((limitation) => <p className="limitation-label" key={limitation}>{limitation}</p>)}
+                <p className="limitation-label">{validationPlanResult.scientific_notice}</p>
+              </article>
+            )}
+
+            {validationPlans.length > 0 && (
+              <article className="evidence-panel" style={{ marginTop: "15px" }}>
+                <h3>Recent Validation Plans</h3>
+                <div className="responsive-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Plan</th>
+                        <th>Title</th>
+                        <th>Source</th>
+                        <th>Candidates</th>
+                        <th>Essential</th>
+                        <th>Recommended</th>
+                        <th>Exports</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {validationPlans.slice(0, 8).map((plan) => (
+                        <tr key={plan.plan_id}>
+                          <td>{plan.plan_id}</td>
+                          <td>{plan.plan_title}</td>
+                          <td>{plan.source_type.replaceAll("_", " ")}</td>
+                          <td>{plan.candidate_count}</td>
+                          <td>{plan.essential_assay_count}</td>
+                          <td>{plan.recommended_assay_count}</td>
+                          <td>
+                            <div className="candidate-actions left-actions">
+                              <a className="small-button" href={`${API_BASE}/validation-planner/plans/${plan.plan_id}/csv`}>CSV</a>
+                              <a className="small-button" href={`${API_BASE}/validation-planner/plans/${plan.plan_id}/report.json`}>JSON</a>
                             </div>
                           </td>
                         </tr>
