@@ -107,7 +107,7 @@ def _create_base_project(title: str) -> tuple[int, list[dict[str, Any]], list[di
             target_name="Demo target context",
             project_type="general_research",
             status="active",
-            notes=f"{DEMO_SCIENTIFIC_NOTICE} Demo records should not be interpreted as real experimental evidence.",
+            notes=f"{DEMO_SCIENTIFIC_NOTICE} Demo records should not be interpreted as user-provided laboratory evidence.",
         )
     )
     created_items = []

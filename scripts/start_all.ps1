@@ -7,6 +7,14 @@ $FrontendScript = Join-Path $PSScriptRoot "start_frontend.ps1"
 Write-Host ""
 Write-Host "Opening DrugScreen360 backend and frontend in separate PowerShell windows..." -ForegroundColor Cyan
 
+if (-not (Test-Path $BackendScript)) {
+    throw "Missing backend start script: $BackendScript"
+}
+
+if (-not (Test-Path $FrontendScript)) {
+    throw "Missing frontend start script: $FrontendScript"
+}
+
 Start-Process powershell -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-File", "`"$BackendScript`"" -WorkingDirectory $ProjectRoot
 Start-Sleep -Seconds 2
 Start-Process powershell -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-File", "`"$FrontendScript`"" -WorkingDirectory $ProjectRoot

@@ -507,6 +507,7 @@ export default function App() {
   const [localModelValidation, setLocalModelValidation] = useState(null);
   const [localModelValidationLoading, setLocalModelValidationLoading] = useState(false);
   const [systemHealth, setSystemHealth] = useState(null);
+  const [releaseHealth, setReleaseHealth] = useState(null);
   const [systemHealthLoading, setSystemHealthLoading] = useState(false);
   const [researchExportTitle, setResearchExportTitle] = useState("");
   const [researchExportNotes, setResearchExportNotes] = useState("");
@@ -890,10 +891,16 @@ export default function App() {
   async function loadSystemHealth() {
     setSystemHealthLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/health`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Could not load backend health.");
+      const [healthResponse, releaseResponse] = await Promise.all([
+        fetch(`${API_BASE}/health`),
+        fetch(`${API_BASE}/system/release-health`),
+      ]);
+      const data = await healthResponse.json();
+      const releaseData = await releaseResponse.json();
+      if (!healthResponse.ok) throw new Error(data.detail || "Could not load backend health.");
+      if (!releaseResponse.ok) throw new Error(releaseData.detail || "Could not load release health.");
       setSystemHealth({ reachable: true, ...data });
+      setReleaseHealth(releaseData);
     } catch (err) {
       setSystemHealth({
         reachable: false,
@@ -901,6 +908,7 @@ export default function App() {
         message: err.message,
         timestamp: new Date().toISOString(),
       });
+      setReleaseHealth(null);
     } finally {
       setSystemHealthLoading(false);
     }
@@ -4365,7 +4373,7 @@ export default function App() {
 
           <Section title="Model Training" icon={ShieldCheck} wide>
             <p className="limitation-label">
-              Experimental model trained from uploaded dataset only. Not clinically validated. No fake labels or predictions are generated.
+              Experimental model trained from uploaded dataset only. Not validated for clinical use. No fake labels or predictions are generated.
             </p>
             <form className="finder-search" onSubmit={trainAdmetModel}>
               <label>
@@ -6979,6 +6987,25 @@ export default function App() {
                 <Field label="Model registry" value={systemHealth?.model_registry ? `${systemHealth.model_registry.available_count} available / ${systemHealth.model_registry.unavailable_count} unavailable` : "Not checked"} />
               </div>
               {systemHealth?.message && <p className="limitation-label">{systemHealth.message}</p>}
+            </article>
+            <article className="evidence-panel">
+              <div className="status-row">
+                <h3>MVP Release Health</h3>
+                <Badge tone={releaseHealth?.database_ok && systemHealth?.reachable ? "good" : "warn"}>
+                  {releaseHealth?.mvp_status || "Not checked"}
+                </Badge>
+              </div>
+              <div className="metric-grid compact-metrics">
+                <Field label="Backend connected" value={systemHealth?.reachable ? "yes" : "no"} />
+                <Field label="Database ready" value={releaseHealth?.database_ok == null ? "Not checked" : releaseHealth.database_ok ? "yes" : "no"} />
+                <Field label="Demo workflow" value={releaseHealth?.demo_available ? "available" : "Not checked"} />
+                <Field label="Final reports" value={releaseHealth?.report_generation_available ? "available" : "Not checked"} />
+                <Field label="Research export" value={releaseHealth?.research_export_available ? "available" : "Not checked"} />
+                <Field label="Major modules enabled" value={releaseHealth?.major_module_count ?? "Not checked"} />
+              </div>
+              <p className="limitation-label">
+                {releaseHealth?.scientific_notice || "Refresh System Health to load the release readiness summary."}
+              </p>
             </article>
             {cacheStats ? (
               <>
