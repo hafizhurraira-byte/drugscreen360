@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from xml.sax.saxutils import escape
 
 from docx import Document
 from fastapi import HTTPException
@@ -53,6 +54,32 @@ def _safe(value: Any) -> str:
     if isinstance(value, (dict, list)):
         return json.dumps(value, default=str)[:900]
     return str(value)
+
+
+def _text(value: Any, max_len: int = 240) -> str:
+    if value in (None, "", [], {}):
+        return "not available"
+    if isinstance(value, bool):
+        return "Pass" if value else "Fail"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, list):
+        value = "; ".join(str(item) for item in value if item not in (None, "", [], {}))
+    elif isinstance(value, dict):
+        parts = []
+        for key, item in value.items():
+            if item not in (None, "", [], {}):
+                parts.append(f"{str(key).replace('_', ' ')}: {item}")
+        value = "; ".join(parts)
+    value = str(value).replace("\n", " ").strip()
+    return value[:max_len] + ("..." if len(value) > max_len else "")
+
+
+def _first_available(*values: Any) -> Any:
+    for value in values:
+        if value not in (None, "", [], {}, "not available", "not evaluated"):
+            return value
+    return None
 
 
 def _rows(table: str, project_id: int | None = None, limit: int = 100) -> list[dict[str, Any]]:
@@ -419,6 +446,24 @@ def _build_payload(request: FinalProjectReportRequest, created_at: str) -> dict[
         warnings.append("Demo data for software demonstration only. Not experimental or clinical evidence.")
     for section in sections:
         warnings.extend(section.warnings)
+    active_model = get_active_trained_model_info()
+    evidence_missing = []
+    by_id = {section.section_id: section for section in sections}
+    if request.include_admet_prediction and not active_model:
+        evidence_missing.append("active_trained_model")
+        warnings.append("No active trained ADMET model was available for this report.")
+    external_section = by_id.get("external_validation")
+    if request.include_external_validation and not (external_section and external_section.summary.get("external_validation_run_count", 0)):
+        evidence_missing.append("external_validation")
+        warnings.append("External validation/calibration was not available for this project.")
+    feedback_section = by_id.get("experimental_feedback")
+    if request.include_experimental_feedback and not (feedback_section and feedback_section.summary.get("result_batch_count", 0)):
+        evidence_missing.append("experimental_feedback")
+        warnings.append("No user-entered experimental results were imported. Experimental feedback comparison was not performed.")
+    validation_section = by_id.get("validation_planner")
+    if request.include_validation_planner and not (validation_section and validation_section.summary.get("validation_plan_count", 0)):
+        evidence_missing.append("validation_planner")
+    missing = list(dict.fromkeys([*missing, *evidence_missing]))
     screening_count = next((section.summary.get("screening_run_count", 0) for section in sections if section.section_id == "screening"), 0)
     lead_top = next((section.summary.get("top_candidates", []) for section in sections if section.section_id == "lead_prioritization"), [])
     dashboard = context.get("dashboard") or {}
@@ -441,6 +486,7 @@ def _build_payload(request: FinalProjectReportRequest, created_at: str) -> dict[
         main_warnings=list(dict.fromkeys(warnings))[:20],
         next_recommended_steps=next_steps,
     )
+    concise = _concise_report(request, context, sections, created_at)
     return {
         "report_title": request.report_title,
         "project_id": request.project_id,
@@ -448,6 +494,7 @@ def _build_payload(request: FinalProjectReportRequest, created_at: str) -> dict[
         "app_version": app_version(),
         "scientific_notice": SCIENTIFIC_NOTICE,
         "executive_summary": summary.model_dump(),
+        "concise_report": concise,
         "project_context": context,
         "sections": [section.model_dump() for section in sections],
         "included_sections": included,
@@ -466,7 +513,8 @@ def _build_payload(request: FinalProjectReportRequest, created_at: str) -> dict[
 
 
 def _pdf_table(rows: list[list[str]], widths: list[float] | None = None) -> Table:
-    table = Table(rows, colWidths=widths or [2.0 * inch, 4.6 * inch], repeatRows=1 if len(rows) > 1 else 0)
+    wrapped_rows = [[Paragraph(escape(_text(cell, 500)), getSampleStyleSheet()["BodyText"]) for cell in row] for row in rows]
+    table = Table(wrapped_rows, colWidths=widths or [2.0 * inch, 4.6 * inch], repeatRows=1 if len(rows) > 1 else 0)
     table.setStyle(
         TableStyle(
             [
@@ -483,31 +531,268 @@ def _pdf_table(rows: list[list[str]], widths: list[float] | None = None) -> Tabl
 
 
 def _pairs(mapping: dict[str, Any]) -> list[list[str]]:
-    return [["Field", "Value"], *[[key.replace("_", " ").title(), _safe(value)] for key, value in mapping.items()]]
+    return [["Field", "Value"], *[[key.replace("_", " ").title(), _text(value, 700)] for key, value in mapping.items()]]
+
+
+def _docx_table(document, headers: list[str], rows: list[list[Any]]) -> None:
+    table = document.add_table(rows=1, cols=len(headers))
+    table.style = "Table Grid"
+    for idx, header in enumerate(headers):
+        table.rows[0].cells[idx].text = _text(header, 120)
+    for row in rows:
+        cells = table.add_row().cells
+        for idx, value in enumerate(row[: len(headers)]):
+            cells[idx].text = _text(value, 700)
+    document.add_paragraph("")
+
+
+def _project_items(context: dict[str, Any]) -> list[dict[str, Any]]:
+    project = context.get("project") if isinstance(context.get("project"), dict) else {}
+    return list(project.get("items") or [])
+
+
+def _latest_item_of_type(context: dict[str, Any], *item_types: str) -> dict[str, Any] | None:
+    for item in _project_items(context):
+        if item.get("item_type") in item_types:
+            return item
+    return None
+
+
+def _candidate_source_label(context: dict[str, Any]) -> str:
+    items = _project_items(context)
+    text = " ".join(str(item) for item in items).lower()
+    if "demo" in text:
+        return "Demo/local records labelled for software demonstration only."
+    if "known" in text or "fallback" in text:
+        return "Known compound or local fallback data was used where external discovery was unavailable."
+    if any(item.get("item_type") in {"chembl_candidate", "drug_finder_batch"} for item in items):
+        return "External candidate discovery records were attached to this project."
+    return "No candidate discovery source was clearly recorded for this project."
+
+
+def _completion_statuses(sections: list[FinalProjectReportSection], context: dict[str, Any], active_model: Any) -> list[dict[str, str]]:
+    dashboard = context.get("dashboard") or {}
+    item_counts = dashboard.get("item_counts") or {}
+    matrix = dashboard.get("candidate_matrix") or []
+    section_by_id = {section.section_id: section for section in sections}
+    validation = section_by_id.get("validation_planner")
+    feedback = section_by_id.get("experimental_feedback")
+    external = section_by_id.get("external_validation")
+    return [
+        {"step": "Disease/target matching", "status": "Included" if context.get("project") else "Not available", "notes": "Project target context was available." if context.get("project") else "No project context was selected."},
+        {"step": "Candidate discovery/fallback", "status": "Included" if matrix or item_counts else "Not available", "notes": _candidate_source_label(context)},
+        {"step": "Similarity expansion", "status": "Included" if item_counts.get("similarity_analog") or item_counts.get("similarity_batch") else "Not run", "notes": "Similarity records are included only if attached to this project."},
+        {"step": "Screening + ADMET profiling", "status": "Included" if matrix else "Not available", "notes": "Descriptor/rule-based evidence is shown for candidates with saved screening data."},
+        {"step": "Lead prioritization", "status": "Included" if item_counts.get("admet_lead_prioritization") or (section_by_id.get("lead_prioritization") and section_by_id["lead_prioritization"].included) else "Not run", "notes": "Priority labels are conservative computational review labels."},
+        {"step": "Validation planner", "status": "Included" if validation and validation.summary.get("validation_plan_count", 0) else "Not available", "notes": "Planning support only; no assay results are implied."},
+        {"step": "Experimental feedback", "status": "Included" if feedback and feedback.summary.get("result_batch_count", 0) else "Not available", "notes": "No user-entered experimental results were imported." if not (feedback and feedback.summary.get("result_batch_count", 0)) else "User-entered/imported results were found."},
+        {"step": "External validation", "status": "Included" if external and external.summary.get("external_validation_run_count", 0) else "Not available", "notes": "External validation/calibration was not available for this project." if not (external and external.summary.get("external_validation_run_count", 0)) else "External validation records were found."},
+        {"step": "Active trained ADMET model", "status": "Included" if active_model else "Not available", "notes": "No active trained ADMET model was available for this report." if not active_model else "Active trained model metadata was available."},
+        {"step": "Final report", "status": "Included", "notes": "Report generated from available project-scoped data."},
+    ]
+
+
+def _top_candidate_rows(context: dict[str, Any]) -> list[dict[str, Any]]:
+    dashboard = context.get("dashboard") or {}
+    rows = list(dashboard.get("candidate_matrix") or [])
+    if not rows:
+        return []
+    priority_order = {
+        "Strong follow-up candidate": 0,
+        "Reasonable follow-up candidate": 1,
+        "Review with caution": 2,
+        "Insufficient evidence": 3,
+        "Not recommended based on available data": 4,
+    }
+    rows.sort(key=lambda row: (priority_order.get(row.get("decision_label"), 9), len(row.get("missing_data_warnings") or [])))
+    return rows[:5]
+
+
+def _candidate_table_rows(candidates: list[dict[str, Any]]) -> list[list[str]]:
+    rows = [["Rank", "Compound", "Source", "Priority label", "Score", "Lipinski", "Veber", "ADMET concern", "Evidence", "Missing evidence", "Next step"]]
+    for idx, candidate in enumerate(candidates, start=1):
+        missing = candidate.get("missing_data_warnings") or []
+        rows.append([
+            str(idx),
+            _text(candidate.get("candidate_name"), 80),
+            _text(candidate.get("source_workflow"), 70),
+            _text(candidate.get("decision_label"), 80),
+            _text(_first_available(candidate.get("evidence_score"), "not available"), 40),
+            _text(candidate.get("lipinski_status"), 50),
+            _text(candidate.get("veber_status"), 50),
+            _text(candidate.get("admet_risk_summary"), 70),
+            _text(candidate.get("evidence_level"), 70),
+            _text("; ".join(missing[:2]) if missing else "none noted", 140),
+            _text(candidate.get("decision_reason"), 150),
+        ])
+    return rows
+
+
+def _admet_rows(candidates: list[dict[str, Any]]) -> list[list[str]]:
+    rows = [["Compound", "MW", "LogP", "TPSA", "HBD", "HBA", "Rotatable bonds", "Lipinski", "Veber", "Rule-based ADMET concern"]]
+    for candidate in candidates:
+        rows.append([
+            _text(candidate.get("candidate_name"), 80),
+            _text(candidate.get("molecular_weight"), 35),
+            _text(candidate.get("logp"), 35),
+            _text(candidate.get("tpsa"), 35),
+            "not available",
+            "not available",
+            "not available",
+            _text(candidate.get("lipinski_status"), 50),
+            _text(candidate.get("veber_status"), 50),
+            _text(candidate.get("admet_risk_summary"), 70),
+        ])
+    return rows
+
+
+def _top_candidate_explanations(candidates: list[dict[str, Any]]) -> list[str]:
+    explanations = []
+    for candidate in candidates[:5]:
+        name = _text(candidate.get("candidate_name"), 80)
+        label = _text(candidate.get("decision_label"), 80)
+        lipinski = _text(candidate.get("lipinski_status"), 40)
+        veber = _text(candidate.get("veber_status"), 40)
+        admet = _text(candidate.get("admet_risk_summary"), 50)
+        missing = candidate.get("missing_data_warnings") or []
+        missing_text = _text("; ".join(missing[:3]) if missing else "No major missing descriptor fields were flagged in the saved project matrix.", 220)
+        explanations.append(
+            f"{name} was classified as '{label}' using available computational project data. "
+            f"Lipinski status: {lipinski}; Veber status: {veber}; rule-based ADMET concern: {admet}. "
+            f"Missing evidence: {missing_text}. This is not evidence of efficacy against the selected disease or target. "
+            "Experimental validation and expert review are required."
+        )
+    return explanations
+
+
+def _concise_report(request: FinalProjectReportRequest, context: dict[str, Any], sections: list[FinalProjectReportSection], created_at: str) -> dict[str, Any]:
+    project = context.get("project") if isinstance(context.get("project"), dict) else {}
+    active_model = get_active_trained_model_info()
+    top_candidates = _top_candidate_rows(context)
+    latest_candidate = top_candidates[0] if top_candidates else {}
+    validation_section = next((section for section in sections if section.section_id == "validation_planner"), None)
+    feedback_section = next((section for section in sections if section.section_id == "experimental_feedback"), None)
+    external_section = next((section for section in sections if section.section_id == "external_validation"), None)
+    known_item = _latest_item_of_type(context, "chembl_candidate", "screening", "drug_finder_batch", "similarity_batch", "batch_screening")
+    known_metadata = known_item.get("metadata") if known_item else {}
+    workflow_inputs = {
+        "Disease": project.get("disease_area") or "not available",
+        "Target": project.get("target_name") or "not available",
+        "Known compound": known_metadata.get("compound_name") or known_metadata.get("candidate_name") or "not available",
+        "Candidate limit": known_metadata.get("candidate_limit") or "not available",
+        "Similarity limit": known_metadata.get("similarity_limit") or "not available",
+        "Analysis depth": known_metadata.get("analysis_depth") or "not available",
+        "Project ID": request.project_id or "not available",
+        "Data source status": _candidate_source_label(context),
+    }
+    missing_evidence = []
+    if not active_model:
+        missing_evidence.append("No active trained ADMET model was available for this report.")
+    if not (external_section and external_section.summary.get("external_validation_run_count", 0)):
+        missing_evidence.append("External validation/calibration was not available for this project.")
+    if not (feedback_section and feedback_section.summary.get("result_batch_count", 0)):
+        missing_evidence.append("No user-entered experimental results were imported. Experimental feedback comparison was not performed.")
+    if not top_candidates:
+        missing_evidence.append("No project-scoped candidate matrix rows were available.")
+    validation_summary = {
+        "essential_assay_count": (validation_section.summary.get("essential_assay_count", 0) if validation_section else 0),
+        "recommended_assay_count": (validation_section.summary.get("recommended_assay_count", 0) if validation_section else 0),
+        "optional_assay_count": (validation_section.summary.get("optional_assay_count", 0) if validation_section else 0),
+        "top_recommended_assays": ["Review validation planner output for project-specific assays."] if validation_section and validation_section.summary.get("validation_plan_count", 0) else [],
+        "notice": "Experimental planning support only. Actual assay design must be reviewed by qualified laboratory personnel.",
+    }
+    next_steps = list((context.get("dashboard") or {}).get("recommended_next_steps") or [])
+    if not next_steps:
+        next_steps = [
+            "Validate top candidates experimentally using qualified laboratory protocols.",
+            "Confirm target relevance with literature and expert review.",
+            "Run real ADMET assays and import experimental feedback after testing.",
+            "Re-run this report after real validation data are added.",
+        ]
+    return {
+        "title_page": {
+            "report_title": request.report_title,
+            "project_name": project.get("title") or "not available",
+            "disease": workflow_inputs["Disease"],
+            "target": workflow_inputs["Target"],
+            "known_compound": workflow_inputs["Known compound"],
+            "generated_date": created_at,
+            "scientific_disclaimer": SCIENTIFIC_NOTICE,
+        },
+        "executive_summary_bullets": [
+            f"Analyzed project: {project.get('title') or 'not available'}; disease: {workflow_inputs['Disease']}; target: {workflow_inputs['Target']}.",
+            f"Candidate rows evaluated in this project report: {len((context.get('dashboard') or {}).get('candidate_matrix') or [])}.",
+            f"Top candidate for review: {_text(latest_candidate.get('candidate_name') if latest_candidate else None)}.",
+            f"Main computational finding: {_text(latest_candidate.get('decision_reason') if latest_candidate else 'Candidate-level evidence was limited or unavailable.', 260)}",
+            f"Main missing evidence: {_text('; '.join(missing_evidence), 320)}",
+            f"Recommended next step: {_text(next_steps[0] if next_steps else None, 220)}",
+        ],
+        "workflow_input_summary": workflow_inputs,
+        "workflow_completion_summary": _completion_statuses(sections, context, active_model),
+        "candidate_discovery_summary": {
+            "source_status": _candidate_source_label(context),
+            "friendly_warning": "External candidate discovery may be unavailable; known/local fallback data can be used where clearly labelled.",
+        },
+        "top_candidate_table": _candidate_table_rows(top_candidates),
+        "top_candidate_explanations": _top_candidate_explanations(top_candidates),
+        "admet_descriptor_summary": _admet_rows(top_candidates),
+        "model_evidence_summary": {
+            "status": "available" if active_model else "not available",
+            "message": "Active trained model evidence was available." if active_model else "No active trained ADMET model was available for this report. Trained model evidence was not available; rule-based descriptor evidence was used.",
+        },
+        "external_validation_summary": {
+            "status": "available" if external_section and external_section.summary.get("external_validation_run_count", 0) else "not available",
+            "message": "External validation/calibration was not available for this project." if not (external_section and external_section.summary.get("external_validation_run_count", 0)) else "External validation records were available.",
+        },
+        "experimental_feedback_summary": {
+            "status": "available" if feedback_section and feedback_section.summary.get("result_batch_count", 0) else "not available",
+            "message": "No user-entered experimental results were imported. Experimental feedback comparison was not performed." if not (feedback_section and feedback_section.summary.get("result_batch_count", 0)) else "User-entered/imported experimental feedback records were available.",
+        },
+        "validation_planner_summary": validation_summary,
+        "final_limitations": FINAL_LIMITATIONS,
+        "recommended_next_steps": next_steps,
+    }
 
 
 def _build_pdf(payload: dict[str, Any]) -> bytes:
     buffer = BytesIO()
     styles = getSampleStyleSheet()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=0.45 * inch, leftMargin=0.45 * inch)
-    story = [Paragraph(payload["report_title"], styles["Title"]), Paragraph(payload["scientific_notice"], styles["BodyText"]), Spacer(1, 10)]
+    concise = payload["concise_report"]
+    title = concise["title_page"]
+    story = [Paragraph(escape(payload["report_title"]), styles["Title"]), Paragraph(escape(payload["scientific_notice"]), styles["BodyText"]), Spacer(1, 10)]
+    story.append(Paragraph("Title Page", styles["Heading2"]))
+    story.append(_pdf_table(_pairs(title)))
     story.append(Paragraph("Executive Summary", styles["Heading2"]))
-    story.append(_pdf_table(_pairs(payload["executive_summary"])))
-    for section in payload["sections"]:
-        story.append(Paragraph(section["title"], styles["Heading2"]))
-        if section["included"]:
-            story.append(_pdf_table(_pairs(section.get("summary") or {})))
-            story.append(Paragraph(f"Stored records summarized: {len(section.get('records') or [])}", styles["BodyText"]))
-        else:
-            story.append(Paragraph("No stored data available for this section, or the section was not requested.", styles["BodyText"]))
-        for warning in section.get("warnings") or []:
-            story.append(Paragraph(f"- {warning}", styles["BodyText"]))
+    for bullet in concise["executive_summary_bullets"]:
+        story.append(Paragraph(f"- {escape(_text(bullet, 650))}", styles["BodyText"]))
+    story.append(Paragraph("Workflow Input Summary", styles["Heading2"]))
+    story.append(_pdf_table(_pairs(concise["workflow_input_summary"])))
+    story.append(Paragraph("Workflow Completion Summary", styles["Heading2"]))
+    story.append(_pdf_table([["Step", "Status", "Notes"], *[[row["step"], row["status"], row["notes"]] for row in concise["workflow_completion_summary"]]], [1.55 * inch, 1.0 * inch, 4.0 * inch]))
+    story.append(Paragraph("Candidate Discovery Summary", styles["Heading2"]))
+    story.append(_pdf_table(_pairs(concise["candidate_discovery_summary"])))
+    story.append(Paragraph("Top Candidate Table", styles["Heading2"]))
+    story.append(_pdf_table(concise["top_candidate_table"], [0.35 * inch, 0.9 * inch, 0.7 * inch, 0.85 * inch, 0.45 * inch, 0.55 * inch, 0.55 * inch, 0.75 * inch, 0.65 * inch, 0.85 * inch, 0.9 * inch]))
+    story.append(Paragraph("Top Candidate Explanation", styles["Heading2"]))
+    for explanation in concise["top_candidate_explanations"] or ["No project-scoped top candidate was available."]:
+        story.append(Paragraph(f"- {escape(_text(explanation, 900))}", styles["BodyText"]))
+    story.append(Paragraph("ADMET & Drug-Likeness Summary", styles["Heading2"]))
+    story.append(_pdf_table(concise["admet_descriptor_summary"], [0.9 * inch, 0.45 * inch, 0.45 * inch, 0.45 * inch, 0.45 * inch, 0.45 * inch, 0.65 * inch, 0.65 * inch, 0.55 * inch, 1.0 * inch]))
+    story.append(Paragraph("Model Evidence Summary", styles["Heading2"]))
+    story.append(_pdf_table(_pairs(concise["model_evidence_summary"])))
+    story.append(Paragraph("External Validation Summary", styles["Heading2"]))
+    story.append(_pdf_table(_pairs(concise["external_validation_summary"])))
+    story.append(Paragraph("Experimental Feedback Summary", styles["Heading2"]))
+    story.append(_pdf_table(_pairs(concise["experimental_feedback_summary"])))
+    story.append(Paragraph("Validation Planner Summary", styles["Heading2"]))
+    story.append(_pdf_table(_pairs(concise["validation_planner_summary"])))
     story.append(Paragraph("Final Limitations", styles["Heading2"]))
     for item in payload["final_limitations"]:
-        story.append(Paragraph(f"- {item}", styles["BodyText"]))
+        story.append(Paragraph(f"- {escape(_text(item, 700))}", styles["BodyText"]))
     story.append(Paragraph("Recommended Next Steps", styles["Heading2"]))
-    for item in payload["executive_summary"].get("next_recommended_steps") or []:
-        story.append(Paragraph(f"- {item}", styles["BodyText"]))
+    for item in concise["recommended_next_steps"]:
+        story.append(Paragraph(f"- {escape(_text(item, 700))}", styles["BodyText"]))
     story.append(Paragraph("Reproducibility", styles["Heading2"]))
     story.append(_pdf_table(_pairs(payload["reproducibility"])))
     doc.build(story)
@@ -516,26 +801,41 @@ def _build_pdf(payload: dict[str, Any]) -> bytes:
 
 def _build_docx(payload: dict[str, Any]) -> bytes:
     document = Document()
+    concise = payload["concise_report"]
+    title = concise["title_page"]
     document.add_heading(payload["report_title"], 0)
     document.add_paragraph(payload["scientific_notice"])
+    document.add_heading("Title Page", level=1)
+    _docx_table(document, ["Field", "Value"], [[key.replace("_", " ").title(), _text(value)] for key, value in title.items()])
     document.add_heading("Executive Summary", level=1)
-    for key, value in payload["executive_summary"].items():
-        document.add_paragraph(f"{key.replace('_', ' ').title()}: {_safe(value)}")
-    for section in payload["sections"]:
-        document.add_heading(section["title"], level=1)
-        if section["included"]:
-            for key, value in (section.get("summary") or {}).items():
-                document.add_paragraph(f"{key.replace('_', ' ').title()}: {_safe(value)}")
-            document.add_paragraph(f"Stored records summarized: {len(section.get('records') or [])}")
-        else:
-            document.add_paragraph("No stored data available for this section, or the section was not requested.")
-        for warning in section.get("warnings") or []:
-            document.add_paragraph(warning, style="List Bullet")
+    for bullet in concise["executive_summary_bullets"]:
+        document.add_paragraph(_text(bullet, 800), style="List Bullet")
+    document.add_heading("Workflow Input Summary", level=1)
+    _docx_table(document, ["Field", "Value"], [[key, _text(value)] for key, value in concise["workflow_input_summary"].items()])
+    document.add_heading("Workflow Completion Summary", level=1)
+    _docx_table(document, ["Step", "Status", "Notes"], [[row["step"], row["status"], row["notes"]] for row in concise["workflow_completion_summary"]])
+    document.add_heading("Candidate Discovery Summary", level=1)
+    _docx_table(document, ["Field", "Value"], [[key.replace("_", " ").title(), _text(value)] for key, value in concise["candidate_discovery_summary"].items()])
+    document.add_heading("Top Candidate Table", level=1)
+    _docx_table(document, concise["top_candidate_table"][0], concise["top_candidate_table"][1:])
+    document.add_heading("Top Candidate Explanation", level=1)
+    for explanation in concise["top_candidate_explanations"] or ["No project-scoped top candidate was available."]:
+        document.add_paragraph(_text(explanation, 1000), style="List Bullet")
+    document.add_heading("ADMET & Drug-Likeness Summary", level=1)
+    _docx_table(document, concise["admet_descriptor_summary"][0], concise["admet_descriptor_summary"][1:])
+    document.add_heading("Model Evidence Summary", level=1)
+    _docx_table(document, ["Field", "Value"], [[key.replace("_", " ").title(), _text(value)] for key, value in concise["model_evidence_summary"].items()])
+    document.add_heading("External Validation Summary", level=1)
+    _docx_table(document, ["Field", "Value"], [[key.replace("_", " ").title(), _text(value)] for key, value in concise["external_validation_summary"].items()])
+    document.add_heading("Experimental Feedback Summary", level=1)
+    _docx_table(document, ["Field", "Value"], [[key.replace("_", " ").title(), _text(value)] for key, value in concise["experimental_feedback_summary"].items()])
+    document.add_heading("Validation Planner Summary", level=1)
+    _docx_table(document, ["Field", "Value"], [[key.replace("_", " ").title(), _text(value)] for key, value in concise["validation_planner_summary"].items()])
     document.add_heading("Final Limitations", level=1)
     for item in payload["final_limitations"]:
         document.add_paragraph(item, style="List Bullet")
     document.add_heading("Recommended Next Steps", level=1)
-    for item in payload["executive_summary"].get("next_recommended_steps") or []:
+    for item in concise["recommended_next_steps"]:
         document.add_paragraph(item, style="List Bullet")
     document.add_heading("Reproducibility", level=1)
     for key, value in payload["reproducibility"].items():
@@ -546,6 +846,8 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
 
 
 def _save_report(request: FinalProjectReportRequest, payload: dict[str, Any], files: dict[str, str]) -> int:
+    summary_record = dict(payload["executive_summary"])
+    summary_record["missing_sections"] = payload["missing_sections"]
     init_db()
     with get_connection() as connection:
         cursor = connection.execute(
@@ -560,7 +862,7 @@ def _save_report(request: FinalProjectReportRequest, payload: dict[str, Any], fi
                 request.project_id,
                 request.report_title,
                 json.dumps(payload["included_sections"]),
-                json.dumps(payload["executive_summary"]),
+                json.dumps(summary_record),
                 json.dumps(payload["warnings"]),
                 json.dumps(files),
             ),
@@ -644,7 +946,7 @@ def get_final_project_report(report_id: int) -> FinalProjectReportResponse:
         project_id=row["project_id"],
         generated_files={fmt: f"/api/final-report/reports/{row['id']}/{fmt}" for fmt in files},
         included_sections=included,
-        missing_sections=summary.get("main_findings", []),
+        missing_sections=summary.get("missing_sections", []),
         warnings=warnings,
         scientific_notice=SCIENTIFIC_NOTICE,
         created_at=row["created_at"],
