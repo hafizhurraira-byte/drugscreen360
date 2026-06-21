@@ -547,6 +547,34 @@ def create_research_export(payload: ResearchExportRequest) -> ResearchExportCrea
         except Exception as exc:
             warnings.append(f"Could not include ADMET lead prioritization data in export: {exc}")
 
+        # Experimental Validation Planner Export
+        sections.append("EXPERIMENTAL_VALIDATION_PLANS")
+        try:
+            from app.services.validation_planner_service import validation_plan_csv, validation_plan_report_json
+
+            plan_rows = _rows("experimental_validation_plans")
+            _write_text(
+                zip_file,
+                f"{root}/EXPERIMENTAL_VALIDATION_PLANS/limitations.md",
+                "# Experimental Validation Planner Limitations\n\n- Experimental planning support only. Actual assay design must be reviewed by qualified laboratory personnel.\n- Recommended assays are not experimental results.\n- No clinical safety, efficacy, regulatory approval, or market readiness is implied.\n- The planner uses available computational evidence only and does not infer missing data.\n",
+                manifest,
+                "markdown",
+            )
+            _write_text(
+                zip_file,
+                f"{root}/EXPERIMENTAL_VALIDATION_PLANS/safety_notice.md",
+                "# Safety Notice\n\nNo wet-lab experiment has been performed by DrugScreen360. Laboratory work requires qualified personnel, approved SOPs, risk assessment, institutional safety review, and proper controls.\n",
+                manifest,
+                "markdown",
+            )
+            _write_json(zip_file, f"{root}/EXPERIMENTAL_VALIDATION_PLANS/plan_summary.json", plan_rows, manifest)
+            for row in plan_rows:
+                plan_id = row["id"]
+                _write_json(zip_file, f"{root}/EXPERIMENTAL_VALIDATION_PLANS/plans/plan_{plan_id}_report.json", validation_plan_report_json(plan_id), manifest)
+                _write_text(zip_file, f"{root}/EXPERIMENTAL_VALIDATION_PLANS/plans/plan_{plan_id}_assay_recommendations.csv", validation_plan_csv(plan_id), manifest, "csv")
+        except Exception as exc:
+            warnings.append(f"Could not include experimental validation planner data in export: {exc}")
+
         _write_json(zip_file, f"{root}/SCREENING_RESULTS/similarity_search_records.json", similarity_rows, manifest)
         _write_json(zip_file, f"{root}/SCREENING_RESULTS/finder_search_records.json", finder_rows, manifest)
 

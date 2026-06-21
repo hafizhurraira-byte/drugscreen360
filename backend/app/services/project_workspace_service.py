@@ -495,6 +495,9 @@ def _records_for_item(item: ProjectItem) -> list[dict[str, Any]]:
     if item.item_type == "admet_lead_prioritization":
         top_records = _as_list(metadata.get("top_candidates"))
         return [{**_as_dict(record), "source_workflow": item.item_type, "source_id": item.item_id} for record in top_records] or [metadata]
+    if item.item_type == "experimental_validation_plan":
+        plan_records = _as_list(metadata.get("candidate_plans"))
+        return [{**_as_dict(record), "source_workflow": item.item_type, "source_id": item.item_id} for record in plan_records] or [metadata]
     return [metadata]
 
 
@@ -642,6 +645,8 @@ def project_dashboard(project_id: int) -> ProjectDashboardResponse:
         recommended.append("Run or attach candidate screening results with descriptors, ADMET/Tox summaries, and decisions.")
     if high_risk_candidates:
         recommended.append("Review high-risk candidates carefully before considering additional experimental work.")
+    if item_counts.get("experimental_validation_plan"):
+        recommended.append("Review the latest experimental validation plan before scheduling wet-lab work.")
     recommended.append("Confirm all public database and rule-based outputs with qualified expert review.")
     return ProjectDashboardResponse(
         project=detail,

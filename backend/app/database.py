@@ -530,6 +530,37 @@ def init_db() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS experimental_validation_plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER,
+                source_type TEXT NOT NULL,
+                candidate_count INTEGER NOT NULL,
+                plan_title TEXT NOT NULL,
+                summary_json TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS experimental_validation_plan_candidates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plan_id INTEGER NOT NULL,
+                compound_name TEXT,
+                smiles TEXT NOT NULL,
+                canonical_smiles TEXT,
+                priority_label TEXT,
+                recommended_assays_json TEXT NOT NULL,
+                decision_points_json TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(plan_id) REFERENCES experimental_validation_plans(id)
+            )
+            """
+        )
 
 
 
