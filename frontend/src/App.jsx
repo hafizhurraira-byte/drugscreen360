@@ -26,6 +26,7 @@ import {
   defaultQaChecklist,
   exampleGroupCount,
   filterHistoryItems,
+  friendlyApiError,
   projectComparisonToCsv,
   selectedCandidateCount,
   selectBestChemblTarget,
@@ -3168,7 +3169,7 @@ export default function App() {
         });
       }
     } catch (err) {
-      setError(err.message);
+      setError(friendlyApiError(err));
     } finally {
       setLoading(false);
     }

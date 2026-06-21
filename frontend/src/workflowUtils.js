@@ -19,6 +19,14 @@ export function validateScreeningInput(rawInputQuery, selectedInputType) {
   return { ok: true, error: "", query, input_type: selectedInputType };
 }
 
+export function friendlyApiError(error, fallback = "Request failed.") {
+  const message = String(error?.message || error || "");
+  if (/failed to fetch|networkerror|load failed/i.test(message)) {
+    return "Backend is not reachable. Please start the backend server on http://127.0.0.1:8010.";
+  }
+  return message || fallback;
+}
+
 export function candidateKey(candidate) {
   return `${candidate?.molecule_chembl_id || "no-chembl"}::${candidate?.canonical_smiles || "no-smiles"}`;
 }
