@@ -110,7 +110,20 @@ def _screening_section(payload: FinalProjectReportRequest) -> FinalProjectReport
     for row in records:
         decision = row.get("decision") or "not available"
         summary["decisions"][decision] = summary["decisions"].get(decision, 0) + 1
-    return _section("screening", "Molecule Screening Summary", payload.include_screening, records, summary)
+    clean_records = [
+        {
+            "id": r.get("id"),
+            "input_query": r.get("input_query"),
+            "input_type": r.get("input_type"),
+            "compound_name": r.get("compound_name"),
+            "pubchem_cid": r.get("pubchem_cid"),
+            "canonical_smiles": r.get("canonical_smiles"),
+            "decision": r.get("decision"),
+            "created_at": r.get("created_at"),
+        }
+        for r in records
+    ]
+    return _section("screening", "Molecule Screening Summary", payload.include_screening, clean_records, summary)
 
 
 def _training_section(payload: FinalProjectReportRequest) -> FinalProjectReportSection:
@@ -130,7 +143,38 @@ def _training_section(payload: FinalProjectReportRequest) -> FinalProjectReportS
             for row in runs[:5]
         ],
     }
-    return _section("model_training", "ADMET Dataset & Training Summary", payload.include_model_training, datasets + runs, summary)
+    clean_datasets = [
+        {
+            "id": r.get("id"),
+            "name": r.get("name"),
+            "task_name": r.get("task_name"),
+            "label_column": r.get("label_column"),
+            "original_filename": r.get("original_filename"),
+            "record_count": r.get("record_count"),
+            "valid_count": r.get("valid_count"),
+            "invalid_count": r.get("invalid_count"),
+            "duplicate_count": r.get("duplicate_count"),
+            "status": r.get("status"),
+            "created_at": r.get("created_at"),
+        }
+        for r in datasets
+    ]
+    clean_runs = [
+        {
+            "id": r.get("id"),
+            "dataset_id": r.get("dataset_id"),
+            "task_name": r.get("task_name"),
+            "task_type": r.get("task_type"),
+            "model_name": r.get("model_name"),
+            "model_type": r.get("model_type"),
+            "status": r.get("status"),
+            "train_count": r.get("train_count"),
+            "test_count": r.get("test_count"),
+            "created_at": r.get("created_at"),
+        }
+        for r in runs
+    ]
+    return _section("model_training", "ADMET Dataset & Training Summary", payload.include_model_training, clean_datasets + clean_runs, summary)
 
 
 def _prediction_section(payload: FinalProjectReportRequest) -> FinalProjectReportSection:
@@ -143,7 +187,21 @@ def _prediction_section(payload: FinalProjectReportRequest) -> FinalProjectRepor
         "unavailable_models": [item.model_dump() for item in model_status["unavailable_models"]],
         "prediction_log_count": len(logs),
     }
-    return _section("admet_prediction", "Trained Model Prediction Summary", payload.include_admet_prediction, logs, summary)
+    clean_logs = [
+        {
+            "id": r.get("id"),
+            "smiles": r.get("smiles"),
+            "model_id": r.get("model_id"),
+            "task_name": r.get("task_name"),
+            "prediction_label": r.get("prediction_label"),
+            "prediction_score": r.get("prediction_score"),
+            "confidence": r.get("confidence"),
+            "status": r.get("status"),
+            "created_at": r.get("created_at"),
+        }
+        for r in logs
+    ]
+    return _section("admet_prediction", "Trained Model Prediction Summary", payload.include_admet_prediction, clean_logs, summary)
 
 
 def _external_validation_section(payload: FinalProjectReportRequest) -> FinalProjectReportSection:
@@ -153,7 +211,22 @@ def _external_validation_section(payload: FinalProjectReportRequest) -> FinalPro
         "latest_status": records[0].get("status") if records else "not available",
         "latest_metrics": _json_loads(records[0].get("metric_summary_json"), {}) if records else {},
     }
-    return _section("external_validation", "External Validation & Calibration", payload.include_external_validation, records, summary)
+    clean_records = [
+        {
+            "id": r.get("id"),
+            "model_id": r.get("model_id"),
+            "training_run_id": r.get("training_run_id"),
+            "external_dataset_id": r.get("external_dataset_id"),
+            "task_name": r.get("task_name"),
+            "task_type": r.get("task_type"),
+            "status": r.get("status"),
+            "valid_count": r.get("valid_count"),
+            "invalid_count": r.get("invalid_count"),
+            "created_at": r.get("created_at"),
+        }
+        for r in records
+    ]
+    return _section("external_validation", "External Validation & Calibration", payload.include_external_validation, clean_records, summary)
 
 
 def _domain_section(payload: FinalProjectReportRequest) -> FinalProjectReportSection:
@@ -164,7 +237,20 @@ def _domain_section(payload: FinalProjectReportRequest) -> FinalProjectReportSec
         counts[row.get("domain_status") or "unknown"] = counts.get(row.get("domain_status") or "unknown", 0) + 1
         uncertainty[row.get("uncertainty_level") or "unknown"] = uncertainty.get(row.get("uncertainty_level") or "unknown", 0) + 1
     summary = {"domain_status_counts": counts, "uncertainty_distribution": uncertainty, "evaluation_count": len(records)}
-    return _section("applicability_domain", "Applicability Domain & Uncertainty", payload.include_applicability_domain, records, summary)
+    clean_records = [
+        {
+            "id": r.get("id"),
+            "model_id": r.get("model_id"),
+            "training_run_id": r.get("training_run_id"),
+            "smiles": r.get("smiles"),
+            "canonical_smiles": r.get("canonical_smiles"),
+            "domain_status": r.get("domain_status"),
+            "uncertainty_level": r.get("uncertainty_level"),
+            "created_at": r.get("created_at"),
+        }
+        for r in records
+    ]
+    return _section("applicability_domain", "Applicability Domain & Uncertainty", payload.include_applicability_domain, clean_records, summary)
 
 
 def _explainability_section(payload: FinalProjectReportRequest) -> FinalProjectReportSection:
@@ -177,7 +263,21 @@ def _explainability_section(payload: FinalProjectReportRequest) -> FinalProjectR
         "evidence_strength_distribution": evidence,
         "causality_notice": "Feature importance and coefficients are model diagnostics, not biological causality.",
     }
-    return _section("explainability", "Prediction Explainability", payload.include_explainability, records, summary)
+    clean_records = [
+        {
+            "id": r.get("id"),
+            "model_id": r.get("model_id"),
+            "training_run_id": r.get("training_run_id"),
+            "smiles": r.get("smiles"),
+            "canonical_smiles": r.get("canonical_smiles"),
+            "evidence_strength": r.get("evidence_strength"),
+            "domain_status": r.get("domain_status"),
+            "uncertainty_level": r.get("uncertainty_level"),
+            "created_at": r.get("created_at"),
+        }
+        for r in records
+    ]
+    return _section("explainability", "Prediction Explainability", payload.include_explainability, clean_records, summary)
 
 
 def _lead_section(payload: FinalProjectReportRequest) -> FinalProjectReportSection:
@@ -194,7 +294,20 @@ def _lead_section(payload: FinalProjectReportRequest) -> FinalProjectReportSecti
     for candidate in top_candidates:
         label = candidate.get("priority_label") or "not available"
         summary["priority_label_counts"][label] = summary["priority_label_counts"].get(label, 0) + 1
-    return _section("lead_prioritization", "Lead Prioritization", payload.include_lead_prioritization, records, summary)
+    clean_records = [
+        {
+            "id": r.get("id"),
+            "project_id": r.get("project_id"),
+            "source_type": r.get("source_type"),
+            "candidate_count": r.get("candidate_count"),
+            "ranked_count": r.get("ranked_count"),
+            "excluded_count": r.get("excluded_count"),
+            "scoring_profile": r.get("scoring_profile"),
+            "created_at": r.get("created_at"),
+        }
+        for r in records
+    ]
+    return _section("lead_prioritization", "Lead Prioritization", payload.include_lead_prioritization, clean_records, summary)
 
 
 def _validation_planner_section(payload: FinalProjectReportRequest) -> FinalProjectReportSection:
@@ -217,7 +330,18 @@ def _validation_planner_section(payload: FinalProjectReportRequest) -> FinalProj
         "optional_assay_count": optional,
         "planning_notice": "Recommended assays are planning support only and are not experimental results.",
     }
-    return _section("validation_planner", "Experimental Validation Planner", payload.include_validation_planner, records, summary)
+    clean_records = [
+        {
+            "id": r.get("id"),
+            "project_id": r.get("project_id"),
+            "source_type": r.get("source_type"),
+            "candidate_count": r.get("candidate_count"),
+            "plan_title": r.get("plan_title"),
+            "created_at": r.get("created_at"),
+        }
+        for r in records
+    ]
+    return _section("validation_planner", "Experimental Validation Planner", payload.include_validation_planner, clean_records, summary)
 
 
 def _experimental_feedback_section(payload: FinalProjectReportRequest) -> FinalProjectReportSection:
@@ -239,7 +363,32 @@ def _experimental_feedback_section(payload: FinalProjectReportRequest) -> FinalP
         "not_comparable_count": not_comparable,
         "no_fake_results_statement": "No experimental results are generated by this report.",
     }
-    return _section("experimental_feedback", "Experimental Results Feedback", payload.include_experimental_feedback, batches + feedback, summary)
+    clean_batches = [
+        {
+            "id": r.get("id"),
+            "project_id": r.get("project_id"),
+            "validation_plan_id": r.get("validation_plan_id"),
+            "source_type": r.get("source_type"),
+            "result_count": r.get("result_count"),
+            "accepted_count": r.get("accepted_count"),
+            "rejected_count": r.get("rejected_count"),
+            "created_at": r.get("created_at"),
+        }
+        for r in batches
+    ]
+    clean_feedback = [
+        {
+            "id": r.get("id"),
+            "project_id": r.get("project_id"),
+            "result_batch_id": r.get("result_batch_id"),
+            "linked_model_id": r.get("linked_model_id"),
+            "linked_prioritization_run_id": r.get("linked_prioritization_run_id"),
+            "linked_validation_plan_id": r.get("linked_validation_plan_id"),
+            "created_at": r.get("created_at"),
+        }
+        for r in feedback
+    ]
+    return _section("experimental_feedback", "Experimental Results Feedback", payload.include_experimental_feedback, clean_batches + clean_feedback, summary)
 
 
 def _project_context(project_id: int | None) -> dict[str, Any]:

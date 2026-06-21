@@ -2355,16 +2355,16 @@ export default function App() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "No candidates found for target.");
 
-      setWorkflowCandidates(data.candidates);
+      setWorkflowCandidates(data.candidates || []);
       
       // Auto-select top candidates
       const initialSelection = {};
-      data.candidates.slice(0, 5).forEach(c => {
+      (data.candidates || []).slice(0, 5).forEach(c => {
         initialSelection[`${c.molecule_chembl_id}::${c.canonical_smiles}`] = c;
       });
       setSelectedWorkflowCandidates(initialSelection);
 
-      updateStepStatus(1, "completed", null, { count: data.candidates.length });
+      updateStepStatus(1, "completed", null, { count: (data.candidates || []).length });
       updateStepStatus(2, "ready");
       setActiveStep(2);
     } catch (err) {
@@ -2410,16 +2410,16 @@ export default function App() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Similarity expansion search failed.");
 
-      setWorkflowSimilars(data.similar_compounds);
+      setWorkflowSimilars(data.similar_compounds || []);
       
       // Auto-select analogs
       const initialSelection = {};
-      data.similar_compounds.slice(0, 5).forEach(c => {
+      (data.similar_compounds || []).slice(0, 5).forEach(c => {
         initialSelection[`${c.molecule_chembl_id}::${c.canonical_smiles}`] = c;
       });
       setSelectedWorkflowSimilars(initialSelection);
 
-      updateStepStatus(2, "completed", null, { reference: queryRef, count: data.similar_compounds.length });
+      updateStepStatus(2, "completed", null, { reference: queryRef, count: (data.similar_compounds || []).length });
       updateStepStatus(3, "ready");
       setActiveStep(3);
     } catch (err) {
@@ -2551,7 +2551,7 @@ export default function App() {
 
       setWorkflowPrioritizationRun(data);
       
-      const topLeads = data.prioritized_candidates.slice(0, 5);
+      const topLeads = (data.prioritized_candidates || []).slice(0, 5);
       const initialFeedback = topLeads.map(l => ({
         compound_name: l.compound_name,
         smiles: l.smiles,
@@ -2562,7 +2562,7 @@ export default function App() {
       }));
       setFeedbackInput(initialFeedback);
 
-      updateStepStatus(4, "completed", null, { run_id: data.run_id, count: data.prioritized_candidates.length });
+      updateStepStatus(4, "completed", null, { run_id: data.run_id, count: (data.prioritized_candidates || []).length });
       updateStepStatus(5, "ready");
       setActiveStep(5);
     } catch (err) {
@@ -2583,7 +2583,7 @@ export default function App() {
     setWorkflowError("");
     updateStepStatus(5, "running");
     try {
-      const candidatesInput = workflowPrioritizationRun.prioritized_candidates.slice(0, 5).map(l => ({
+      const candidatesInput = (workflowPrioritizationRun?.prioritized_candidates || []).slice(0, 5).map(l => ({
         compound_name: l.compound_name,
         smiles: l.smiles,
         compound_id: l.compound_id || l.compound_name,
@@ -2731,17 +2731,18 @@ export default function App() {
       const res1 = await fetch(`${API_BASE}/finder/target/${bestTarget.target_chembl_id}/candidates?limit=${workflowInput.candidate_limit}`);
       const data1 = await res1.json();
       if (!res1.ok) throw new Error(`Step 2 (Candidate Discovery) failed: ${data1.detail}`);
-      setWorkflowCandidates(data1.candidates);
+      setWorkflowCandidates(data1.candidates || []);
       const initialSelection = {};
-      data1.candidates.slice(0, 5).forEach(c => {
+      (data1.candidates || []).slice(0, 5).forEach(c => {
         initialSelection[`${c.molecule_chembl_id}::${c.canonical_smiles}`] = c;
       });
       setSelectedWorkflowCandidates(initialSelection);
-      updateStepStatus(1, "completed", null, { count: data1.candidates.length });
+      updateStepStatus(1, "completed", null, { count: (data1.candidates || []).length });
 
       // Step 2
       updateStepStatus(2, "running");
-      let queryRef = workflowInput.known_compound || (data1.candidates.length > 0 ? (data1.candidates[0].compound_name || data1.candidates[0].molecule_chembl_id) : null);
+      let queryRef = workflowInput.known_compound || ((data1.candidates || []).length > 0 ? (data1.candidates[0].compound_name || data1.candidates[0].molecule_chembl_id) : null);
+      let simSelection = {};
       if (queryRef) {
         try {
           const res2 = await fetch(`${API_BASE}/similarity/search`, {
@@ -2756,14 +2757,13 @@ export default function App() {
             })
           });
           const data2 = await res2.json();
-          if (res2.ok) {
-            setWorkflowSimilars(data2.similar_compounds);
-            const simSelection = {};
-            data2.similar_compounds.slice(0, 5).forEach(c => {
+          if (res2.ok && data2.similar_compounds) {
+            setWorkflowSimilars(data2.similar_compounds || []);
+            (data2.similar_compounds || []).slice(0, 5).forEach(c => {
               simSelection[`${c.molecule_chembl_id}::${c.canonical_smiles}`] = c;
             });
             setSelectedWorkflowSimilars(simSelection);
-            updateStepStatus(2, "completed", null, { count: data2.similar_compounds.length });
+            updateStepStatus(2, "completed", null, { count: (data2.similar_compounds || []).length });
           } else {
             updateStepStatus(2, "warning", "Similarity expansion returned no matches.");
           }
@@ -2777,7 +2777,7 @@ export default function App() {
       // Step 3
       updateStepStatus(3, "running");
       const listC = Object.values(initialSelection);
-      const listS = Object.values(workflowSimilars.slice(0, 5));
+      const listS = Object.values(simSelection);
       const allS = [...listC, ...listS];
       if (allS.length === 0) throw new Error("No candidate compounds selected for analysis.");
 
@@ -2790,7 +2790,7 @@ export default function App() {
           description: `Guided stepper workflow auto-saved project.`,
           disease_area: workflowInput.disease_name || "General",
           target_name: bestTarget.preferred_name || "General",
-          project_type: "lead_optimization",
+          project_type: "disease_screening",
           status: "active",
           notes: "Decision-support auto-saved workflow."
         })
@@ -2832,10 +2832,10 @@ export default function App() {
           source_type: "manual",
           project_id: targetProjectId ? Number(targetProjectId) : null,
           scoring_profile: "balanced_admet",
-          candidates: data3.results.map(r => ({
-            compound_name: r.compound || r.molecule_chembl_id,
-            smiles: r.canonical_smiles,
-            compound_id: r.molecule_chembl_id || r.compound
+          candidates: (data3.results || []).map(r => ({
+            compound_name: r.compound_name || r.compound || r.molecule_chembl_id,
+            smiles: r.smiles || r.canonical_smiles,
+            compound_id: r.molecule_chembl_id || r.compound || r.compound_name
           })),
           include_trained_model: true,
           include_domain: true,
@@ -2856,7 +2856,7 @@ export default function App() {
           source_type: "manual",
           project_id: targetProjectId ? Number(targetProjectId) : null,
           plan_title: `Validation Plan: ${workflowInput.disease_name || "Lead Expansion"}`,
-          candidates: data4.prioritized_candidates.slice(0, 5).map(l => ({
+          candidates: (data4.prioritized_candidates || []).slice(0, 5).map(l => ({
             compound_name: l.compound_name,
             smiles: l.smiles,
             compound_id: l.compound_id || l.compound_name,
@@ -2878,7 +2878,7 @@ export default function App() {
 
       // Step 6
       updateStepStatus(6, "running");
-      const feedInputs = data4.prioritized_candidates.slice(0, 3).map(l => ({
+      const feedInputs = (data4.prioritized_candidates || []).slice(0, 3).map(l => ({
         compound_name: l.compound_name,
         smiles: l.smiles,
         compound_id: l.compound_id || l.compound_name,
@@ -3647,11 +3647,11 @@ export default function App() {
   function renderDiseaseToLeadWorkflow() {
     return (
       <div className="workflow-container">
-        {workflowWarnings.length > 0 && (
+        {(workflowWarnings || []).length > 0 && (
           <div className="warnings-banner" role="alert">
             <h4><AlertTriangle size={18} /> Warnings / Disclaimers</h4>
             <ul>
-              {workflowWarnings.map((w, idx) => <li key={idx}>{w}</li>)}
+              {(workflowWarnings || []).map((w, idx) => <li key={idx}>{w}</li>)}
             </ul>
           </div>
         )}
@@ -3751,10 +3751,76 @@ export default function App() {
                 >
                   Run Guided Demo
                 </button>
+                <button
+                  className="secondary-button"
+                  onClick={() => {
+                    setWorkflowInput({
+                      disease_name: "",
+                      target_name: "",
+                      known_compound: "",
+                      candidate_limit: 10,
+                      similarity_limit: 10,
+                      analysis_depth: "standard"
+                    });
+                    setWorkflowError("");
+                    setWorkflowWarnings([]);
+                    setWorkflowTarget(null);
+                    setWorkflowCandidates([]);
+                    setSelectedWorkflowCandidates({});
+                    setWorkflowSimilars([]);
+                    setSelectedWorkflowSimilars({});
+                    setWorkflowScreeningResults(null);
+                    setWorkflowPrioritizationRun(null);
+                    setWorkflowValidationPlan(null);
+                    setFeedbackCompareResult(null);
+                    setWorkflowFinalReport(null);
+                    setWorkflowStepsStatus([
+                      { step_id: 0, label: "Disease / Target", status: "ready", desc: "Select disease, target, and known compounds" },
+                      { step_id: 1, label: "Candidate Discovery", status: "not_started", desc: "Find compounds associated with target" },
+                      { step_id: 2, label: "Similarity Expansion", status: "not_started", desc: "Identify structural analogs of top hits" },
+                      { step_id: 3, label: "Full Analysis", status: "not_started", desc: "Perform computational screening and ADMET profiling" },
+                      { step_id: 4, label: "Lead Ranking", status: "not_started", desc: "Rank candidates using prioritize multi-criteria scoring" },
+                      { step_id: 5, label: "Validation Plan", status: "not_started", desc: "Recommend wet-lab assays for prioritized leads" },
+                      { step_id: 6, label: "Experimental Feedback", status: "not_started", desc: "Import laboratory feedback and compare prediction vs experimental outcomes" },
+                      { step_id: 7, label: "Final Report", status: "not_started", desc: "Generate, preview, and download comprehensive workspace reports" }
+                    ]);
+                  }}
+                  disabled={workflowLoading}
+                >
+                  Clear & Reset Form
+                </button>
               </div>
               <div className="disclaimer-scientific" role="note">
                 <p>Computational decision-support tool. Demo data is for software demonstration only and is not experimental or clinical evidence.</p>
               </div>
+            </div>
+          </Section>
+        )}
+
+        {activeStep === 0 && (
+          <Section title="Workflow Preview & Status" icon={ClipboardList} wide>
+            <div className="example-grid">
+              <article className="example-card">
+                <h3>Candidate Discovery</h3>
+                <p className="limitation-label">no candidate rows yet</p>
+                <button className="secondary-button" onClick={runStep0_DiseaseTarget} disabled={workflowLoading}>
+                  Run Target Search
+                </button>
+              </article>
+              <article className="example-card">
+                <h3>Lead Priorities & Ranking</h3>
+                <p className="limitation-label">no ranking rows yet</p>
+                <button className="secondary-button" onClick={runCompleteWorkflow} disabled={workflowLoading}>
+                  Run Complete Analysis
+                </button>
+              </article>
+              <article className="example-card">
+                <h3>Final Report status</h3>
+                <p className="limitation-label">no final report yet</p>
+                <button className="secondary-button" onClick={loadWorkflowDemo} disabled={workflowLoading}>
+                  Run Guided Demo
+                </button>
+              </article>
             </div>
           </Section>
         )}
@@ -3766,7 +3832,7 @@ export default function App() {
             <aside className="workflow-sidebar">
               <h4>Workflow Steps</h4>
               <div className="workflow-stepper">
-                {workflowStepsStatus.map((step, idx) => (
+                {(workflowStepsStatus || []).map((step, idx) => (
                   <button
                     key={step.step_id}
                     className={`workflow-step-btn ${activeStep === step.step_id ? "active" : ""} ${step.status}`}
@@ -3842,7 +3908,7 @@ export default function App() {
                     </div>
                   ) : (
                     <div>
-                      <p className="error-message">No target resolved. Please reset the workflow and enter a valid query.</p>
+                      <p className="status-message info">Workflow data is not available yet. Start the workflow or run the demo.</p>
                     </div>
                   )}
                 </Section>
@@ -3853,7 +3919,7 @@ export default function App() {
                 <Section title="Candidate Discovery" icon={Target} wide>
                   <p>ChEMBL compounds discovered for target: <strong>{workflowTarget?.preferred_name || workflowTarget?.target_chembl_id}</strong>.</p>
                   
-                  {workflowCandidates.length > 0 ? (
+                  {(workflowCandidates || []).length > 0 ? (
                     <div>
                       <div className="table-container" style={{ maxHeight: "400px", overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: "6px" }}>
                         <table className="history-table" style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -3868,9 +3934,9 @@ export default function App() {
                             </tr>
                           </thead>
                           <tbody>
-                            {workflowCandidates.map(c => {
+                            {(workflowCandidates || []).map(c => {
                               const key = `${c.molecule_chembl_id}::${c.canonical_smiles}`;
-                              const isSel = !!selectedWorkflowCandidates[key];
+                              const isSel = !!(selectedWorkflowCandidates || {})[key];
                               return (
                                 <tr key={key} style={{ borderBottom: "1px solid #f1f5f9" }}>
                                   <td style={{ padding: "8px", textAlign: "center" }}>
@@ -3879,7 +3945,7 @@ export default function App() {
                                       checked={isSel}
                                       onChange={() => {
                                         setSelectedWorkflowCandidates(prev => {
-                                          const next = { ...prev };
+                                          const next = { ...(prev || {}) };
                                           if (next[key]) delete next[key];
                                           else next[key] = c;
                                           return next;
@@ -3907,7 +3973,7 @@ export default function App() {
                           className="secondary-button"
                           onClick={() => {
                             const all = {};
-                            workflowCandidates.forEach(c => {
+                            (workflowCandidates || []).forEach(c => {
                               all[`${c.molecule_chembl_id}::${c.canonical_smiles}`] = c;
                             });
                             setSelectedWorkflowCandidates(all);
@@ -3924,17 +3990,17 @@ export default function App() {
                       </div>
                     </div>
                   ) : (
-                    <p>No candidates loaded. Click Find Candidate Compounds to trigger.</p>
+                    <p className="status-message info">Workflow data is not available yet. Start the workflow or run the demo.</p>
                   )}
                 </Section>
               )}
-
+ 
               {/* Step 3 Content: Similarity Expansion */}
               {activeStep === 3 && (
                 <Section title="Similarity Expansion" icon={Beaker} wide>
                   <p>Discover structural analogs in ChEMBL to expand lead space.</p>
                   
-                  {workflowSimilars.length > 0 ? (
+                  {(workflowSimilars || []).length > 0 ? (
                     <div>
                       <div className="table-container" style={{ maxHeight: "400px", overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: "6px" }}>
                         <table className="history-table" style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -3949,9 +4015,9 @@ export default function App() {
                             </tr>
                           </thead>
                           <tbody>
-                            {workflowSimilars.map(s => {
+                            {(workflowSimilars || []).map(s => {
                               const key = `${s.molecule_chembl_id}::${s.canonical_smiles}`;
-                              const isSel = !!selectedWorkflowSimilars[key];
+                              const isSel = !!(selectedWorkflowSimilars || {})[key];
                               return (
                                 <tr key={key} style={{ borderBottom: "1px solid #f1f5f9" }}>
                                   <td style={{ padding: "8px", textAlign: "center" }}>
@@ -3960,7 +4026,7 @@ export default function App() {
                                       checked={isSel}
                                       onChange={() => {
                                         setSelectedWorkflowSimilars(prev => {
-                                          const next = { ...prev };
+                                          const next = { ...(prev || {}) };
                                           if (next[key]) delete next[key];
                                           else next[key] = s;
                                           return next;
@@ -3988,7 +4054,7 @@ export default function App() {
                           className="secondary-button"
                           onClick={() => {
                             const all = {};
-                            workflowSimilars.forEach(s => {
+                            (workflowSimilars || []).forEach(s => {
                               all[`${s.molecule_chembl_id}::${s.canonical_smiles}`] = s;
                             });
                             setSelectedWorkflowSimilars(all);
@@ -4006,7 +4072,7 @@ export default function App() {
                     </div>
                   ) : (
                     <div>
-                      <p>No similar compounds found. You can proceed directly to screening with selected candidates.</p>
+                      <p className="status-message info">Workflow data is not available yet. Start the workflow or run the demo.</p>
                       <button className="primary-button" onClick={runStep3_FullAnalysis}>
                         Proceed to Full Analysis
                       </button>
@@ -4032,7 +4098,7 @@ export default function App() {
                         <div className="summary-card" style={{ padding: "14px", border: "1px solid #e2e8f0", borderRadius: "8px" }}>
                           <h4>High-priority candidates</h4>
                           <span style={{ fontSize: "1.8rem", fontWeight: "bold", color: "#22c55e" }}>
-                            {workflowScreeningResults.results.filter(r => r.decision === "Proceed").length}
+                            {(workflowScreeningResults?.results || []).filter(r => r.decision === "Proceed").length}
                           </span>
                         </div>
                       </div>
@@ -4050,9 +4116,9 @@ export default function App() {
                             </tr>
                           </thead>
                           <tbody>
-                            {workflowScreeningResults.results.map(r => (
-                              <tr key={r.compound} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                                <td style={{ padding: "8px" }}><strong>{r.compound}</strong></td>
+                            {(workflowScreeningResults?.results || []).map(r => (
+                              <tr key={r.compound || r.compound_name} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                                <td style={{ padding: "8px" }}><strong>{r.compound || r.compound_name}</strong></td>
                                 <td style={{ padding: "8px" }}>{r.developability_risk}</td>
                                 <td style={{ padding: "8px" }}>{r.concern_level}</td>
                                 <td style={{ padding: "8px" }}>{r.lipinski_pass ? "Pass" : "Fail"}</td>
@@ -4081,6 +4147,7 @@ export default function App() {
                     </div>
                   ) : (
                     <div>
+                      <p className="status-message info">Workflow data is not available yet. Start the workflow or run the demo.</p>
                       <button className="primary-button" onClick={runStep3_FullAnalysis}>
                         Run Full Screening + ADMET Analysis
                       </button>
@@ -4097,7 +4164,7 @@ export default function App() {
                   {workflowPrioritizationRun ? (
                     <div>
                       <div className="lead-board">
-                        {workflowPrioritizationRun.prioritized_candidates.map((cand, idx) => (
+                        {(workflowPrioritizationRun?.prioritized_candidates || []).map((cand, idx) => (
                           <div className="lead-board-item" key={cand.compound_name}>
                             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                               <span className="lead-rank-badge">#{idx + 1}</span>
@@ -4110,7 +4177,7 @@ export default function App() {
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                               <span className={`priority-tag priority-${cand.priority_label}`}>
-                                {cand.priority_label.replaceAll("_", " ")}
+                                {(cand.priority_label || "").replaceAll("_", " ")}
                               </span>
                               <span style={{ fontSize: "0.85rem", color: "#475569" }}>
                                 Score: {cand.priority_score || "N/A"}
@@ -4128,7 +4195,7 @@ export default function App() {
                       </button>
                     </div>
                   ) : (
-                    <p>No prioritizations available. Run Step 4 to rank candidates.</p>
+                    <p className="status-message info">Workflow data is not available yet. Start the workflow or run the demo.</p>
                   )}
                 </Section>
               )}
@@ -4140,7 +4207,7 @@ export default function App() {
                   
                   {workflowValidationPlan ? (
                     <div>
-                      <h4>Recommended Assays ({workflowValidationPlan.recommended_assays?.length || 0})</h4>
+                      <h4>Recommended Assays ({(workflowValidationPlan?.recommended_assays || []).length || 0})</h4>
                       <div className="table-container" style={{ border: "1px solid #e2e8f0", borderRadius: "6px" }}>
                         <table className="summary-table" style={{ width: "100%" }}>
                           <thead>
@@ -4152,7 +4219,7 @@ export default function App() {
                             </tr>
                           </thead>
                           <tbody>
-                            {workflowValidationPlan.recommended_assays.map((a, idx) => (
+                            {(workflowValidationPlan?.recommended_assays || []).map((a, idx) => (
                               <tr key={idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
                                 <td style={{ padding: "8px" }}><strong>{a.name}</strong></td>
                                 <td style={{ padding: "8px" }}>{a.type}</td>
@@ -4180,7 +4247,7 @@ export default function App() {
                       </button>
                     </div>
                   ) : (
-                    <p>Validation plan not yet generated. Run Step 5 to create recommendations.</p>
+                    <p className="status-message info">Workflow data is not available yet. Start the workflow or run the demo.</p>
                   )}
                 </Section>
               )}
@@ -4190,7 +4257,7 @@ export default function App() {
                 <Section title="Experimental Results & Feedback" icon={FolderPlus} wide>
                   <p>Import laboratory feedback and compare prediction accuracy vs actual assay outcomes.</p>
                   
-                  {feedbackInput.length > 0 && (
+                  {(feedbackInput || []).length > 0 ? (
                     <div style={{ marginBottom: "20px" }}>
                       <h4>Input Experimental Assay Values</h4>
                       <table className="summary-table" style={{ width: "100%", marginBottom: "14px" }}>
@@ -4203,7 +4270,7 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {feedbackInput.map((f, idx) => (
+                          {(feedbackInput || []).map((f, idx) => (
                             <tr key={idx}>
                               <td style={{ padding: "8px" }}><strong>{f.compound_name}</strong></td>
                               <td style={{ padding: "8px" }}>{f.assay_type}</td>
@@ -4239,6 +4306,8 @@ export default function App() {
                         Submit Experimental Feedback & Compare
                       </button>
                     </div>
+                  ) : (
+                    <p className="status-message info">Workflow data is not available yet. Start the workflow or run the demo.</p>
                   )}
 
                   {feedbackCompareResult && (
@@ -4246,7 +4315,7 @@ export default function App() {
                       <h4>Feedback Comparison Metrics</h4>
                       <table className="summary-table">
                         <tbody>
-                          {Object.entries(feedbackCompareResult.comparison_metrics || {}).map(([metric, val]) => (
+                          {Object.entries(feedbackCompareResult?.comparison_metrics || {}).map(([metric, val]) => (
                             <tr key={metric}>
                               <td><strong>{metric.replaceAll("_", " ").toUpperCase()}:</strong></td>
                               <td>{typeof val === "number" ? val.toFixed(2) : String(val)}</td>
@@ -4277,7 +4346,7 @@ export default function App() {
                           <h3>Workspace PDF Report</h3>
                           <p>Download structured PDF layout containing target matching, prioritized compounds table, and disclaimers.</p>
                           <a
-                            href={`${API_BASE}/final-report/${workflowFinalReport.report_id}/download/pdf`}
+                            href={`${API_BASE}/final-report/${workflowFinalReport?.report_id}/download/pdf`}
                             className="primary-button"
                             target="_blank"
                             rel="noopener noreferrer"
@@ -4291,7 +4360,7 @@ export default function App() {
                           <h3>Workspace DOCX Report</h3>
                           <p>Microsoft Word document version of the final project report.</p>
                           <a
-                            href={`${API_BASE}/final-report/${workflowFinalReport.report_id}/download/docx`}
+                            href={`${API_BASE}/final-report/${workflowFinalReport?.report_id}/download/docx`}
                             className="primary-button"
                             target="_blank"
                             rel="noopener noreferrer"
@@ -4321,7 +4390,7 @@ export default function App() {
                         <ul className="checkmark-list" style={{ listStyleType: "none", paddingLeft: 0 }}>
                           <li>✅ Target matching status: <strong>Included</strong></li>
                           <li>✅ Candidate discovery: <strong>Included</strong></li>
-                          <li>{workflowSimilars.length > 0 ? "✅" : "⚠️"} Similarity expanded analogs: <strong>{workflowSimilars.length > 0 ? "Included" : "Skipped"}</strong></li>
+                          <li>{(workflowSimilars || []).length > 0 ? "✅" : "⚠️"} Similarity expanded analogs: <strong>{(workflowSimilars || []).length > 0 ? "Included" : "Skipped"}</strong></li>
                           <li>✅ Full screening + ADMET profiling: <strong>Included</strong></li>
                           <li>✅ Lead prioritization: <strong>Included</strong></li>
                           <li>✅ ValidationPlanner recommendations: <strong>Included</strong></li>
@@ -4335,7 +4404,7 @@ export default function App() {
                     </div>
                   ) : (
                     <div>
-                      <p>Final report not generated. Click compile below.</p>
+                      <p className="status-message info">Workflow data is not available yet. Start the workflow or run the demo.</p>
                       <button className="primary-button" onClick={runStep7_FinalReport}>
                         Generate Final Report
                       </button>
@@ -5685,7 +5754,7 @@ export default function App() {
                 <SummaryCard label="Review/Low" value={batchUploadResult.ranking_summary.review_or_low_count} icon={ClipboardList} />
               </div>
               <div className="batch-summary-grid">
-                {batchUploadResult.results.slice(0, 5).map((row) => (
+                {(batchUploadResult?.results || []).slice(0, 5).map((row) => (
                   <article className="batch-summary-card" key={`${row.batch_rank}-${row.canonical_smiles}`}>
                     <h3>{row.compound_name || row.compound_id || `Row ${row.row_number}`}</h3>
                     <Badge tone={toneForRisk(row.priority_label === "High" ? "Good" : row.priority_label === "Medium" ? "Warning" : "High")}>{row.priority_label}</Badge>
@@ -6815,7 +6884,7 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {explanationResult.important_features.slice(0, 8).map((feature) => (
+                        {(explanationResult.important_features || []).slice(0, 8).map((feature) => (
                           <tr key={`${feature.rank}-${feature.feature}`}>
                             <td>{feature.rank}</td>
                             <td>{feature.feature}</td>
@@ -6875,7 +6944,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {explanationReports.slice(0, 8).map((item) => (
+                      {(explanationReports || []).slice(0, 8).map((item) => (
                         <tr key={item.report_id}>
                           <td>{item.report_id}</td>
                           <td>{item.model_id}</td>
@@ -7018,7 +7087,7 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
-                {leadResult.ranked_candidates.slice(0, 3).map((candidate) => (
+                {(leadResult?.ranked_candidates || []).slice(0, 3).map((candidate) => (
                   <details key={`${candidate.canonical_smiles || candidate.smiles}-details`} className="evidence-panel" style={{ marginTop: "10px" }}>
                     <summary>{candidate.compound_name || candidate.canonical_smiles || candidate.smiles} ranking explanation</summary>
                     <div className="metric-grid compact-metrics">
@@ -7059,7 +7128,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {leadRuns.slice(0, 8).map((run) => (
+                      {(leadRuns || []).slice(0, 8).map((run) => (
                         <tr key={run.run_id}>
                           <td>{run.run_id}</td>
                           <td>{run.source_type}</td>
@@ -7271,7 +7340,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {validationPlans.slice(0, 8).map((plan) => (
+                      {(validationPlans || []).slice(0, 8).map((plan) => (
                         <tr key={plan.plan_id}>
                           <td>{plan.plan_id}</td>
                           <td>{plan.plan_title}</td>
@@ -7498,7 +7567,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {experimentalFeedbackSummaries.slice(0, 8).map((item) => (
+                      {(experimentalFeedbackSummaries || []).slice(0, 8).map((item) => (
                         <tr key={item.feedback_id}>
                           <td>{item.feedback_id}</td>
                           <td>{item.result_batch_id}</td>
@@ -8928,7 +8997,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {finalReports.slice(0, 10).map((item) => (
+                    {(finalReports || []).slice(0, 10).map((item) => (
                       <tr key={item.report_id}>
                         <td>{item.report_id}</td>
                         <td>{item.project_id || "Global"}</td>
