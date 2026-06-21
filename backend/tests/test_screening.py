@@ -61,6 +61,59 @@ def test_invalid_smiles_returns_validation_error():
     assert "Invalid SMILES" in response.json()["detail"]
 
 
+def test_screening_valid_smiles_works_without_pubchem(monkeypatch):
+    def fail_if_pubchem_called(url):
+        raise AssertionError(f"SMILES screening should not call PubChem: {url}")
+
+    monkeypatch.setattr(pubchem, "_get_json", fail_if_pubchem_called)
+    response = client.post("/api/screen", json={"query": "CC(=O)OC1=CC=CC=C1C(=O)O", "input_type": "smiles"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["compound_identity"]["canonical_smiles"]
+    assert body["physicochemical_properties"]["molecular_weight"] > 0
+    assert body["drug_likeness"]["lipinski_rule_of_5"]["passed"] is True
+    assert body["admet_toxicity_v1"]["overall"]["overall_admet_tox_concern_score"] >= 0
+    assert body["model_predictions"]["model_status_summary"]["rule_based_used"] is True
+
+    screening_id = body["screening_id"]
+    pdf = client.get(f"/api/report/{screening_id}/pdf")
+    docx = client.get(f"/api/report/{screening_id}/docx")
+    assert pdf.status_code == 200
+    assert pdf.content.startswith(b"%PDF")
+    assert docx.status_code == 200
+    assert docx.content[:2] == b"PK"
+
+
+def test_screening_aspirin_name_uses_local_fallback_when_pubchem_unavailable(monkeypatch):
+    def unavailable(url):
+        raise pubchem.PubChemUnavailableError("Could not reach PubChem. Please check the connection and try again.")
+
+    monkeypatch.setattr(pubchem, "_get_json", unavailable)
+    response = client.post("/api/screen", json={"query": "Aspirin", "input_type": "name"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["compound_identity"]["compound_name"] == "Aspirin"
+    assert body["compound_identity"]["pubchem_cid"] == 2244
+    assert body["compound_identity"]["cache_metadata"]["data_source"] == "local_reference_fallback"
+    assert body["admet_toxicity_v1"]["label"].startswith("Rule-based")
+
+
+def test_screening_pubchem_cid_2244_uses_local_fallback_when_pubchem_unavailable(monkeypatch):
+    def unavailable(url):
+        raise pubchem.PubChemUnavailableError("Could not reach PubChem. Please check the connection and try again.")
+
+    monkeypatch.setattr(pubchem, "_get_json", unavailable)
+    response = client.post("/api/screen", json={"query": "2244", "input_type": "cid"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["compound_identity"]["compound_name"] == "Aspirin"
+    assert body["compound_identity"]["canonical_smiles"]
+    assert body["physicochemical_properties"]["tpsa"] > 0
+
+
 def test_unknown_compound_returns_not_found(monkeypatch):
     from app.routers import screening
 

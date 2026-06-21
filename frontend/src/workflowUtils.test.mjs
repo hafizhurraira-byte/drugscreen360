@@ -7,6 +7,7 @@ import {
   defaultQaChecklist,
   exampleGroupCount,
   filterHistoryItems,
+  friendlyApiError,
   projectComparisonToCsv,
   selectBestChemblTarget,
   selectedCandidateCount,
@@ -25,6 +26,7 @@ assert.deepEqual(validateScreeningInput(" 2244 ", "cid"), {
 assert.equal(validateScreeningInput("Input: 2244 Input type: PubChem CID", "cid").error, "PubChem CID must be a number.");
 assert.equal(validateScreeningInput("", "name").error, "Please enter a compound name, CID, SMILES, InChI, or InChIKey.");
 assert.equal(validateScreeningInput(" CC(=O)O ", "smiles").query, "CC(=O)O");
+assert.equal(friendlyApiError(new TypeError("Failed to fetch")), "Backend is not reachable. Please start the backend server on http://127.0.0.1:8010.");
 assert.equal(candidateKey({ molecule_chembl_id: "CHEMBL1", canonical_smiles: "CCO" }), "CHEMBL1::CCO");
 assert.equal(cacheLabel({ cache_hit: false }), "Live API");
 assert.equal(cacheLabel({ data_source: "demo", cache_hit: false }), "Demo data");

@@ -16,7 +16,7 @@ from app.services.history import (
     update_report_id,
 )
 from app.services.admet_predictor_service import predict_admet
-from app.services.pubchem import PubChemNotFoundError, PubChemUnavailableError, resolve_compound
+from app.services.pubchem import PubChemLookupError, PubChemNotFoundError, PubChemUnavailableError, resolve_compound
 from app.services.reports import build_docx_report, build_pdf_report
 from app.services.rules import (
     build_decision,
@@ -39,6 +39,8 @@ def screen_compound(payload: ScreeningRequest):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PubChemUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except PubChemLookupError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     smiles = identity.canonical_smiles or identity.isomeric_smiles
     if not smiles:

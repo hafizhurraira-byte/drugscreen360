@@ -2,6 +2,8 @@ from typing import Any
 from urllib.parse import quote
 
 import requests
+from rdkit import Chem
+from rdkit.Chem import Descriptors, rdMolDescriptors
 
 from app.models.cache_models import CacheMetadata
 from app.models.schemas import CompoundIdentity, InputType
@@ -33,6 +35,69 @@ class PubChemUnavailableError(PubChemLookupError):
 
 
 last_cache_metadata = CacheMetadata()
+
+
+LOCAL_REFERENCE_COMPOUNDS: dict[str, dict[str, Any]] = {
+    "aspirin": {
+        "compound_name": "Aspirin",
+        "pubchem_cid": 2244,
+        "canonical_smiles": "CC(=O)OC1=CC=CC=C1C(=O)O",
+        "synonyms": ["Aspirin", "local reference fallback"],
+    },
+    "caffeine": {
+        "compound_name": "Caffeine",
+        "pubchem_cid": 2519,
+        "canonical_smiles": "Cn1cnc2c1c(=O)n(C)c(=O)n2C",
+        "synonyms": ["Caffeine", "local reference fallback"],
+    },
+    "ethanol": {
+        "compound_name": "Ethanol",
+        "pubchem_cid": 702,
+        "canonical_smiles": "CCO",
+        "synonyms": ["Ethanol", "local reference fallback"],
+    },
+    "2244": {
+        "compound_name": "Aspirin",
+        "pubchem_cid": 2244,
+        "canonical_smiles": "CC(=O)OC1=CC=CC=C1C(=O)O",
+        "synonyms": ["Aspirin", "local reference fallback"],
+    },
+}
+
+
+def _identity_from_smiles(smiles: str, name: str | None = None, cid: int | None = None, source_label: str = "RDKit local input") -> CompoundIdentity:
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        raise PubChemNotFoundError("Invalid SMILES: RDKit could not parse the molecule.")
+    canonical = Chem.MolToSmiles(mol, canonical=True)
+    return CompoundIdentity(
+        compound_name=name or "SMILES input",
+        pubchem_cid=cid,
+        canonical_smiles=canonical,
+        isomeric_smiles=Chem.MolToSmiles(mol, isomericSmiles=True),
+        molecular_formula=rdMolDescriptors.CalcMolFormula(mol),
+        molecular_weight=round(float(Descriptors.MolWt(mol)), 3),
+        iupac_name=None,
+        synonyms=[source_label],
+        pubchem_source_link=f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid}" if cid else None,
+    )
+
+
+def _local_reference_identity(query: str, input_type: InputType) -> CompoundIdentity | None:
+    key = query.strip().lower()
+    if input_type == "cid":
+        key = query.strip()
+    if input_type not in {"name", "cid"}:
+        return None
+    item = LOCAL_REFERENCE_COMPOUNDS.get(key)
+    if not item:
+        return None
+    return _identity_from_smiles(
+        item["canonical_smiles"],
+        name=item["compound_name"],
+        cid=item["pubchem_cid"],
+        source_label="Local demo/reference fallback used because PubChem was unavailable.",
+    )
 
 
 def _get_json(url: str) -> dict[str, Any]:
@@ -117,6 +182,12 @@ def _fetch_synonyms(cid: int) -> list[str]:
 
 def resolve_compound(query: str, input_type: InputType) -> CompoundIdentity:
     global last_cache_metadata
+    if input_type == "smiles":
+        last_cache_metadata = CacheMetadata(data_source="local_rdkit", cache_hit=False)
+        identity = _identity_from_smiles(query.strip())
+        identity.cache_metadata = last_cache_metadata
+        return identity
+
     cache_key = f"{input_type}:{query.strip().lower()}"
     cached, metadata = get_cached_response("pubchem", "compound_lookup", cache_key)
     if cached is not None:
@@ -125,9 +196,17 @@ def resolve_compound(query: str, input_type: InputType) -> CompoundIdentity:
         identity.cache_metadata = metadata
         return identity
 
-    cid = _fetch_cid(query, input_type)
-    props = _fetch_properties(cid)
-    synonyms = _fetch_synonyms(cid)
+    try:
+        cid = _fetch_cid(query, input_type)
+        props = _fetch_properties(cid)
+        synonyms = _fetch_synonyms(cid)
+    except PubChemUnavailableError:
+        local_identity = _local_reference_identity(query, input_type)
+        if local_identity:
+            last_cache_metadata = CacheMetadata(data_source="local_reference_fallback", cache_hit=False)
+            local_identity.cache_metadata = last_cache_metadata
+            return local_identity
+        raise
 
     title = props.get("Title") or (synonyms[0] if synonyms else None)
 
