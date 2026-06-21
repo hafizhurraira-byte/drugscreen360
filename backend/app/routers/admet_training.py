@@ -15,6 +15,11 @@ from app.models.admet_training_models import (
     ActiveModelResponse,
     TrainedModelPredictRequest,
     TrainedModelPredictionResponse,
+    AdmetDashboardSummaryResponse,
+    TrainingRunDashboardResponse,
+    ModelComparisonItem,
+    VisualDataResponse,
+    DashboardAttachRequest,
 )
 from app.services.admet_training_service import (
     get_training_run,
@@ -23,6 +28,11 @@ from app.services.admet_training_service import (
     model_card,
     train_admet_model,
     training_summary,
+    get_admet_dashboard_summary,
+    get_training_run_dashboard,
+    get_model_comparison,
+    get_model_comparison_csv,
+    get_run_plots_data,
 )
 from app.services.admet_trained_model_service import (
     discover_trained_models,
@@ -153,4 +163,59 @@ def get_active_model_endpoint():
 @router.post("/predict", response_model=TrainedModelPredictionResponse)
 def predict_model_endpoint(payload: TrainedModelPredictRequest):
     return predict_trained_model(payload.smiles, payload.model_id, payload.project_id)
+
+
+@router.get("/dashboard", response_model=AdmetDashboardSummaryResponse)
+def get_dashboard_summary_endpoint():
+    return get_admet_dashboard_summary()
+
+
+@router.get("/runs/{run_id}/dashboard", response_model=TrainingRunDashboardResponse)
+def get_run_dashboard_endpoint(run_id: int):
+    return get_training_run_dashboard(run_id)
+
+
+@router.get("/model-comparison", response_model=list[ModelComparisonItem])
+def get_model_comparison_endpoint():
+    return get_model_comparison()
+
+
+@router.get("/model-comparison.csv")
+def get_model_comparison_csv_endpoint():
+    return Response(
+        get_model_comparison_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="drugscreen360-admet-model-comparison.csv"'},
+    )
+
+
+@router.get("/runs/{run_id}/plots-data", response_model=VisualDataResponse)
+def get_run_plots_data_endpoint(run_id: int):
+    return get_run_plots_data(run_id)
+
+
+@router.post("/dashboard/attach")
+def attach_dashboard_endpoint(payload: DashboardAttachRequest):
+    from app.models.project_workspace_models import ProjectAttachRequest
+    from app.services.project_workspace_service import attach_project_item
+    
+    if payload.run_id:
+        data = get_training_run_dashboard(payload.run_id)
+        title = f"ADMET Model Dashboard: Run {payload.run_id} ({data['model_type']})"
+        item_id = f"dashboard_run_{payload.run_id}"
+    else:
+        data = get_admet_dashboard_summary()
+        title = "ADMET Model Dashboard Summary Snapshot"
+        item_id = "dashboard_summary"
+        
+    attach_project_item(
+        payload.project_id,
+        ProjectAttachRequest(
+            item_type="admet_model_dashboard",
+            item_id=item_id,
+            item_title=title,
+            metadata=data
+        )
+    )
+    return {"status": "success", "message": "Dashboard attached to project."}
 

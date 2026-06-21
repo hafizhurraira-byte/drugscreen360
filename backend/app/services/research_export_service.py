@@ -402,6 +402,72 @@ def create_research_export(payload: ResearchExportRequest) -> ResearchExportCrea
             except Exception as exc:
                 warnings.append(f"Could not include ADMET training run #{run.get('id')}: {exc}")
 
+        # ADMET Model Dashboard Export
+        sections.append("ADMET_MODEL_DASHBOARD")
+        try:
+            from app.services.admet_training_service import get_admet_dashboard_summary, get_model_comparison_csv, get_training_run_dashboard, LIMITATIONS
+            
+            dash_summary = get_admet_dashboard_summary()
+            _write_json(zip_file, f"{root}/ADMET_MODEL_DASHBOARD/dashboard_summary.json", dash_summary, manifest)
+            
+            comparison_csv = get_model_comparison_csv()
+            _write_text(zip_file, f"{root}/ADMET_MODEL_DASHBOARD/model_comparison.csv", comparison_csv, manifest, "csv")
+            
+            limitations_md = (
+                "# ADMET Model Dashboard Limitations & Scientific Disclaimer\n\n"
+                "1. Computational decision-support only.\n"
+                "2. No clinical safety, efficacy, regulatory approval, or market readiness is implied.\n"
+                "3. Local models are trained on small/curated local datasets, which may contain bias, imbalances, or lack representation of external chemical spaces.\n"
+                "4. Robust external validation, calibration, expert reviews, and experimental testing (wet-lab assays) are required before scientific or clinical decisions are made.\n\n"
+                "### Detailed Warnings & Limitations:\n"
+            )
+            for lim in LIMITATIONS:
+                limitations_md += f"- {lim}\n"
+            _write_text(zip_file, f"{root}/ADMET_MODEL_DASHBOARD/limitations.md", limitations_md, manifest, "markdown")
+            
+            for run in admet_training_rows:
+                run_id = run["id"]
+                try:
+                    run_dash = get_training_run_dashboard(run_id)
+                    _write_json(zip_file, f"{root}/ADMET_MODEL_DASHBOARD/training_run_dashboards/run_{run_id}.json", run_dash, manifest)
+                except Exception as e:
+                    warnings.append(f"Could not include training run dashboard for run #{run_id} in export: {e}")
+        except Exception as exc:
+            warnings.append(f"Could not include ADMET model dashboard in export: {exc}")
+
+        # ADMET External Validation Export
+        sections.append("ADMET_EXTERNAL_VALIDATION")
+        try:
+            from app.services.admet_validation_service import get_external_validation_runs, get_external_validation_run_detail, get_external_validation_metrics_csv
+            
+            val_runs = get_external_validation_runs()
+            
+            limitations_md = (
+                "# ADMET External Validation Limitations & Scientific Disclaimer\n\n"
+                "1. Computational validation only.\n"
+                "2. External validation performance is highly dependent on the chosen dataset and does not guarantee clinical efficacy or safety.\n"
+                "3. Model accuracy and calibration statistics are dataset-dependent.\n"
+                "4. All findings should be backed by wet-lab validation and qualified expert review.\n"
+            )
+            _write_text(zip_file, f"{root}/ADMET_EXTERNAL_VALIDATION/limitations.md", limitations_md, manifest, "markdown")
+            
+            for vrun in val_runs:
+                vrun_id = vrun["id"]
+                try:
+                    vrun_detail = get_external_validation_run_detail(vrun_id)
+                    _write_json(zip_file, f"{root}/ADMET_EXTERNAL_VALIDATION/runs/run_{vrun_id}_report.json", vrun_detail, manifest)
+                    
+                    vrun_csv = get_external_validation_metrics_csv(vrun_id)
+                    _write_text(zip_file, f"{root}/ADMET_EXTERNAL_VALIDATION/runs/run_{vrun_id}_metrics.csv", vrun_csv, manifest, "csv")
+                    
+                    _write_json(zip_file, f"{root}/ADMET_EXTERNAL_VALIDATION/runs/run_{vrun_id}_calibration_summary.json", vrun_detail.get("calibration_summary") or {}, manifest)
+                    _write_json(zip_file, f"{root}/ADMET_EXTERNAL_VALIDATION/runs/run_{vrun_id}_internal_vs_external_comparison.json", vrun_detail.get("comparison") or {}, manifest)
+                except Exception as e:
+                    warnings.append(f"Could not include external validation run #{vrun_id} in export: {e}")
+        except Exception as exc:
+            warnings.append(f"Could not include ADMET external validation in export: {exc}")
+
+
         _write_json(zip_file, f"{root}/SCREENING_RESULTS/similarity_search_records.json", similarity_rows, manifest)
         _write_json(zip_file, f"{root}/SCREENING_RESULTS/finder_search_records.json", finder_rows, manifest)
 

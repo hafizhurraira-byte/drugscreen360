@@ -157,3 +157,76 @@ class TrainedModelPredictionResponse(BaseModel):
     limitations: list[str]
     experimental_model_notice: str
 
+
+class AdmetDashboardSummaryResponse(BaseModel):
+    total_training_runs: int
+    total_trained_model_artifacts: int
+    active_trained_model_status: dict[str, Any]
+    available_trained_models: list[dict[str, Any]]
+    failed_invalid_model_count: int
+    dataset_count_used_for_training: int
+    latest_training_run_summary: dict[str, Any] | None = None
+    best_classification_model: dict[str, Any] | None = None
+    best_regression_model: dict[str, Any] | None = None
+    warnings: list[str] = []
+    scientific_limitations: list[str] = []
+
+
+class TrainingRunDashboardResponse(BaseModel):
+    training_run_id: int
+    training_run_metadata: dict[str, Any]
+    dataset_summary: dict[str, Any]
+    task_type: str
+    model_type: str
+    feature_list: list[str]
+    train_count: int
+    test_count: int
+    metrics: dict[str, Any]
+    confusion_matrix: list[list[int]] | None = None
+    roc_auc_availability: str
+    regression_metrics: dict[str, Any] | None = None
+    model_card_summary: dict[str, Any] | None = None
+    limitations: list[str] = []
+    activation_readiness: bool
+    validation_status: dict[str, Any]
+    warnings: list[str] = []
+
+
+class ModelComparisonItem(BaseModel):
+    model_id: str
+    training_run_id: int | None = None
+    task_name: str | None = None
+    task_type: str | None = None
+    model_type: str | None = None
+    dataset_name: str | None = None
+    train_count: int | None = None
+    test_count: int | None = None
+    accuracy: Any = "not available"
+    balanced_accuracy: Any = "not available"
+    precision: Any = "not available"
+    recall: Any = "not available"
+    f1: Any = "not available"
+    roc_auc: Any = "not available"
+    mae: Any = "not available"
+    rmse: Any = "not available"
+    r2: Any = "not available"
+    active_status: str
+    validation_status: str
+    created_at: str | None = None
+    warnings: list[str] = []
+
+
+class VisualDataResponse(BaseModel):
+    confusion_matrix_data: list[list[int]] | None = None
+    classification_metric_bars: dict[str, Any] | None = None
+    regression_metric_bars: dict[str, Any] | None = None
+    label_distribution: dict[str, int]
+    feature_importance: Any = None
+    prediction_probability_distribution: Any = None
+    warnings: list[str] = []
+
+
+class DashboardAttachRequest(BaseModel):
+    project_id: int
+    run_id: int | None = None
+

@@ -585,6 +585,25 @@ export default function App() {
   const [testError, setTestError] = useState("");
   const [trainedModelDetail, setTrainedModelDetail] = useState(null);
 
+  const [dashboardSummary, setDashboardSummary] = useState(null);
+  const [modelComparison, setModelComparison] = useState([]);
+  const [selectedRunId, setSelectedRunId] = useState("");
+  const [selectedRunDashboard, setSelectedRunDashboard] = useState(null);
+  const [selectedRunPlots, setSelectedRunPlots] = useState(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+
+  const [externalValidationForm, setExternalValidationForm] = useState({
+    model_id: "",
+    external_dataset_id: "",
+    notes: ""
+  });
+  const [externalValidationResult, setExternalValidationResult] = useState(null);
+  const [externalValidationRuns, setExternalValidationRuns] = useState([]);
+  const [selectedValidationRunId, setSelectedValidationRunId] = useState("");
+  const [selectedValidationRunDetail, setSelectedValidationRunDetail] = useState(null);
+  const [validationLoading, setValidationLoading] = useState(false);
+
+
   const synonyms = useMemo(() => {
     const list = report?.compound_identity?.synonyms || [];
     return list.slice(0, 8).join(", ");
@@ -693,6 +712,9 @@ export default function App() {
     loadTrainedModels();
     loadActiveTrainedModel();
     loadSystemHealth();
+    loadDashboardSummary();
+    loadModelComparison();
+    loadExternalValidationRuns();
   }, []);
 
   useEffect(() => {
@@ -1268,6 +1290,147 @@ export default function App() {
     }
   }
 
+  async function loadDashboardSummary() {
+    try {
+      const response = await fetch(`${API_BASE}/admet-training/dashboard`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load ADMET dashboard summary.");
+      setDashboardSummary(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function loadModelComparison() {
+    try {
+      const response = await fetch(`${API_BASE}/admet-training/model-comparison`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load ADMET model comparison.");
+      setModelComparison(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleRunSelect(runId) {
+    setSelectedRunId(runId);
+    if (!runId) {
+      setSelectedRunDashboard(null);
+      setSelectedRunPlots(null);
+      return;
+    }
+    setDashboardLoading(true);
+    try {
+      const respDash = await fetch(`${API_BASE}/admet-training/runs/${runId}/dashboard`);
+      const dataDash = await respDash.json();
+      if (!respDash.ok) throw new Error(dataDash.detail || "Could not load run dashboard details.");
+      setSelectedRunDashboard(dataDash);
+
+      const respPlots = await fetch(`${API_BASE}/admet-training/runs/${runId}/plots-data`);
+      const dataPlots = await respPlots.json();
+      if (!respPlots.ok) throw new Error(dataPlots.detail || "Could not load run plots data.");
+      setSelectedRunPlots(dataPlots);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDashboardLoading(false);
+    }
+  }
+
+  async function attachDashboardToProject(runId = null) {
+    if (!activeProjectId) return;
+    try {
+      setWorkflowStatus("Attaching ADMET model dashboard to active project...");
+      const response = await fetch(`${API_BASE}/admet-training/dashboard/attach`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: Number(activeProjectId),
+          run_id: runId ? Number(runId) : null,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Failed to attach dashboard.");
+      setActiveProjectNotice("Successfully attached ADMET model dashboard to project.");
+      setWorkflowStatus("Dashboard attached successfully.");
+      if (selectedProject?.id && String(selectedProject.id) === String(activeProjectId)) {
+        await loadProjectDetail(selectedProject.id);
+      }
+    } catch (err) {
+      setError(err.message);
+      setWorkflowStatus("");
+    }
+  }
+
+  async function loadExternalValidationRuns() {
+    try {
+      const response = await fetch(`${API_BASE}/admet-validation/external/runs`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load validation runs.");
+      setExternalValidationRuns(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleValidationRunSelect(runId) {
+    setSelectedValidationRunId(runId);
+    if (!runId) {
+      setSelectedValidationRunDetail(null);
+      return;
+    }
+    setValidationLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/admet-validation/external/runs/${runId}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load validation run details.");
+      setSelectedValidationRunDetail(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setValidationLoading(false);
+    }
+  }
+
+  async function startExternalValidation() {
+    if (!externalValidationForm.model_id || !externalValidationForm.external_dataset_id) {
+      setError("Please select both a model and an external validation dataset.");
+      return;
+    }
+    setValidationLoading(true);
+    setExternalValidationResult(null);
+    setWorkflowStatus("Running external validation and calibration...");
+    try {
+      const response = await fetch(`${API_BASE}/admet-validation/external/run?project_id=${activeProjectId || ""}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model_id: externalValidationForm.model_id,
+          external_dataset_id: Number(externalValidationForm.external_dataset_id),
+          notes: externalValidationForm.notes || ""
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Validation run failed.");
+      setExternalValidationResult(data);
+      setSelectedValidationRunDetail(data);
+      setSelectedValidationRunId(data.id);
+      setActiveProjectNotice(`Completed external validation for ${externalValidationForm.model_id}.`);
+      setWorkflowStatus("External validation completed.");
+      await loadExternalValidationRuns();
+      await loadDashboardSummary();
+      await loadModelComparison();
+      if (selectedProject?.id && String(selectedProject.id) === String(activeProjectId)) {
+        await loadProjectDetail(selectedProject.id);
+      }
+    } catch (err) {
+      setError(err.message);
+      setWorkflowStatus("");
+    } finally {
+      setValidationLoading(false);
+    }
+  }
+
   async function validateTrainedModel(modelId) {
     try {
       setWorkflowStatus(`Validating trained model ${modelId}...`);
@@ -1287,6 +1450,20 @@ export default function App() {
   }
 
   async function activateTrainedModel(modelId) {
+    // Check validation warning on frontend
+    const discovered = dashboardSummary?.available_trained_models?.find(m => m.model_id === modelId);
+    if (discovered) {
+      let confirmMsg = null;
+      if (!discovered.external_validation_status || discovered.external_validation_status === "no_validation") {
+        confirmMsg = "Warning: No external validation available for this model. It is highly recommended to run independent validation before using predictions in active research. Do you wish to activate anyway?";
+      } else if (discovered.external_validation_status === "poor_performance") {
+        confirmMsg = "Strong Warning: External validation performance is weak or uncertain (accuracy/F1/R2 is low or has dropped significantly compared to training). Activation is not recommended for scientific use. Do you wish to activate anyway?";
+      }
+      if (confirmMsg && !window.confirm(confirmMsg)) {
+        return;
+      }
+    }
+
     try {
       setWorkflowStatus(`Activating trained model ${modelId}...`);
       const response = await fetch(`${API_BASE}/admet-training/models/${modelId}/activate`, {
@@ -1300,6 +1477,8 @@ export default function App() {
       await loadActiveTrainedModel();
       await loadTrainedModels();
       await loadModelStatus();
+      await loadDashboardSummary();
+      await loadModelComparison();
       if (selectedProject?.id) {
         await loadProjectDetail(selectedProject.id);
       }
@@ -1324,6 +1503,8 @@ export default function App() {
       await loadActiveTrainedModel();
       await loadTrainedModels();
       await loadModelStatus();
+      await loadDashboardSummary();
+      await loadModelComparison();
       if (selectedProject?.id) {
         await loadProjectDetail(selectedProject.id);
       }
@@ -1441,6 +1622,9 @@ export default function App() {
       if (!response.ok) throw new Error(data.detail || "ADMET model training failed.");
       setAdmetTrainingResult(data);
       await loadAdmetTrainingRuns();
+      await loadTrainedModels();
+      await loadDashboardSummary();
+      await loadModelComparison();
       if (activeProjectId) {
         setActiveProjectNotice(`Saved ADMET training run to active project: ${activeProject?.title || `Project #${activeProjectId}`}.`);
         if (selectedProject?.id && String(selectedProject.id) === String(activeProjectId)) await loadProjectDetail(selectedProject.id);
@@ -3697,6 +3881,362 @@ export default function App() {
             )}
           </Section>
 
+          <Section title="ADMET Model Dashboard" icon={ClipboardList} wide>
+            <p className="limitation-label">
+              Review and compare trained ADMET models, metrics, and dataset performance.
+              Trained models are experimental and require expert external validation.
+            </p>
+            
+            <div className="summary-grid" style={{ marginBottom: "20px" }}>
+              <SummaryCard
+                label="Total Curated Datasets"
+                value={dashboardSummary ? dashboardSummary.dataset_count_used_for_training : 0}
+                icon={FileJson}
+              />
+              <SummaryCard
+                label="Total Training Runs"
+                value={dashboardSummary ? dashboardSummary.total_training_runs : 0}
+                icon={History}
+              />
+              <SummaryCard
+                label="Trained Models"
+                value={dashboardSummary ? dashboardSummary.total_trained_model_artifacts : 0}
+                icon={ShieldCheck}
+              />
+              <SummaryCard
+                label="Active Model"
+                value={
+                  dashboardSummary && dashboardSummary.active_trained_model_status?.status === "active"
+                    ? (dashboardSummary.active_trained_model_status.model_name || dashboardSummary.active_trained_model_status.model_id)
+                    : "None Active"
+                }
+                icon={Target}
+              />
+              <SummaryCard
+                label="Failed / Invalid Models"
+                value={dashboardSummary ? dashboardSummary.failed_invalid_model_count : 0}
+                icon={AlertTriangle}
+              />
+            </div>
+
+            <div className="evidence-panel" style={{ padding: "15px", marginBottom: "20px" }}>
+              <h3>Select Model Training Run to Inspect</h3>
+              <div style={{ marginTop: "10px", display: "flex", gap: "10px", alignItems: "flex-end", flexWrap: "wrap" }}>
+                <label style={{ flex: "1", minWidth: "250px" }}>
+                  Trained ADMET Runs
+                  <select
+                    value={selectedRunId}
+                    onChange={(e) => handleRunSelect(e.target.value)}
+                    style={{ width: "100%", padding: "8px", borderRadius: "4px", border: "1px solid #ccc", marginTop: "5px" }}
+                  >
+                    <option value="">-- Choose a training run --</option>
+                    {admetTrainingRuns.map((run) => (
+                      <option key={run.id} value={run.id}>
+                        Run #{run.id}: {run.model_name} ({run.model_type}) for {run.task_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {activeProjectId && (
+                  <button
+                    type="button"
+                    className="small-button secondary-button"
+                    onClick={() => attachDashboardToProject(selectedRunId || null)}
+                  >
+                    Attach {selectedRunId ? `Run #${selectedRunId} Snapshot` : "Dashboard Snapshot"} to Project
+                  </button>
+                )}
+              </div>
+
+              {dashboardLoading && <p className="warning-text">Loading detailed training run performance...</p>}
+
+              {selectedRunDashboard && (
+                <div style={{ marginTop: "20px" }}>
+                  <div className="section-divider" style={{ margin: "20px 0" }} />
+                  <h2>Run #{selectedRunDashboard.training_run_id} Detail: {selectedRunDashboard.training_run_metadata.model_name}</h2>
+                  
+                  <div className="metric-grid compact-metrics" style={{ marginTop: "15px" }}>
+                    <Field label="Task Type" value={selectedRunDashboard.task_type} />
+                    <Field label="Model Type" value={selectedRunDashboard.model_type} />
+                    <Field label="Dataset Name" value={selectedRunDashboard.dataset_summary?.name} />
+                    <Field label="Total Rows" value={selectedRunDashboard.dataset_summary?.record_count} />
+                    <Field label="Train Size" value={selectedRunDashboard.train_count} />
+                    <Field label="Test Size" value={selectedRunDashboard.test_count} />
+                  </div>
+
+                  <h3 style={{ marginTop: "15px" }}>Performance Metrics</h3>
+                  <div className="metric-grid compact-metrics">
+                    {Object.entries(selectedRunDashboard.metrics || {}).map(([key, val]) => {
+                      if (key === "confusion_matrix") return null;
+                      return <Field key={key} label={key.replace('_', ' ').toUpperCase()} value={typeof val === "object" ? JSON.stringify(val) : val} />;
+                    })}
+                  </div>
+
+                  {selectedRunDashboard.task_type === "binary_classification" && selectedRunDashboard.confusion_matrix && (
+                    <div style={{ marginTop: "15px" }}>
+                      <h3>Confusion Matrix (Test Split)</h3>
+                      <div className="responsive-table" style={{ maxWidth: "500px", marginTop: "5px" }}>
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>True \ Predicted</th>
+                              <th>Predicted Inactive (0)</th>
+                              <th>Predicted Active (1)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td><strong>True Inactive (0)</strong></td>
+                              <td>{selectedRunDashboard.confusion_matrix[0][0]} (True Neg)</td>
+                              <td>{selectedRunDashboard.confusion_matrix[0][1]} (False Pos)</td>
+                            </tr>
+                            <tr>
+                              <td><strong>True Active (1)</strong></td>
+                              <td>{selectedRunDashboard.confusion_matrix[1][0]} (False Neg)</td>
+                              <td>{selectedRunDashboard.confusion_matrix[1][1]} (True Pos)</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedRunPlots && selectedRunPlots.feature_importance && typeof selectedRunPlots.feature_importance === "object" && (
+                    <div style={{ marginTop: "15px" }}>
+                      <h3>Descriptor Feature Importance</h3>
+                      <div className="responsive-table" style={{ marginTop: "5px" }}>
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Feature</th>
+                              <th>Relative Importance</th>
+                              <th>Distribution</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(selectedRunPlots.feature_importance)
+                              .sort((a, b) => b[1] - a[1])
+                              .map(([feature, val]) => (
+                                <tr key={feature}>
+                                  <td><strong>{feature.replace(/_/g, ' ').toUpperCase()}</strong></td>
+                                  <td>{(val * 100).toFixed(2)}%</td>
+                                  <td>
+                                    <div style={{ width: "120px", background: "#f3f4f6", borderRadius: "3px", height: "8px", overflow: "hidden" }}>
+                                      <div style={{ width: `${val * 100}%`, background: "#0f766e", height: "100%" }} />
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ marginTop: "15px" }}>
+                    <h3>Activation Readiness & Validation Status</h3>
+                    <div className="compact-metrics" style={{ display: "flex", gap: "10px", marginTop: "5px", alignItems: "center" }}>
+                      <Badge tone={selectedRunDashboard.validation_status.valid ? "Good" : "High"}>
+                        {selectedRunDashboard.validation_status.valid ? "Validation Passed" : "Validation Failed"}
+                      </Badge>
+                      <Badge tone={selectedRunDashboard.activation_readiness ? "Good" : "Neutral"}>
+                        {selectedRunDashboard.activation_readiness ? "Readiness: Ready" : "Readiness: Not Ready"}
+                      </Badge>
+                      {selectedRunDashboard.validation_status.model_id && (
+                        <div className="candidate-actions left-actions" style={{ gap: "5px" }}>
+                          {activeTrainedModel && activeTrainedModel.model_id === selectedRunDashboard.validation_status.model_id && activeTrainedModel.status === "available" ? (
+                            <button className="small-button secondary-button warning-button" onClick={deactivateActiveTrainedModel}>
+                              Deactivate Active Model
+                            </button>
+                          ) : (
+                            <button
+                              className="small-button"
+                              onClick={() => activateTrainedModel(selectedRunDashboard.validation_status.model_id)}
+                              disabled={!selectedRunDashboard.activation_readiness}
+                            >
+                              Activate Selected Model
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {selectedRunDashboard.validation_status.errors && selectedRunDashboard.validation_status.errors.map((err, i) => (
+                      <p key={i} className="warning-text" style={{ fontSize: "0.85rem", marginTop: "4px" }}>• {err}</p>
+                    ))}
+                  </div>
+
+                  <div style={{ marginTop: "15px" }}>
+                    <h3>Warnings & Limitations</h3>
+                    <p className="warning-text">
+                      Scientific notice: Experimental local model prediction. Requires external validation.
+                    </p>
+                    {selectedRunDashboard.warnings && selectedRunDashboard.warnings.map((w, i) => (
+                      <p key={i} className="warning-text" style={{ fontSize: "0.85rem" }}>• {w}</p>
+                    ))}
+                    {selectedRunDashboard.limitations && selectedRunDashboard.limitations.map((l, i) => (
+                      <p key={i} className="limitation-label" style={{ fontSize: "0.85rem" }}>• {l}</p>
+                    ))}
+                  </div>
+
+                  {/* External Validation Summary Section in Inspected Run Detail */}
+                  {(() => {
+                    const discoveredModel = dashboardSummary?.available_trained_models?.find(
+                      m => String(m.training_run_id) === String(selectedRunDashboard.training_run_id)
+                    );
+                    if (!discoveredModel) return null;
+                    return (
+                      <div style={{ marginTop: "20px", border: "1px solid #e5e7eb", borderRadius: "6px", padding: "15px", background: "#fafafa" }}>
+                        <h4 style={{ display: "flex", alignItems: "center", gap: "8px", margin: "0 0 10px 0" }}>
+                          External Validation Status: 
+                          <Badge tone={
+                            discoveredModel.external_validation_status === "validated" ? "Good" :
+                            discoveredModel.external_validation_status === "poor_performance" ? "High" : "Neutral"
+                          }>
+                            {(discoveredModel.external_validation_status || "").toUpperCase().replace('_', ' ')}
+                          </Badge>
+                        </h4>
+                        {discoveredModel.latest_external_validation ? (
+                          <div style={{ marginTop: "10px" }}>
+                            <div className="metric-grid compact-metrics">
+                              <Field label="Val Count" value={discoveredModel.latest_external_validation.valid_count} />
+                              <Field label="Calibration Status" value={discoveredModel.latest_external_validation.calibration_status} />
+                              {discoveredModel.latest_external_validation.calibration_ece !== undefined && (
+                                <Field label="Calibration ECE" value={discoveredModel.latest_external_validation.calibration_ece} />
+                              )}
+                              <Field label="Validated At" value={discoveredModel.latest_external_validation.created_at} />
+                            </div>
+                            <h5 style={{ marginTop: "10px", marginBottom: "5px" }}>External Metrics</h5>
+                            <div className="metric-grid compact-metrics">
+                              {Object.entries(discoveredModel.latest_external_validation.metric_summary || {}).map(([metric, val]) => (
+                                <Field key={metric} label={metric.toUpperCase()} value={typeof val === "number" ? val.toFixed(4) : String(val)} />
+                              ))}
+                            </div>
+                            {discoveredModel.latest_external_validation.warnings && discoveredModel.latest_external_validation.warnings.length > 0 && (
+                              <div style={{ marginTop: "10px" }}>
+                                <strong>Validation Warnings:</strong>
+                                {discoveredModel.latest_external_validation.warnings.map((w, idx) => (
+                                  <p key={idx} className="warning-text" style={{ fontSize: "0.8rem", margin: "2px 0" }}>• {w}</p>
+                                ))}
+                              </div>
+                            )}
+                            <div style={{ marginTop: "10px" }}>
+                              <button
+                                type="button"
+                                className="small-button secondary-button"
+                                onClick={() => handleValidationRunSelect(discoveredModel.latest_external_validation.run_id)}
+                              >
+                                Go to Validation Run #{discoveredModel.latest_external_validation.run_id} Details
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="limitation-label" style={{ marginTop: "5px" }}>
+                            No external validation run available for this model yet. Run external validation in the section below.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+
+            <div className="evidence-panel" style={{ padding: "15px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", flexWrap: "wrap", gap: "10px" }}>
+                <h3>Model Comparison Summary</h3>
+                <a
+                  href={`${API_BASE}/admet-training/model-comparison.csv`}
+                  className="small-button secondary-button"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "5px", textDecoration: "none" }}
+                  download
+                >
+                  <Download size={14} /> Download Comparison CSV
+                </a>
+              </div>
+              
+              {modelComparison.length ? (
+                <div className="responsive-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Model ID</th>
+                        <th>Task</th>
+                        <th>Type</th>
+                        <th>Dataset</th>
+                        <th>Size (Train/Test)</th>
+                        <th>Accuracy / F1 / AUC</th>
+                        <th>R² / RMSE</th>
+                        <th>Validation</th>
+                        <th>External Validation</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {modelComparison.map((model) => (
+                        <tr key={model.model_id}>
+                          <td><strong>{model.model_id}</strong></td>
+                          <td>{model.task_name} ({model.task_type})</td>
+                          <td>{model.model_type}</td>
+                          <td>{model.dataset_name}</td>
+                          <td>{model.train_count}/{model.test_count}</td>
+                          <td>
+                            {model.task_type === "binary_classification" ? (
+                              <div style={{ fontSize: "0.85rem" }}>
+                                Acc: {typeof model.accuracy === "number" ? model.accuracy.toFixed(4) : model.accuracy}<br />
+                                F1: {typeof model.f1 === "number" ? model.f1.toFixed(4) : model.f1}<br />
+                                AUC: {typeof model.roc_auc === "number" ? model.roc_auc.toFixed(4) : model.roc_auc}
+                              </div>
+                            ) : (
+                              <span className="limitation-label">N/A</span>
+                            )}
+                          </td>
+                          <td>
+                            {model.task_type === "regression" ? (
+                              <div style={{ fontSize: "0.85rem" }}>
+                                R²: {typeof model.r2 === "number" ? model.r2.toFixed(4) : model.r2}<br />
+                                RMSE: {typeof model.rmse === "number" ? model.rmse.toFixed(4) : model.rmse}
+                              </div>
+                            ) : (
+                              <span className="limitation-label">N/A</span>
+                            )}
+                          </td>
+                          <td>
+                            <Badge tone={model.validation_status === "valid" ? "Good" : "High"}>
+                              {model.validation_status}
+                            </Badge>
+                          </td>
+                          <td>
+                            {(() => {
+                              const discoveredModel = dashboardSummary?.available_trained_models?.find(
+                                m => String(m.training_run_id) === String(model.training_run_id)
+                              );
+                              if (!discoveredModel || !discoveredModel.external_validation_status) return <span className="limitation-label">N/A</span>;
+                              return (
+                                <Badge tone={
+                                  discoveredModel.external_validation_status === "validated" ? "Good" :
+                                  discoveredModel.external_validation_status === "poor_performance" ? "High" : "Neutral"
+                                }>
+                                  {discoveredModel.external_validation_status.replace('_', ' ')}
+                                </Badge>
+                              );
+                            })()}
+                          </td>
+                          <td>
+                            <Badge tone={model.active_status === "active" ? "Good" : "Neutral"}>
+                              {model.active_status}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="limitation-label">No models discovered yet to compare. Train models to populate this table.</p>
+              )}
+            </div>
+          </Section>
+
           <Section title="Active Trained Model" icon={ShieldCheck} wide>
             {activeTrainedModel && activeTrainedModel.status === "available" ? (
               <div>
@@ -3857,6 +4397,265 @@ export default function App() {
                 {testPrediction.warnings && testPrediction.warnings.map(w => <p className="warning-text" key={w}>{w}</p>)}
                 {testPrediction.limitations && testPrediction.limitations.map(l => <p className="limitation-label" key={l}>{l}</p>)}
               </article>
+            )}
+          </Section>
+
+          <Section title="External Validation & Calibration" icon={ShieldCheck} wide>
+            <p className="limitation-label">
+              Evaluate a trained ADMET model on an independent curated dataset. Review metrics drops, potential overfitting, and predicted probability calibration.
+            </p>
+            <div className="finder-search">
+              <label>
+                Select Trained Model
+                <select
+                  value={externalValidationForm.model_id}
+                  onChange={(e) => setExternalValidationForm(curr => ({ ...curr, model_id: e.target.value }))}
+                >
+                  <option value="">-- Choose a Model --</option>
+                  {trainedModels.filter(m => m.status === "valid").map(m => (
+                    <option key={m.model_id} value={m.model_id}>
+                      {m.model_name || m.model_id} ({m.task_name || m.task_type})
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Select External Dataset
+                <select
+                  value={externalValidationForm.external_dataset_id}
+                  onChange={(e) => setExternalValidationForm(curr => ({ ...curr, external_dataset_id: e.target.value }))}
+                >
+                  <option value="">-- Choose a Dataset --</option>
+                  {admetDatasets.map(d => (
+                    <option key={d.id} value={d.id}>
+                      #{d.id} {d.name} ({d.task_name}) - {d.valid_count} valid
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Optional Notes
+                <input
+                  type="text"
+                  placeholder="e.g., Independent test set from literature"
+                  value={externalValidationForm.notes || ""}
+                  onChange={(e) => setExternalValidationForm(curr => ({ ...curr, notes: e.target.value }))}
+                />
+              </label>
+
+              <button
+                type="button"
+                onClick={startExternalValidation}
+                disabled={validationLoading || !externalValidationForm.model_id || !externalValidationForm.external_dataset_id}
+              >
+                {validationLoading ? "Evaluating..." : "Run External Validation"}
+              </button>
+              <button type="button" className="secondary-button" onClick={loadExternalValidationRuns}>
+                Refresh Validation List
+              </button>
+            </div>
+
+            {externalValidationRuns.length > 0 && (
+              <div className="evidence-panel" style={{ marginTop: "20px", padding: "15px" }}>
+                <h3>Select External Validation Run to Inspect</h3>
+                <select
+                  value={selectedValidationRunId}
+                  onChange={(e) => handleValidationRunSelect(e.target.value)}
+                  style={{ width: "100%", padding: "8px", borderRadius: "4px", border: "1px solid #ccc", marginTop: "5px" }}
+                >
+                  <option value="">-- Choose a validation run --</option>
+                  {externalValidationRuns.map(run => (
+                    <option key={run.id} value={run.id}>
+                      Run #{run.id}: Model {run.model_id} evaluated on Dataset #{run.external_dataset_id} ({run.created_at})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {selectedValidationRunDetail && (
+              <div className="evidence-panel" style={{ marginTop: "20px", padding: "15px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px", flexWrap: "wrap", gap: "10px" }}>
+                  <h3>Validation Run #{selectedValidationRunDetail.id} Results</h3>
+                  <div style={{ display: "flex", gap: "5px" }}>
+                    <a
+                      href={`${API_BASE}/admet-validation/external/runs/${selectedValidationRunDetail.id}/metrics.csv`}
+                      className="small-button secondary-button"
+                      download
+                    >
+                      Download Metrics CSV
+                    </a>
+                    <a
+                      href={`${API_BASE}/admet-validation/external/runs/${selectedValidationRunDetail.id}/report.json`}
+                      className="small-button secondary-button"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      View Report JSON
+                    </a>
+                  </div>
+                </div>
+
+                <div className="metric-grid compact-metrics">
+                  <Field label="Model ID" value={selectedValidationRunDetail.model_id} />
+                  <Field label="Dataset ID" value={selectedValidationRunDetail.external_dataset_id} />
+                  <Field label="Task Type" value={selectedValidationRunDetail.task_type} />
+                  <Field label="Valid Record Count" value={selectedValidationRunDetail.valid_count} />
+                  <Field label="Invalid Record Count" value={selectedValidationRunDetail.invalid_count} />
+                  <Field label="Notes" value={selectedValidationRunDetail.notes || "None"} />
+                </div>
+
+                <div style={{ display: "flex", gap: "20px", marginTop: "20px", flexWrap: "wrap" }}>
+                  {/* Left Column: Metrics comparison */}
+                  <div style={{ flex: "1", minWidth: "300px" }}>
+                    <h3>Internal vs External Performance</h3>
+                    <div className="responsive-table">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Metric</th>
+                            <th>Internal (Train/Test)</th>
+                            <th>External Validation</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedValidationRunDetail.comparison && selectedValidationRunDetail.comparison.internal_metrics ? (
+                            Object.entries(selectedValidationRunDetail.comparison.internal_metrics).map(([metric, intVal]) => {
+                              if (metric === "confusion_matrix" || metric === "observed_vs_predicted" || metric === "prediction_probabilities") return null;
+                              const extVal = selectedValidationRunDetail.metric_summary[metric];
+                              return (
+                                <tr key={metric}>
+                                  <td><strong>{metric.toUpperCase()}</strong></td>
+                                  <td>{typeof intVal === "number" ? intVal.toFixed(4) : String(intVal)}</td>
+                                  <td>
+                                    {extVal !== undefined ? (
+                                      typeof extVal === "number" ? extVal.toFixed(4) : String(extVal)
+                                    ) : (
+                                      <span className="limitation-label">N/A</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          ) : (
+                            Object.entries(selectedValidationRunDetail.metric_summary).map(([metric, extVal]) => {
+                              if (metric === "confusion_matrix" || metric === "observed_vs_predicted" || metric === "prediction_probabilities" || metric === "class_distribution" || metric === "prediction_distribution") return null;
+                              return (
+                                <tr key={metric}>
+                                  <td><strong>{metric.toUpperCase()}</strong></td>
+                                  <td><span className="limitation-label">N/A</span></td>
+                                  <td>{typeof extVal === "number" ? extVal.toFixed(4) : String(extVal)}</td>
+                                </tr>
+                              );
+                            })
+                          )}
+                          {selectedValidationRunDetail.calibration_summary?.calibration_status === "available" && (
+                            <>
+                              <tr>
+                                <td><strong>EXPECTED CALIBRATION ERROR (ECE)</strong></td>
+                                <td><span className="limitation-label">N/A</span></td>
+                                <td>{selectedValidationRunDetail.calibration_summary.expected_calibration_error}</td>
+                              </tr>
+                              <tr>
+                                <td><strong>BRIER SCORE</strong></td>
+                                <td><span className="limitation-label">N/A</span></td>
+                                <td>{selectedValidationRunDetail.calibration_summary.brier_score}</td>
+                              </tr>
+                            </>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Visuals (Confusion Matrix or Residuals) */}
+                  <div style={{ flex: "1", minWidth: "300px" }}>
+                    {selectedValidationRunDetail.task_type === "binary_classification" && selectedValidationRunDetail.metric_summary.confusion_matrix && (
+                      <div>
+                        <h3>Confusion Matrix (External)</h3>
+                        <div className="responsive-table" style={{ marginTop: "5px" }}>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>True \ Predicted</th>
+                                <th>Inactive (0)</th>
+                                <th>Active (1)</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr>
+                                <td><strong>True Inactive (0)</strong></td>
+                                <td>{selectedValidationRunDetail.metric_summary.confusion_matrix[0][0]}</td>
+                                <td>{selectedValidationRunDetail.metric_summary.confusion_matrix[0][1]}</td>
+                              </tr>
+                              <tr>
+                                <td><strong>True Active (1)</strong></td>
+                                <td>{selectedValidationRunDetail.metric_summary.confusion_matrix[1][0]}</td>
+                                <td>{selectedValidationRunDetail.metric_summary.confusion_matrix[1][1]}</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedValidationRunDetail.task_type === "regression" && selectedValidationRunDetail.metric_summary.residual_summary && (
+                      <div>
+                        <h3>Residual Summary</h3>
+                        <div className="metric-grid compact-metrics" style={{ marginTop: "5px" }}>
+                          <Field label="Mean Residual" value={selectedValidationRunDetail.metric_summary.residual_summary.mean} />
+                          <Field label="Std Residual" value={selectedValidationRunDetail.metric_summary.residual_summary.std} />
+                          <Field label="Min Residual" value={selectedValidationRunDetail.metric_summary.residual_summary.min} />
+                          <Field label="Max Residual" value={selectedValidationRunDetail.metric_summary.residual_summary.max} />
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedValidationRunDetail.calibration_summary?.calibration_status === "available" && selectedValidationRunDetail.calibration_summary.bins && (
+                      <div style={{ marginTop: "15px" }}>
+                        <h3>Probability Calibration Bins</h3>
+                        <div className="responsive-table">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Bin Range</th>
+                                <th>Mean Predicted</th>
+                                <th>Actual Accuracy</th>
+                                <th>Count</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {selectedValidationRunDetail.calibration_summary.bins.map((bin, idx) => (
+                                <tr key={idx}>
+                                  <td>{bin.bin_min} - {bin.bin_max}</td>
+                                  <td>{bin.mean_predicted}</td>
+                                  <td>{bin.accuracy}</td>
+                                  <td>{bin.count}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ marginTop: "15px" }}>
+                  <h3>Warnings & Disclaimers</h3>
+                  <p className="warning-text">
+                    Scientific notice: External validation performance is dataset-dependent. Computational predictions require wet-lab confirmation.
+                  </p>
+                  {selectedValidationRunDetail.warnings && selectedValidationRunDetail.warnings.map((w, idx) => (
+                    <p key={idx} className="warning-text" style={{ fontSize: "0.85rem" }}>• {w}</p>
+                  ))}
+                  {selectedValidationRunDetail.limitations && selectedValidationRunDetail.limitations.map((l, idx) => (
+                    <p key={idx} className="limitation-label" style={{ fontSize: "0.85rem" }}>• {l}</p>
+                  ))}
+                </div>
+              </div>
             )}
           </Section>
         </div>

@@ -389,3 +389,439 @@ def metrics_csv(run_id: int) -> str:
     for key, value in run.metric_summary.items():
         writer.writerow([key, json.dumps(value) if isinstance(value, (dict, list)) else value])
     return output.getvalue()
+
+
+def get_admet_dashboard_summary() -> dict[str, Any]:
+    init_db()
+    total_runs = 0
+    dataset_count = 0
+    latest_run = None
+    best_clf = None
+    best_reg = None
+    
+    with get_connection() as connection:
+        row_runs = connection.execute("SELECT COUNT(*) FROM admet_training_runs").fetchone()
+        total_runs = row_runs[0] if row_runs else 0
+        
+        row_datasets = connection.execute("SELECT COUNT(DISTINCT dataset_id) FROM admet_training_runs").fetchone()
+        dataset_count = row_datasets[0] if row_datasets else 0
+        
+        row_latest = connection.execute("SELECT * FROM admet_training_runs ORDER BY datetime(created_at) DESC, id DESC LIMIT 1").fetchone()
+        if row_latest:
+            latest_run = _run_from_row(row_latest).model_dump()
+            
+        clf_rows = connection.execute("SELECT * FROM admet_training_runs WHERE task_type = 'binary_classification'").fetchall()
+        best_clf_score = -1.0
+        for r in clf_rows:
+            run_data = _run_from_row(r).model_dump()
+            metrics = run_data.get("metric_summary") or {}
+            score = 0.0
+            roc_auc = metrics.get("roc_auc")
+            if isinstance(roc_auc, (int, float)):
+                score = float(roc_auc)
+            else:
+                f1 = metrics.get("f1")
+                if isinstance(f1, (int, float)):
+                    score = float(f1)
+            
+            if score > best_clf_score:
+                best_clf_score = score
+                best_clf = run_data
+                
+        reg_rows = connection.execute("SELECT * FROM admet_training_runs WHERE task_type = 'regression'").fetchall()
+        best_reg_score = -9999.0
+        for r in reg_rows:
+            run_data = _run_from_row(r).model_dump()
+            metrics = run_data.get("metric_summary") or {}
+            r2 = metrics.get("r2")
+            score = -9999.0
+            if isinstance(r2, (int, float)):
+                score = float(r2)
+            else:
+                rmse = metrics.get("rmse")
+                if isinstance(rmse, (int, float)) and rmse > 0:
+                    score = -float(rmse)
+            
+            if score > best_reg_score:
+                best_reg_score = score
+                best_reg = run_data
+
+    from app.services.admet_trained_model_service import discover_trained_models, get_active_trained_model_info
+    from app.services.admet_validation_service import get_latest_external_validation_by_model
+    discovered = discover_trained_models()
+    for model in discovered:
+        latest_val = get_latest_external_validation_by_model(model["model_id"])
+        if latest_val:
+            model["external_validation_status"] = "validated"
+            model["latest_external_validation"] = {
+                "run_id": latest_val["id"],
+                "dataset_id": latest_val["external_dataset_id"],
+                "valid_count": latest_val["valid_count"],
+                "metric_summary": {k: v for k, v in latest_val["metric_summary"].items() if k not in {"observed_vs_predicted", "prediction_probabilities"}},
+                "calibration_status": latest_val.get("calibration_summary", {}).get("calibration_status") or "available",
+                "calibration_ece": latest_val.get("calibration_summary", {}).get("expected_calibration_error"),
+                "warnings": latest_val["warnings"],
+                "created_at": latest_val["created_at"],
+            }
+            is_poor = any("overfitting" in w.lower() or "poorly calibrated" in w.lower() for w in latest_val["warnings"])
+            if is_poor:
+                model["external_validation_status"] = "poor_performance"
+        else:
+            model["external_validation_status"] = "no_validation"
+            model["latest_external_validation"] = None
+            
+    total_artifacts = len(discovered)
+    invalid_count = sum(1 for m in discovered if m.get("status") == "invalid")
+    active_status = get_active_trained_model_info()
+    
+    warnings = []
+    if total_runs == 0:
+        warnings.append("No training runs recorded. Train models in the ADMET training tab.")
+    if invalid_count > 0:
+        warnings.append(f"There are {invalid_count} invalid trained models. Review their folder structures.")
+        
+    return {
+        "total_training_runs": total_runs,
+        "total_trained_model_artifacts": total_artifacts,
+        "active_trained_model_status": active_status,
+        "available_trained_models": discovered,
+        "failed_invalid_model_count": invalid_count,
+        "dataset_count_used_for_training": dataset_count,
+        "latest_training_run_summary": latest_run,
+        "best_classification_model": best_clf,
+        "best_regression_model": best_reg,
+        "warnings": warnings,
+        "scientific_limitations": LIMITATIONS,
+    }
+
+
+def get_training_run_dashboard(run_id: int) -> dict[str, Any]:
+    init_db()
+    run = get_training_run(run_id)
+    
+    with get_connection() as connection:
+        dataset_row = connection.execute("SELECT * FROM admet_datasets WHERE id = ?", (run.dataset_id,)).fetchone()
+    
+    dataset_summary = {}
+    if dataset_row:
+        dataset_summary = {
+            "name": dataset_row["name"],
+            "task_name": dataset_row["task_name"],
+            "record_count": dataset_row["record_count"],
+            "valid_count": dataset_row["valid_count"],
+            "invalid_count": dataset_row["invalid_count"],
+            "duplicate_count": dataset_row["duplicate_count"],
+            "notes": dataset_row["notes"],
+        }
+    
+    with get_connection() as connection:
+        artifact_row = connection.execute("SELECT * FROM admet_model_artifacts WHERE training_run_id = ?", (run_id,)).fetchone()
+    
+    model_id = None
+    validation_status = {"valid": False, "errors": ["No associated model artifact found in database."], "warnings": []}
+    activation_readiness = False
+    model_card_summary = None
+    
+    if artifact_row:
+        model_id = artifact_row["model_id"]
+        from app.services.admet_trained_model_service import validate_trained_model
+        try:
+            validation_status = validate_trained_model(model_id)
+            activation_readiness = validation_status["valid"]
+        except Exception as e:
+            validation_status = {"valid": False, "errors": [f"Validation failed with error: {e}"], "warnings": []}
+            
+        try:
+            model_card_summary = model_card(run_id)
+        except:
+            pass
+
+    limitations = list(LIMITATIONS)
+    if model_card_summary and model_card_summary.get("limitations"):
+        limitations = model_card_summary["limitations"]
+        
+    warnings = list(run.warnings)
+    if model_card_summary and model_card_summary.get("warnings"):
+        for w in model_card_summary["warnings"]:
+            if w not in warnings:
+                warnings.append(w)
+                
+    confusion_matrix_data = run.metric_summary.get("confusion_matrix")
+    roc_auc_val = run.metric_summary.get("roc_auc")
+    roc_auc_availability = "available" if (roc_auc_val is not None and not str(roc_auc_val).startswith("not available")) else "not available"
+    
+    regression_metrics = None
+    if run.task_type == "regression":
+        regression_metrics = {
+            "mae": run.metric_summary.get("mae", "not available"),
+            "rmse": run.metric_summary.get("rmse", "not available"),
+            "r2": run.metric_summary.get("r2", "not available"),
+        }
+
+    return {
+        "training_run_id": run_id,
+        "training_run_metadata": {
+            "id": run.id,
+            "dataset_id": run.dataset_id,
+            "task_name": run.task_name,
+            "task_type": run.task_type,
+            "model_name": run.model_name,
+            "model_type": run.model_type,
+            "status": run.status,
+            "created_at": run.created_at,
+        },
+        "dataset_summary": dataset_summary,
+        "task_type": run.task_type,
+        "model_type": run.model_type,
+        "feature_list": FEATURE_COLUMNS,
+        "train_count": run.train_count,
+        "test_count": run.test_count,
+        "metrics": run.metric_summary,
+        "confusion_matrix": confusion_matrix_data,
+        "roc_auc_availability": roc_auc_availability,
+        "regression_metrics": regression_metrics,
+        "model_card_summary": model_card_summary,
+        "limitations": limitations,
+        "activation_readiness": activation_readiness,
+        "validation_status": validation_status,
+        "warnings": warnings,
+    }
+
+
+def get_model_comparison() -> list[dict[str, Any]]:
+    init_db()
+    from app.services.admet_trained_model_service import discover_trained_models, get_active_trained_model_info, validate_trained_model
+    discovered = discover_trained_models()
+    active_info = get_active_trained_model_info()
+    active_model_id = active_info.get("model_id") if active_info.get("status") == "active" else None
+    
+    with get_connection() as connection:
+        run_rows = connection.execute("SELECT * FROM admet_training_runs").fetchall()
+        runs_dict = {row["id"]: row for row in run_rows}
+        
+        dataset_rows = connection.execute("SELECT id, name FROM admet_datasets").fetchall()
+        datasets_dict = {row["id"]: row["name"] for row in dataset_rows}
+        
+    comparison = []
+    for model in discovered:
+        model_id = model["model_id"]
+        run_id = model["training_run_id"]
+        
+        task_name = model["task_name"]
+        task_type = model["task_type"]
+        model_type = model["model_type"]
+        dataset_name = "unknown"
+        train_count = None
+        test_count = None
+        created_at = model["created_at"]
+        warnings = list(model["warnings"])
+        
+        accuracy = "not available"
+        balanced_accuracy = "not available"
+        precision = "not available"
+        recall = "not available"
+        f1 = "not available"
+        roc_auc = "not available"
+        mae = "not available"
+        rmse = "not available"
+        r2 = "not available"
+        
+        if run_id and run_id in runs_dict:
+            run_row = runs_dict[run_id]
+            dataset_id = run_row["dataset_id"]
+            dataset_name = datasets_dict.get(dataset_id, "unknown")
+            train_count = run_row["train_count"]
+            test_count = run_row["test_count"]
+            created_at = run_row["created_at"]
+            
+            metrics = json.loads(run_row["metric_summary_json"])
+            if task_type == "binary_classification":
+                accuracy = metrics.get("accuracy", "not available")
+                balanced_accuracy = metrics.get("balanced_accuracy", "not available")
+                precision = metrics.get("precision", "not available")
+                recall = metrics.get("recall", "not available")
+                f1 = metrics.get("f1", "not available")
+                roc_auc = metrics.get("roc_auc", "not available")
+            elif task_type == "regression":
+                mae = metrics.get("mae", "not available")
+                rmse = metrics.get("rmse", "not available")
+                r2 = metrics.get("r2", "not available")
+                
+        active_status = "active" if model_id == active_model_id else "inactive"
+        
+        validation = validate_trained_model(model_id)
+        validation_status = "valid" if validation["valid"] else "invalid"
+        if validation["errors"]:
+            for err in validation["errors"]:
+                if err not in warnings:
+                    warnings.append(err)
+                    
+        comparison.append({
+            "model_id": model_id,
+            "training_run_id": run_id,
+            "task_name": task_name,
+            "task_type": task_type,
+            "model_type": model_type,
+            "dataset_name": dataset_name,
+            "train_count": train_count,
+            "test_count": test_count,
+            "accuracy": accuracy,
+            "balanced_accuracy": balanced_accuracy,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "roc_auc": roc_auc,
+            "mae": mae,
+            "rmse": rmse,
+            "r2": r2,
+            "active_status": active_status,
+            "validation_status": validation_status,
+            "created_at": created_at,
+            "warnings": warnings,
+        })
+        
+    return comparison
+
+
+def get_model_comparison_csv() -> str:
+    comparison = get_model_comparison()
+    output = StringIO()
+    writer = csv.writer(output)
+    
+    headers = [
+        "model_id", "training_run_id", "task_name", "task_type", "model_type",
+        "dataset_name", "train_count", "test_count", "accuracy", "balanced_accuracy",
+        "precision", "recall", "f1", "roc_auc", "mae", "rmse", "r2",
+        "active_status", "validation_status", "created_at", "warnings"
+    ]
+    writer.writerow(headers)
+    
+    for item in comparison:
+        writer.writerow([
+            item["model_id"],
+            item["training_run_id"],
+            item["task_name"],
+            item["task_type"],
+            item["model_type"],
+            item["dataset_name"],
+            item["train_count"],
+            item["test_count"],
+            item["accuracy"],
+            item["balanced_accuracy"],
+            item["precision"],
+            item["recall"],
+            item["f1"],
+            item["roc_auc"],
+            item["mae"],
+            item["rmse"],
+            item["r2"],
+            item["active_status"],
+            item["validation_status"],
+            item["created_at"],
+            "; ".join(item["warnings"])
+        ])
+        
+    return output.getvalue()
+
+
+def get_run_plots_data(run_id: int) -> dict[str, Any]:
+    init_db()
+    run = get_training_run(run_id)
+    
+    label_dist = {}
+    with get_connection() as connection:
+        rows = connection.execute(
+            "SELECT label_value, COUNT(*) as c FROM admet_dataset_records WHERE dataset_id = ? AND is_valid = 1 GROUP BY label_value",
+            (run.dataset_id,)
+        ).fetchall()
+        for r in rows:
+            label_dist[str(r["label_value"])] = r["c"]
+            
+    confusion_matrix_data = None
+    classification_metric_bars = None
+    regression_metric_bars = None
+    
+    if run.task_type == "binary_classification":
+        confusion_matrix_data = run.metric_summary.get("confusion_matrix")
+        classification_metric_bars = {
+            "accuracy": run.metric_summary.get("accuracy"),
+            "balanced_accuracy": run.metric_summary.get("balanced_accuracy"),
+            "precision": run.metric_summary.get("precision"),
+            "recall": run.metric_summary.get("recall"),
+            "f1": run.metric_summary.get("f1"),
+            "roc_auc": run.metric_summary.get("roc_auc"),
+        }
+    else:
+        regression_metric_bars = {
+            "mae": run.metric_summary.get("mae"),
+            "rmse": run.metric_summary.get("rmse"),
+            "r2": run.metric_summary.get("r2"),
+        }
+        
+    feature_importance = "feature importance not available for this model type"
+    prob_dist = "not available"
+    warnings = []
+    
+    with get_connection() as connection:
+        artifact_row = connection.execute("SELECT * FROM admet_model_artifacts WHERE training_run_id = ?", (run_id,)).fetchone()
+        
+    if artifact_row:
+        model_path = Path(artifact_row["artifact_path"])
+        if model_path.exists():
+            try:
+                import joblib
+                model_data = joblib.load(model_path)
+                clf = model_data.get("model")
+                
+                if clf and hasattr(clf, "feature_importances_"):
+                    raw_importances = clf.feature_importances_
+                    importances_dict = {}
+                    for i, col in enumerate(FEATURE_COLUMNS):
+                        if i < len(raw_importances):
+                            importances_dict[col] = round(float(raw_importances[i]), 6)
+                    total_imp = sum(importances_dict.values())
+                    if total_imp > 0:
+                        feature_importance = {k: round(v / total_imp, 6) for k, v in importances_dict.items()}
+                    else:
+                        feature_importance = importances_dict
+                else:
+                    feature_importance = "feature importance not available for this model type"
+                    
+                if clf and run.task_type == "binary_classification" and hasattr(clf, "predict_proba"):
+                    records = get_dataset_records(run.dataset_id)
+                    X = []
+                    for r in records:
+                        if not r.is_valid or not r.descriptors:
+                            continue
+                        features = []
+                        missing = False
+                        for col in FEATURE_COLUMNS:
+                            val = r.descriptors.get(col)
+                            if val is None:
+                                missing = True
+                                break
+                            features.append(float(val))
+                        if not missing:
+                            X.append(features)
+                            
+                    if X:
+                        probs = clf.predict_proba(X)[:, 1]
+                        prob_dist = [round(float(p), 4) for p in probs]
+                    else:
+                        prob_dist = []
+            except Exception as e:
+                warnings.append(f"Could not load model file to extract feature importances or probabilities: {e}")
+        else:
+            warnings.append("Model artifact file does not exist on disk.")
+    else:
+        warnings.append("No model artifact associated with this training run.")
+        
+    return {
+        "confusion_matrix_data": confusion_matrix_data,
+        "classification_metric_bars": classification_metric_bars,
+        "regression_metric_bars": regression_metric_bars,
+        "label_distribution": label_dist,
+        "feature_importance": feature_importance,
+        "prediction_probability_distribution": prob_dist,
+        "warnings": warnings,
+    }

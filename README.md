@@ -1177,6 +1177,51 @@ All predictions made by active trained local models are flagged and clearly labe
 These predictions are displayed separately from the rule-based ADMET v1 checks and are integrated into single screening, batch screening, project workspace reports, and research export packages.
 
 
+## ADMET Model Performance Dashboard V1
+
+DrugScreen360 includes a professional ADMET Model Performance Dashboard to review and compare local trained ADMET models.
+
+### Key Features
+- **Summary Dashboard**: View general metrics including total training runs, active model status, best classification/regression models, and scientific limitations.
+- **Detailed Run Visualization**: Dive into specific training runs to inspect classification confusion matrices, regression metrics, prediction probability distributions, label distributions, and RDKit feature importance rankings.
+- **Model Comparison Table**: Compare all training runs in a comprehensive tabular view and export comparison datasets as CSV for scientific reporting.
+- **Project Workspace Integration**: Attach model dashboard snapshots directly to project workspace logs, which are included in PDF and DOCX reports.
+- **Research Export Integration**: Exports include a dedicated `ADMET_MODEL_DASHBOARD/` directory containing the summary JSON, model comparison CSV, scientific limitations, and individual training run detail sheets.
+
+### API Endpoints
+- `GET /api/admet-training/dashboard`: Returns the general dashboard summary.
+- `GET /api/admet-training/runs/{run_id}/dashboard`: Returns detailed metrics and validation readiness for a specific run.
+- `GET /api/admet-training/model-comparison`: Returns a tabular comparison list of all training runs.
+- `GET /api/admet-training/model-comparison.csv`: Exports training runs comparison list in CSV format.
+- `GET /api/admet-training/runs/{run_id}/plots-data`: Returns visual data (confusion matrix, distributions, feature importance).
+- `POST /api/admet-training/dashboard/attach`: Attaches a dashboard summary snapshot to a project workspace.
+
+
+## External ADMET Validation & Calibration V1
+
+DrugScreen360 includes support for evaluating trained ADMET models against independent, external datasets to assess real-world performance, detect overfitting, and analyze probability calibration.
+
+### Key Features
+- **Independent Validation**: Evaluate a model on any curated dataset with matching labels. Strict checks verify target type compatibility and label compatibility (e.g. classification target vs. regression model).
+- **Statistical Size Thresholds**: A minimum of 10 records is required for validation. If the dataset has fewer than 30 records, a strong warning is shown about statistical instability.
+- **Classification Performance & Calibration**: Computes Accuracy, Balanced Accuracy, Precision, Recall, F1, and ROC-AUC metrics. Additionally, evaluates probability calibration via:
+  - **Expected Calibration Error (ECE)**: Measures the discrepancy between predicted probabilities and empirical frequencies across 5 confidence bins.
+  - **Brier Score**: Assesses the overall accuracy of probabilistic predictions.
+- **Regression Performance**: Computes Mean Absolute Error (MAE), Root Mean Squared Error (RMSE), and R² score, along with observed-versus-predicted pairs and residual summaries (min, max, mean, median, IQR).
+- **Internal vs. External Comparison**: Automatically compares validation performance against internal training performance, warning the user about performance drops (e.g., F1/R² drop > 0.15) indicating possible overfitting.
+- **Model Activation Warnings**: Before activating a model, the system displays confirmation prompts if the model lacks external validation or if validation performance is poor (e.g., F1/Accuracy < 0.6).
+- **Workspace & Report Integration**: Attach validation summaries to project workspace reports (exported in PDF and DOCX) to include independent validation results.
+- **Research Export Integration**: Packages validation runs in a dedicated `ADMET_EXTERNAL_VALIDATION/` directory inside the research export ZIP, including CSV metrics, JSON reports, calibration parameters, and scientific limitations disclaimers.
+
+### API Endpoints
+- `POST /api/admet-validation/external/run`: Runs external validation on a model using a curated dataset.
+- `GET /api/admet-validation/external/runs`: Lists all external validation runs.
+- `GET /api/admet-validation/external/runs/{run_id}`: Retrieves details for a specific validation run.
+- `GET /api/admet-validation/external/runs/{run_id}/summary`: Retrieves a quick summary of validation metrics and warnings.
+- `GET /api/admet-validation/external/runs/{run_id}/metrics.csv`: Exports run metrics in CSV format.
+- `GET /api/admet-validation/external/runs/{run_id}/report.json`: Exports full run report in JSON format.
+
+
 ## Research Export Package
 
 DrugScreen360 can create a complete research documentation ZIP package from stored local project data.
