@@ -308,6 +308,24 @@ class TrainedLocalAdmetModelAdapter:
                     out_of_range_features=res.get("out_of_range_features"),
                 )
             ]
+            explanation_summary = {
+                "domain_status": res.get("domain_status") or "not_available",
+                "uncertainty_level": res.get("uncertainty_level") or "unknown",
+                "top_features": [],
+                "evidence_strength": "not_calculated",
+                "warning": "Detailed evidence strength is available from /api/admet-explain/prediction.",
+            }
+            try:
+                from app.services.admet_explain_service import _important_features
+                from app.services.admet_trained_model_service import discover_trained_models
+
+                actual_model_id = res.get("model_id")
+                summary = next((item for item in discover_trained_models() if item["model_id"] == actual_model_id), None)
+                if summary:
+                    features, _, _ = _important_features(summary)
+                    explanation_summary["top_features"] = [feature.model_dump() for feature in features[:3]]
+            except Exception as exc:
+                explanation_summary["warning"] = f"Short explanation summary unavailable: {exc}"
 
             return ModelPredictionBundle(
                 model_id=self.model_id,
@@ -319,6 +337,7 @@ class TrainedLocalAdmetModelAdapter:
                 raw_output=res,
                 warnings=res["warnings"] + ["Experimental local model prediction. Requires external validation."],
                 limitations=res["limitations"],
+                metadata={"explanation_summary": explanation_summary},
             )
         except Exception as e:
             return ModelPredictionBundle(

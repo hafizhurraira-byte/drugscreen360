@@ -8,6 +8,8 @@ from app.database import init_db
 from app.routers.admet import router as admet_router
 from app.routers.admet_datasets import router as admet_datasets_router
 from app.routers.admet_domain import router as admet_domain_router
+from app.routers.admet_explain import router as admet_explain_router
+from app.routers.admet_leads import router as admet_leads_router
 from app.routers.admet_training import router as admet_training_router
 from app.routers.admet_validation import router as admet_validation_router
 from app.routers.benchmark import router as benchmark_router
@@ -63,6 +65,8 @@ app.include_router(finder_router, prefix="/api")
 app.include_router(admet_router, prefix="/api")
 app.include_router(admet_datasets_router, prefix="/api")
 app.include_router(admet_domain_router)
+app.include_router(admet_explain_router, prefix="/api")
+app.include_router(admet_leads_router, prefix="/api")
 app.include_router(admet_training_router, prefix="/api")
 app.include_router(admet_validation_router, prefix="/api")
 app.include_router(disease_finder_router, prefix="/api")

@@ -175,6 +175,8 @@ class AdmetDashboardSummaryResponse(BaseModel):
     warnings: list[str] = []
     scientific_limitations: list[str] = []
     active_model_domain_info: dict[str, Any] | None = None
+    explainability_summary: dict[str, Any] | None = None
+    lead_prioritization_summary: dict[str, Any] | None = None
 
 
 

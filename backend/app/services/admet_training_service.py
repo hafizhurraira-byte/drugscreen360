@@ -450,6 +450,21 @@ def get_admet_dashboard_summary() -> dict[str, Any]:
     from app.services.admet_validation_service import get_latest_external_validation_by_model
     discovered = discover_trained_models()
     for model in discovered:
+        model["explainability_available"] = False
+        model["feature_importance_available"] = False
+        model["coefficient_available"] = False
+        try:
+            import joblib
+            model_path = Path(model["artifact_dir"]) / "model.joblib"
+            if model_path.exists():
+                model_data = joblib.load(model_path)
+                estimator = model_data.get("model") if isinstance(model_data, dict) else None
+                if estimator is not None:
+                    model["feature_importance_available"] = bool(hasattr(estimator, "feature_importances_"))
+                    model["coefficient_available"] = bool(hasattr(estimator, "coef_"))
+                    model["explainability_available"] = model["feature_importance_available"] or model["coefficient_available"]
+        except Exception as exc:
+            model.setdefault("warnings", []).append(f"Explainability metadata could not be checked: {exc}")
         latest_val = get_latest_external_validation_by_model(model["model_id"])
         if latest_val:
             model["external_validation_status"] = "validated"
@@ -503,6 +518,21 @@ def get_admet_dashboard_summary() -> dict[str, Any]:
         warnings.append("No training runs recorded. Train models in the ADMET training tab.")
     if invalid_count > 0:
         warnings.append(f"There are {invalid_count} invalid trained models. Review their folder structures.")
+
+    try:
+        from app.services.admet_explain_service import explanation_summary_counts
+        explainability_summary = explanation_summary_counts()
+    except Exception as exc:
+        explainability_summary = {
+            "explanation_report_count": 0,
+            "evidence_strength_distribution": {},
+            "warning": f"Could not load explainability summary: {exc}",
+        }
+    try:
+        from app.services.admet_lead_service import latest_lead_prioritization_summary
+        lead_prioritization_summary = latest_lead_prioritization_summary()
+    except Exception as exc:
+        lead_prioritization_summary = {"status": "not_available", "warning": f"Could not load lead prioritization summary: {exc}"}
         
     return {
         "total_training_runs": total_runs,
@@ -517,6 +547,8 @@ def get_admet_dashboard_summary() -> dict[str, Any]:
         "warnings": warnings,
         "scientific_limitations": LIMITATIONS,
         "active_model_domain_info": active_model_domain_info,
+        "explainability_summary": explainability_summary,
+        "lead_prioritization_summary": lead_prioritization_summary,
     }
 
 

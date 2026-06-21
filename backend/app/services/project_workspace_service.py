@@ -492,6 +492,9 @@ def _records_for_item(item: ProjectItem) -> list[dict[str, Any]]:
     if item.item_type == "project_report":
         records = _project_report_records(item.item_id)
         return records or [metadata]
+    if item.item_type == "admet_lead_prioritization":
+        top_records = _as_list(metadata.get("top_candidates"))
+        return [{**_as_dict(record), "source_workflow": item.item_type, "source_id": item.item_id} for record in top_records] or [metadata]
     return [metadata]
 
 
@@ -516,7 +519,7 @@ def _extract_row(data: dict[str, Any], item: ProjectItem, detail: ProjectDetail)
         "lipinski_status": _status_from_bool(_coalesce(data, "lipinski_status", "lipinski", "lipinski_pass") or drug_likeness.get("lipinski_status") or drug_likeness.get("lipinski_pass")),
         "veber_status": _status_from_bool(_coalesce(data, "veber_status", "veber", "veber_pass") or drug_likeness.get("veber_status") or drug_likeness.get("veber_pass")),
         "admet_risk_summary": _coalesce(data, "admet_risk_summary", "concern_level", "developability_risk") or admet_overall.get("concern_level") or "not evaluated",
-        "evidence_level": _coalesce(data, "evidence_level", "evidence.evidence_level") or evidence.get("evidence_level") or "not evaluated",
+        "evidence_level": _coalesce(data, "evidence_level", "evidence.evidence_level", "explainability_evidence_strength") or evidence.get("evidence_level") or "not evaluated",
         "evidence_score": _coalesce(data, "evidence_score", "evidence.evidence_score") or evidence.get("evidence_score"),
         "model_prediction_status": _model_status_text(_coalesce(data, "model_prediction_status", "prediction_source", "model_status") or model_status.get("status") or model_status),
     }
@@ -534,7 +537,7 @@ def _extract_row(data: dict[str, Any], item: ProjectItem, detail: ProjectDetail)
         if value in (None, "", "not available", "not evaluated"):
             missing.append(f"{label} is {value or 'not available'}.")
     missing.extend(_string_list(data.get("missing_data_warnings")))
-    label, reason = _decision_for_row(row_values, _coalesce(data, "decision", "decision_label"), missing)
+    label, reason = _decision_for_row(row_values, _coalesce(data, "decision", "decision_label", "priority_label"), missing)
     return CandidateDecisionMatrixRow(**row_values, decision_label=label, decision_reason=reason, missing_data_warnings=missing)
 
 

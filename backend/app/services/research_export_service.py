@@ -489,6 +489,64 @@ def create_research_export(payload: ResearchExportRequest) -> ResearchExportCrea
         except Exception as exc:
             warnings.append(f"Could not include ADMET applicability domain data in export: {exc}")
 
+        # ADMET Prediction Explainability Export
+        sections.append("ADMET_EXPLAINABILITY")
+        try:
+            from app.services.admet_explain_service import EXPLANATION_REPORT_DIR, explanation_summary_counts
+
+            explanation_rows = _rows("admet_prediction_explanations")
+            _write_json(zip_file, f"{root}/ADMET_EXPLAINABILITY/explanation_summaries.json", explanation_rows, manifest)
+            _write_json(zip_file, f"{root}/ADMET_EXPLAINABILITY/evidence_strength_summary.json", explanation_summary_counts(), manifest)
+            limitations_md = (
+                "# ADMET Prediction Explainability Limitations\n\n"
+                "- Computational explanation only. Requires experimental and external validation.\n"
+                "- Feature importance and coefficients are model diagnostics, not biological causality.\n"
+                "- No clinical safety, efficacy, regulatory approval, or market-readiness claim is made.\n"
+                "- If explanation data is missing, it must be treated as not available rather than inferred.\n"
+            )
+            _write_text(zip_file, f"{root}/ADMET_EXPLAINABILITY/limitations.md", limitations_md, manifest, "markdown")
+            for row in explanation_rows:
+                try:
+                    files = json.loads(row.get("report_files_json") or "{}")
+                    for fmt, report_filename in files.items():
+                        if not report_filename:
+                            continue
+                        report_path = EXPLANATION_REPORT_DIR / report_filename
+                        if report_path.exists():
+                            _write_bytes(zip_file, f"{root}/ADMET_EXPLAINABILITY/explanation_reports/{report_filename}", report_path.read_bytes(), manifest, fmt)
+                except Exception as exc:
+                    warnings.append(f"Could not include ADMET explanation report #{row.get('id')}: {exc}")
+        except Exception as exc:
+            warnings.append(f"Could not include ADMET explainability data in export: {exc}")
+
+        # ADMET Lead Prioritization Export
+        sections.append("ADMET_LEAD_PRIORITIZATION")
+        try:
+            from app.services.admet_lead_service import lead_prioritization_csv, lead_prioritization_report_json
+
+            lead_rows = _rows("admet_lead_prioritization_runs")
+            scoring_profiles = {
+                "balanced_admet": "Balanced use of drug-likeness, rule-based ADMET/Tox, model/domain evidence, and missing-data penalties.",
+                "toxicity_avoidance": "Higher penalty for rule-based ADMET/Tox and structural alert concerns.",
+                "permeability_focused": "Higher penalty for developability and permeability-linked descriptor concerns.",
+                "solubility_focused": "Higher penalty for solubility-linked rule-based concerns.",
+                "model_confidence_focused": "Higher penalty for outside-domain, high uncertainty, and weak explainability evidence.",
+            }
+            _write_json(zip_file, f"{root}/ADMET_LEAD_PRIORITIZATION/scoring_profile_description.json", scoring_profiles, manifest)
+            _write_text(
+                zip_file,
+                f"{root}/ADMET_LEAD_PRIORITIZATION/limitations.md",
+                "# ADMET Lead Prioritization Limitations\n\n- Computational prioritization only. Requires experimental validation.\n- Ranking does not prove safety, efficacy, clinical success, regulatory approval, or market readiness.\n- Missing data is penalized and is not inferred.\n",
+                manifest,
+                "markdown",
+            )
+            for row in lead_rows:
+                run_id = row["id"]
+                _write_json(zip_file, f"{root}/ADMET_LEAD_PRIORITIZATION/runs/run_{run_id}_report.json", lead_prioritization_report_json(run_id), manifest)
+                _write_text(zip_file, f"{root}/ADMET_LEAD_PRIORITIZATION/runs/run_{run_id}_ranking.csv", lead_prioritization_csv(run_id), manifest, "csv")
+        except Exception as exc:
+            warnings.append(f"Could not include ADMET lead prioritization data in export: {exc}")
+
         _write_json(zip_file, f"{root}/SCREENING_RESULTS/similarity_search_records.json", similarity_rows, manifest)
         _write_json(zip_file, f"{root}/SCREENING_RESULTS/finder_search_records.json", finder_rows, manifest)
 

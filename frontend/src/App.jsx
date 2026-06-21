@@ -601,6 +601,7 @@ export default function App() {
   const [externalValidationRuns, setExternalValidationRuns] = useState([]);
   const [selectedValidationRunId, setSelectedValidationRunId] = useState("");
   const [selectedValidationRunDetail, setSelectedValidationRunDetail] = useState(null);
+  const [validationLoading, setValidationLoading] = useState(false);
   const [domainEvalForm, setDomainEvalForm] = useState({
     model_id: "",
     smiles: "",
@@ -613,6 +614,28 @@ export default function App() {
   const [predictWithDomainResult, setPredictWithDomainResult] = useState(null);
   const [predictWithDomainLoading, setPredictWithDomainLoading] = useState(false);
   const [predictWithDomainError, setPredictWithDomainError] = useState("");
+  const [explainForm, setExplainForm] = useState({
+    model_id: "",
+    smiles: "",
+    include_domain: true,
+    include_external_validation: true,
+  });
+  const [explanationResult, setExplanationResult] = useState(null);
+  const [explanationReports, setExplanationReports] = useState([]);
+  const [explanationLoading, setExplanationLoading] = useState(false);
+  const [explanationError, setExplanationError] = useState("");
+  const [leadForm, setLeadForm] = useState({
+    source_type: "manual",
+    scoring_profile: "balanced_admet",
+    manual_smiles_text: "CC(=O)OC1=CC=CC=C1C(=O)O\tAspirin\nCn1cnc2c1c(=O)n(C)c(=O)n2C\tCaffeine\nCCO\tEthanol",
+    include_trained_model: true,
+    include_domain: true,
+    include_explainability: true,
+  });
+  const [leadResult, setLeadResult] = useState(null);
+  const [leadRuns, setLeadRuns] = useState([]);
+  const [leadLoading, setLeadLoading] = useState(false);
+  const [leadError, setLeadError] = useState("");
 
   const synonyms = useMemo(() => {
     const list = report?.compound_identity?.synonyms || [];
@@ -725,6 +748,8 @@ export default function App() {
     loadDashboardSummary();
     loadModelComparison();
     loadExternalValidationRuns();
+    loadExplanationReports();
+    loadLeadRuns();
   }, []);
 
   useEffect(() => {
@@ -1498,6 +1523,141 @@ export default function App() {
       setPredictWithDomainError(err.message);
     } finally {
       setPredictWithDomainLoading(false);
+    }
+  }
+
+  async function loadExplanationReports() {
+    try {
+      const response = await fetch(`${API_BASE}/admet-explain/reports`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load explanation reports.");
+      setExplanationReports(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function explainAdmetPrediction(event) {
+    if (event) event.preventDefault();
+    if (!explainForm.smiles.trim()) {
+      setExplanationError("Please enter a SMILES string.");
+      return;
+    }
+    setExplanationLoading(true);
+    setExplanationError("");
+    setExplanationResult(null);
+    try {
+      const response = await fetch(`${API_BASE}/admet-explain/prediction`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model_id: explainForm.model_id || null,
+          smiles: explainForm.smiles.trim(),
+          include_domain: explainForm.include_domain,
+          include_external_validation: explainForm.include_external_validation,
+          project_id: activeProjectId ? Number(activeProjectId) : null,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Prediction explanation failed.");
+      setExplanationResult(data);
+      setActiveProjectNotice(`Generated ADMET explanation for ${data.model_name}.`);
+      await loadDashboardSummary();
+      await loadExplanationReports();
+      if (selectedProject?.id && String(selectedProject.id) === String(activeProjectId)) {
+        await loadProjectDetail(selectedProject.id);
+      }
+    } catch (err) {
+      setExplanationError(err.message);
+    } finally {
+      setExplanationLoading(false);
+    }
+  }
+
+  async function createAdmetExplanationReport() {
+    if (!explainForm.smiles.trim()) {
+      setExplanationError("Please enter a SMILES string.");
+      return;
+    }
+    setExplanationLoading(true);
+    setExplanationError("");
+    try {
+      const response = await fetch(`${API_BASE}/admet-explain/report/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model_id: explainForm.model_id || null,
+          smiles: explainForm.smiles.trim(),
+          formats: ["json", "pdf", "docx"],
+          project_id: activeProjectId ? Number(activeProjectId) : null,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Explanation report generation failed.");
+      setActiveProjectNotice(`Created ADMET explanation report #${data.report_id}.`);
+      await loadExplanationReports();
+      await loadDashboardSummary();
+      if (selectedProject?.id && String(selectedProject.id) === String(activeProjectId)) {
+        await loadProjectDetail(selectedProject.id);
+      }
+    } catch (err) {
+      setExplanationError(err.message);
+    } finally {
+      setExplanationLoading(false);
+    }
+  }
+
+  async function loadLeadRuns() {
+    try {
+      const response = await fetch(`${API_BASE}/admet-leads/runs`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load lead prioritization runs.");
+      setLeadRuns(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function runLeadPrioritization(event) {
+    if (event) event.preventDefault();
+    if (leadForm.source_type === "manual" && !leadForm.manual_smiles_text.trim()) {
+      setLeadError("Paste at least one SMILES line before running prioritization.");
+      return;
+    }
+    if (leadForm.source_type === "active_project" && !activeProjectId) {
+      setLeadError("Select an active project before ranking active project candidates.");
+      return;
+    }
+    setLeadLoading(true);
+    setLeadError("");
+    setLeadResult(null);
+    try {
+      const response = await fetch(`${API_BASE}/admet-leads/prioritize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_type: leadForm.source_type,
+          project_id: activeProjectId ? Number(activeProjectId) : null,
+          scoring_profile: leadForm.scoring_profile,
+          manual_smiles_text: leadForm.source_type === "manual" ? leadForm.manual_smiles_text : "",
+          include_trained_model: leadForm.include_trained_model,
+          include_domain: leadForm.include_domain,
+          include_explainability: leadForm.include_explainability,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Lead prioritization failed.");
+      setLeadResult(data);
+      setActiveProjectNotice(`Created ADMET lead prioritization run #${data.run_id}.`);
+      await loadLeadRuns();
+      await loadDashboardSummary();
+      if (selectedProject?.id && String(selectedProject.id) === String(activeProjectId)) {
+        await loadProjectDetail(selectedProject.id);
+      }
+    } catch (err) {
+      setLeadError(err.message);
+    } finally {
+      setLeadLoading(false);
     }
   }
 
@@ -4003,6 +4163,16 @@ export default function App() {
                 value={dashboardSummary ? dashboardSummary.failed_invalid_model_count : 0}
                 icon={AlertTriangle}
               />
+              <SummaryCard
+                label="Explanation Reports"
+                value={dashboardSummary?.explainability_summary?.explanation_report_count || 0}
+                icon={FileText}
+              />
+              <SummaryCard
+                label="Latest Lead Ranking"
+                value={dashboardSummary?.lead_prioritization_summary?.latest_run?.ranked_count ?? "None"}
+                icon={Target}
+              />
             </div>
 
             <div className="evidence-panel" style={{ padding: "15px", marginBottom: "20px" }}>
@@ -4620,6 +4790,359 @@ export default function App() {
                 <p className="warning-text">{testPrediction.experimental_model_notice}</p>
                 {testPrediction.warnings && testPrediction.warnings.map(w => <p className="warning-text" key={w}>{w}</p>)}
                 {testPrediction.limitations && testPrediction.limitations.map(l => <p className="limitation-label" key={l}>{l}</p>)}
+              </article>
+            )}
+          </Section>
+
+          <Section title="Prediction Explainability & Evidence Report" icon={FileText} wide>
+            <p className="limitation-label">
+              Computational explanation only. Requires experimental and external validation. Feature importance and coefficients are model diagnostics, not biological causality.
+            </p>
+            <form className="finder-search" onSubmit={explainAdmetPrediction}>
+              <label>
+                Trained model
+                <select
+                  value={explainForm.model_id}
+                  onChange={(event) => setExplainForm((current) => ({ ...current, model_id: event.target.value }))}
+                >
+                  <option value="">Active model</option>
+                  {trainedModels.filter((model) => model.status === "valid").map((model) => (
+                    <option key={model.model_id} value={model.model_id}>
+                      {model.model_name || model.model_id} ({model.task_name || model.task_type})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                SMILES
+                <input
+                  value={explainForm.smiles}
+                  onChange={(event) => setExplainForm((current) => ({ ...current, smiles: event.target.value }))}
+                  placeholder="CC(=O)OC1=CC=CC=C1C(=O)O"
+                  required
+                />
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={explainForm.include_domain}
+                  onChange={(event) => setExplainForm((current) => ({ ...current, include_domain: event.target.checked }))}
+                />
+                Include applicability domain
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={explainForm.include_external_validation}
+                  onChange={(event) => setExplainForm((current) => ({ ...current, include_external_validation: event.target.checked }))}
+                />
+                Include external validation summary
+              </label>
+              <button type="submit" disabled={explanationLoading || !explainForm.smiles.trim()}>
+                {explanationLoading ? "Explaining..." : "Explain Prediction"}
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={createAdmetExplanationReport}
+                disabled={explanationLoading || !explainForm.smiles.trim()}
+              >
+                Generate Explanation Report
+              </button>
+            </form>
+            {explanationError && <p className="warning-text">{explanationError}</p>}
+
+            {explanationResult && (
+              <article className="evidence-panel" style={{ marginTop: "15px" }}>
+                <div className="status-row">
+                  <h3>{explanationResult.model_name}</h3>
+                  <Badge tone={toneForRisk(explanationResult.evidence_strength)}>{explanationResult.evidence_strength.replaceAll("_", " ")}</Badge>
+                </div>
+                <div className="metric-grid compact-metrics">
+                  <Field label="Task" value={`${explanationResult.task_name || "not available"} / ${explanationResult.task_type}`} />
+                  <Field label="Prediction label" value={explanationResult.prediction_label || "Not available"} />
+                  <Field label="Prediction value" value={explanationResult.prediction_value ?? "Not available"} />
+                  <Field label="Probability" value={explanationResult.prediction_probability ?? "Not available"} />
+                  <Field label="Domain status" value={explanationResult.domain_status?.replaceAll("_", " ")} />
+                  <Field label="Uncertainty" value={explanationResult.uncertainty_level} />
+                  <Field label="External validation" value={explanationResult.external_validation_status?.status?.replaceAll("_", " ") || "Not available"} />
+                  <Field label="Canonical SMILES" value={explanationResult.canonical_smiles} />
+                </div>
+                <h4>Important features</h4>
+                {explanationResult.important_features?.length ? (
+                  <div className="responsive-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Rank</th>
+                          <th>Feature</th>
+                          <th>Value</th>
+                          <th>Source</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {explanationResult.important_features.slice(0, 8).map((feature) => (
+                          <tr key={`${feature.rank}-${feature.feature}`}>
+                            <td>{feature.rank}</td>
+                            <td>{feature.feature}</td>
+                            <td>{feature.value}</td>
+                            <td>{feature.source.replaceAll("_", " ")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="limitation-label">Important features are not available for this model type.</p>
+                )}
+                <p className="limitation-label">{explanationResult.feature_contribution_summary}</p>
+                <h4>Descriptor context</h4>
+                <div className="responsive-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Descriptor</th>
+                        <th>Query</th>
+                        <th>Training range</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(explanationResult.descriptor_explanations || []).slice(0, 10).map((item) => (
+                        <tr key={item.feature}>
+                          <td>{item.feature}</td>
+                          <td>{item.query_value ?? "N/A"}</td>
+                          <td>{item.training_min ?? "N/A"} - {item.training_max ?? "N/A"}</td>
+                          <td>{item.status.replaceAll("_", " ")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {(explanationResult.warnings || []).map((warning) => <p className="warning-text" key={warning}>{warning}</p>)}
+                {(explanationResult.limitations || []).slice(0, 5).map((limitation) => <p className="limitation-label" key={limitation}>{limitation}</p>)}
+                <p className="limitation-label">{explanationResult.scientific_notice}</p>
+              </article>
+            )}
+
+            {explanationReports.length > 0 && (
+              <article className="evidence-panel" style={{ marginTop: "15px" }}>
+                <h3>Generated Explanation Reports</h3>
+                <div className="responsive-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Model</th>
+                        <th>SMILES</th>
+                        <th>Evidence</th>
+                        <th>Domain</th>
+                        <th>Downloads</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {explanationReports.slice(0, 8).map((item) => (
+                        <tr key={item.report_id}>
+                          <td>{item.report_id}</td>
+                          <td>{item.model_id}</td>
+                          <td className="smiles-cell">{item.canonical_smiles}</td>
+                          <td>{item.evidence_strength.replaceAll("_", " ")}</td>
+                          <td>{item.domain_status.replaceAll("_", " ")}</td>
+                          <td>
+                            <div className="candidate-actions left-actions">
+                              {item.json_url && <a className="small-button" href={`${API_ROOT}${item.json_url}`}>JSON</a>}
+                              {item.pdf_url && <a className="small-button" href={`${API_ROOT}${item.pdf_url}`}>PDF</a>}
+                              {item.docx_url && <a className="small-button" href={`${API_ROOT}${item.docx_url}`}>DOCX</a>}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+            )}
+          </Section>
+
+          <Section title="Lead Prioritization & Candidate Ranking" icon={Target} wide>
+            <p className="limitation-label">
+              Computational prioritization only. Requires experimental validation. Rankings use available data only and are not clinical, regulatory, safety, efficacy, or market-readiness decisions.
+            </p>
+            <form className="finder-search" onSubmit={runLeadPrioritization}>
+              <label>
+                Candidate source
+                <select
+                  value={leadForm.source_type}
+                  onChange={(event) => setLeadForm((current) => ({ ...current, source_type: event.target.value }))}
+                >
+                  <option value="manual">manual SMILES</option>
+                  <option value="active_project">active project candidates</option>
+                </select>
+              </label>
+              <label>
+                Scoring profile
+                <select
+                  value={leadForm.scoring_profile}
+                  onChange={(event) => setLeadForm((current) => ({ ...current, scoring_profile: event.target.value }))}
+                >
+                  <option value="balanced_admet">balanced ADMET</option>
+                  <option value="toxicity_avoidance">toxicity avoidance</option>
+                  <option value="permeability_focused">permeability focused</option>
+                  <option value="solubility_focused">solubility focused</option>
+                  <option value="model_confidence_focused">model confidence focused</option>
+                </select>
+              </label>
+              {leadForm.source_type === "manual" && (
+                <label className="wide-field">
+                  Candidates
+                  <textarea
+                    rows={6}
+                    value={leadForm.manual_smiles_text}
+                    onChange={(event) => setLeadForm((current) => ({ ...current, manual_smiles_text: event.target.value }))}
+                    placeholder={"SMILES<TAB>Name\nCCO\tEthanol"}
+                  />
+                </label>
+              )}
+              {leadForm.source_type === "active_project" && (
+                <article className="empty-state-card">
+                  <h3>{activeProject ? `Using active project: ${activeProject.title}` : "No active project selected"}</h3>
+                  <p>Candidate-like attached records with SMILES will be ranked. Missing fields are shown as missing evidence.</p>
+                </article>
+              )}
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={leadForm.include_trained_model}
+                  onChange={(event) => setLeadForm((current) => ({ ...current, include_trained_model: event.target.checked }))}
+                />
+                Include trained model evidence when available
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={leadForm.include_domain}
+                  onChange={(event) => setLeadForm((current) => ({ ...current, include_domain: event.target.checked }))}
+                />
+                Include applicability domain
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={leadForm.include_explainability}
+                  onChange={(event) => setLeadForm((current) => ({ ...current, include_explainability: event.target.checked }))}
+                />
+                Include explainability evidence
+              </label>
+              <button type="submit" disabled={leadLoading}>
+                {leadLoading ? "Ranking..." : "Run Lead Prioritization"}
+              </button>
+              <button type="button" className="secondary-button" onClick={loadLeadRuns}>Refresh Runs</button>
+            </form>
+            {leadError && <p className="warning-text">{leadError}</p>}
+
+            {leadResult && (
+              <article className="evidence-panel" style={{ marginTop: "15px" }}>
+                <div className="summary-grid">
+                  <SummaryCard label="Candidates" value={leadResult.candidate_count} icon={ClipboardList} />
+                  <SummaryCard label="Ranked" value={leadResult.ranked_count} icon={CheckCircle2} />
+                  <SummaryCard label="Excluded" value={leadResult.excluded_count} icon={AlertTriangle} />
+                  <SummaryCard label="Profile" value={leadResult.scoring_profile.replaceAll("_", " ")} icon={ShieldCheck} />
+                </div>
+                <div className="candidate-actions left-actions">
+                  <a className="small-button" href={`${API_BASE}/admet-leads/runs/${leadResult.run_id}/csv`}>Download CSV</a>
+                  <a className="small-button" href={`${API_BASE}/admet-leads/runs/${leadResult.run_id}/report.json`}>Download JSON Report</a>
+                </div>
+                <div className="responsive-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Rank</th>
+                        <th>Compound</th>
+                        <th>Priority</th>
+                        <th>Score</th>
+                        <th>Model</th>
+                        <th>Domain</th>
+                        <th>Uncertainty</th>
+                        <th>Evidence</th>
+                        <th>Warnings</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {leadResult.ranked_candidates.map((candidate, index) => (
+                        <tr key={`${candidate.canonical_smiles || candidate.smiles}-${index}`}>
+                          <td>{candidate.rank || "Excluded"}</td>
+                          <td>{candidate.compound_name || candidate.compound_id || "Unnamed"}</td>
+                          <td><Badge tone={toneForRisk(candidate.priority_label)}>{candidate.priority_label?.replaceAll("_", " ") || "excluded"}</Badge></td>
+                          <td>{candidate.total_score ?? "N/A"}</td>
+                          <td>{candidate.trained_model_prediction ? "available" : "not available"}</td>
+                          <td>{candidate.domain_status?.replaceAll("_", " ")}</td>
+                          <td>{candidate.uncertainty_level}</td>
+                          <td>{candidate.explainability_evidence_strength?.replaceAll("_", " ")}</td>
+                          <td>{(candidate.warnings || []).slice(0, 2).join("; ") || candidate.exclusion_reason || "None"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {leadResult.ranked_candidates.slice(0, 3).map((candidate) => (
+                  <details key={`${candidate.canonical_smiles || candidate.smiles}-details`} className="evidence-panel" style={{ marginTop: "10px" }}>
+                    <summary>{candidate.compound_name || candidate.canonical_smiles || candidate.smiles} ranking explanation</summary>
+                    <div className="metric-grid compact-metrics">
+                      <Field label="Canonical SMILES" value={candidate.canonical_smiles || "Not available"} />
+                      <Field label="Drug-likeness" value={candidate.drug_likeness_status} />
+                      <Field label="Developability risk" value={candidate.developability_risk} />
+                      <Field label="ADMET/Tox concern" value={candidate.rule_based_admet_summary?.concern_level || "Not available"} />
+                      <Field label="Recommended next step" value={candidate.recommended_next_validation_step} />
+                    </div>
+                    <h4>Positive factors</h4>
+                    {(candidate.positive_factors || []).map((item) => <p className="limitation-label" key={item}>{item}</p>)}
+                    <h4>Risk factors</h4>
+                    {(candidate.risk_factors || []).map((item) => <p className="warning-text" key={item}>{item}</p>)}
+                    <h4>Missing evidence</h4>
+                    {(candidate.missing_evidence || []).map((item) => <p className="limitation-label" key={item}>{item}</p>)}
+                    <p className="limitation-label">{candidate.ranking_explanation}</p>
+                  </details>
+                ))}
+                {(leadResult.warnings || []).map((warning) => <p className="warning-text" key={warning}>{warning}</p>)}
+                {(leadResult.limitations || []).map((limitation) => <p className="limitation-label" key={limitation}>{limitation}</p>)}
+                <p className="limitation-label">{leadResult.scientific_notice}</p>
+              </article>
+            )}
+
+            {leadRuns.length > 0 && (
+              <article className="evidence-panel" style={{ marginTop: "15px" }}>
+                <h3>Recent Lead Prioritization Runs</h3>
+                <div className="responsive-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Run</th>
+                        <th>Source</th>
+                        <th>Profile</th>
+                        <th>Ranked</th>
+                        <th>Excluded</th>
+                        <th>Exports</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {leadRuns.slice(0, 8).map((run) => (
+                        <tr key={run.run_id}>
+                          <td>{run.run_id}</td>
+                          <td>{run.source_type}</td>
+                          <td>{run.scoring_profile.replaceAll("_", " ")}</td>
+                          <td>{run.ranked_count}</td>
+                          <td>{run.excluded_count}</td>
+                          <td>
+                            <div className="candidate-actions left-actions">
+                              <a className="small-button" href={`${API_BASE}/admet-leads/runs/${run.run_id}/csv`}>CSV</a>
+                              <a className="small-button" href={`${API_BASE}/admet-leads/runs/${run.run_id}/report.json`}>JSON</a>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </article>
             )}
           </Section>
