@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.services import (
     chembl_service,
+    disease_to_lead_service,
     open_targets_service,
     similarity_service,
     final_report_service,
@@ -137,7 +138,118 @@ def test_disease_to_lead_workflow_success(tmp_path, monkeypatch):
     assert body["screening_summary"]["total_analyzed"] > 0
     assert body["lead_prioritization_run_id"] is not None
     assert body["validation_plan_id"] is not None
+    assert body["planner_status"] == "completed"
     assert body["final_report_id"] is not None
+    assert DEMO_NOTICE in body["scientific_notice"]
+
+
+def test_disease_to_lead_planner_unavailable_does_not_crash(monkeypatch, tmp_path):
+    monkeypatch.setattr(final_report_service, "REPORT_DIR", tmp_path / "final_project_reports")
+    monkeypatch.setattr(
+        chembl_service,
+        "search_targets",
+        lambda query: [
+            TargetResult(
+                target_chembl_id="CHEMBL203",
+                preferred_name="Epidermal growth factor receptor",
+                organism="Homo sapiens",
+                target_type="SINGLE PROTEIN",
+                accession="P00533",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        chembl_service,
+        "get_target_candidates",
+        lambda target_id, limit=10: [
+            CandidateMolecule(
+                molecule_chembl_id="CHEMBL25",
+                canonical_smiles="CC(=O)OC1=CC=CC=C1C(=O)O",
+                compound_name="Aspirin",
+                activity_type="IC50",
+                activity_value=50.0,
+                activity_units="nM",
+                target_chembl_id="CHEMBL203",
+            )
+        ],
+    )
+    monkeypatch.setattr(similarity_service, "search_similar_compounds", lambda *args, **kwargs: ("Aspirin", [], None, None))
+    monkeypatch.setattr(disease_to_lead_service, "create_validation_plan", lambda payload: (_ for _ in ()).throw(Exception("Not Found")))
+
+    response = client.post(
+        "/api/disease-to-lead/run",
+        json={"disease_name": "breast cancer", "target_name": "EGFR", "known_compound": "Caffeine", "candidate_limit": 5, "similarity_limit": 5, "analysis_depth": "quick"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["planner_status"] == "warning"
+    assert body["validation_plan_id"] is None
+    assert "validation_plan" in body["missing_steps"]
+    assert any("Validation planning could not be completed" in warning for warning in body["warnings"])
+    assert "Not Found" not in " ".join(body["warnings"])
+    assert DEMO_NOTICE in body["scientific_notice"]
+
+
+def test_disease_to_lead_missing_candidates_marks_planner_not_available(monkeypatch, tmp_path):
+    monkeypatch.setattr(final_report_service, "REPORT_DIR", tmp_path / "final_project_reports")
+    monkeypatch.setattr(
+        chembl_service,
+        "search_targets",
+        lambda query: [
+            TargetResult(
+                target_chembl_id="CHEMBL203",
+                preferred_name="Epidermal growth factor receptor",
+                organism="Homo sapiens",
+                target_type="SINGLE PROTEIN",
+                accession="P00533",
+            )
+        ],
+    )
+    monkeypatch.setattr(chembl_service, "get_target_candidates", lambda target_id, limit=10: [])
+    monkeypatch.setattr(similarity_service, "search_similar_compounds", lambda *args, **kwargs: ("Caffeine", [], None, None))
+
+    response = client.post(
+        "/api/disease-to-lead/run",
+        json={"disease_name": "breast cancer", "target_name": "EGFR", "candidate_limit": 5, "similarity_limit": 5, "analysis_depth": "quick"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["planner_status"] == "not_available"
+    assert body["validation_plan_id"] is None
+    assert any("No valid candidate set is available for validation planning" in warning for warning in body["warnings"])
+    assert "Not Found" not in " ".join(body["warnings"])
+
+
+def test_disease_to_lead_chembl_500_uses_known_compound_fallback(monkeypatch, tmp_path):
+    monkeypatch.setattr(final_report_service, "REPORT_DIR", tmp_path / "final_project_reports")
+    monkeypatch.setattr(disease_to_lead_service, "resolve_compound", lambda *args, **kwargs: (_ for _ in ()).throw(Exception("PubChem unavailable")))
+    monkeypatch.setattr(chembl_service, "search_targets", lambda query: (_ for _ in ()).throw(Exception("ChEMBL returned HTTP 500")))
+    monkeypatch.setattr(chembl_service, "get_target_candidates", lambda target_id, limit=10: (_ for _ in ()).throw(Exception("ChEMBL returned HTTP 500")))
+    monkeypatch.setattr(open_targets_service, "search_diseases", lambda query: [])
+    monkeypatch.setattr(open_targets_service, "get_disease_targets", lambda disease_id, limit=5: [])
+    monkeypatch.setattr(similarity_service, "search_similar_compounds", lambda *args, **kwargs: ("Aspirin", [], None, None))
+
+    response = client.post(
+        "/api/disease-to-lead/run",
+        json={
+            "disease_name": "breast cancer",
+            "target_name": "EGFR",
+            "known_compound": "Aspirin",
+            "candidate_limit": 5,
+            "similarity_limit": 5,
+            "analysis_depth": "quick",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    warnings = " ".join(body["warnings"])
+    assert body["project_id"] is not None
+    assert body["selected_candidates"]
+    assert body["selected_candidates"][0]["compound_name"] == "Aspirin"
+    assert "External candidate discovery is temporarily unavailable" in warnings
+    assert "Known compound was used as a fallback starting candidate." in body["warnings"]
+    assert "ChEMBL returned HTTP 500" not in warnings
     assert DEMO_NOTICE in body["scientific_notice"]
 
 
@@ -156,4 +268,4 @@ def test_disease_to_lead_workflow_target_unresolved(monkeypatch):
     payload = {"disease_name": "unknown_disease_abc", "target_name": "unknown_target_abc"}
     response = client.post("/api/disease-to-lead/run", json=payload)
     assert response.status_code == 400
-    assert "Could not resolve target" in response.json()["detail"]
+    assert "No candidates could be retrieved" in response.json()["detail"]

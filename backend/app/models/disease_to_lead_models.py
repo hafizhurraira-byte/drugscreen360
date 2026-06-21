@@ -22,6 +22,7 @@ class DiseaseToLeadResponse(BaseModel):
     admet_summary: dict[str, Any]
     lead_prioritization_run_id: int | None = None
     validation_plan_id: int | None = None
+    planner_status: str = "not_available"
     final_report_id: int | None = None
     warnings: list[str]
     missing_steps: list[str]
