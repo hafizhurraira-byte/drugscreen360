@@ -30,12 +30,32 @@ def _model_summary() -> dict[str, Any]:
     status = model_status_response()
     from app.services.admet_trained_model_service import get_active_trained_model_info
     active_trained = get_active_trained_model_info()
+    
+    external_val_summary = None
+    if active_trained and active_trained.get("status") in {"available", "active"}:
+        model_id = active_trained.get("model_id")
+        from app.services.admet_validation_service import get_latest_external_validation_by_model
+        try:
+            latest_run = get_latest_external_validation_by_model(model_id)
+            if latest_run:
+                external_val_summary = {
+                    "run_id": latest_run["id"],
+                    "status": latest_run["status"],
+                    "metric_summary": {k: v for k, v in latest_run["metric_summary"].items() if k not in {"observed_vs_predicted", "prediction_probabilities"}},
+                    "warnings": latest_run["warnings"],
+                    "created_at": latest_run["created_at"]
+                }
+        except:
+            pass
+            
     return {
         "available_models": [model.model_id for model in status["available_models"]],
         "unavailable_models": [model.model_id for model in status["unavailable_models"]],
         "limitations": status["limitations"],
-        "active_trained_model": active_trained if active_trained.get("status") == "active" else None
+        "active_trained_model": active_trained if active_trained.get("status") in {"available", "active"} else None,
+        "active_model_external_validation": external_val_summary
     }
+
 
 
 def _project_from_row(row, item_count: int = 0, export_count: int = 0, latest_activity: str | None = None) -> ProjectSummary:

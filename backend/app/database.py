@@ -432,4 +432,26 @@ def init_db() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS admet_external_validation_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                model_id TEXT NOT NULL,
+                training_run_id INTEGER,
+                external_dataset_id INTEGER NOT NULL,
+                task_name TEXT,
+                task_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                valid_count INTEGER NOT NULL,
+                invalid_count INTEGER NOT NULL,
+                metric_summary_json TEXT NOT NULL,
+                calibration_summary_json TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                notes TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(external_dataset_id) REFERENCES admet_datasets(id)
+            )
+            """
+        )
+
 

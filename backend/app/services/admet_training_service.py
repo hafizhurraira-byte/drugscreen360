@@ -447,7 +447,29 @@ def get_admet_dashboard_summary() -> dict[str, Any]:
                 best_reg = run_data
 
     from app.services.admet_trained_model_service import discover_trained_models, get_active_trained_model_info
+    from app.services.admet_validation_service import get_latest_external_validation_by_model
     discovered = discover_trained_models()
+    for model in discovered:
+        latest_val = get_latest_external_validation_by_model(model["model_id"])
+        if latest_val:
+            model["external_validation_status"] = "validated"
+            model["latest_external_validation"] = {
+                "run_id": latest_val["id"],
+                "dataset_id": latest_val["external_dataset_id"],
+                "valid_count": latest_val["valid_count"],
+                "metric_summary": {k: v for k, v in latest_val["metric_summary"].items() if k not in {"observed_vs_predicted", "prediction_probabilities"}},
+                "calibration_status": latest_val.get("calibration_summary", {}).get("calibration_status") or "available",
+                "calibration_ece": latest_val.get("calibration_summary", {}).get("expected_calibration_error"),
+                "warnings": latest_val["warnings"],
+                "created_at": latest_val["created_at"],
+            }
+            is_poor = any("overfitting" in w.lower() or "poorly calibrated" in w.lower() for w in latest_val["warnings"])
+            if is_poor:
+                model["external_validation_status"] = "poor_performance"
+        else:
+            model["external_validation_status"] = "no_validation"
+            model["latest_external_validation"] = None
+            
     total_artifacts = len(discovered)
     invalid_count = sum(1 for m in discovered if m.get("status") == "invalid")
     active_status = get_active_trained_model_info()
