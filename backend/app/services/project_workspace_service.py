@@ -32,6 +32,8 @@ def _model_summary() -> dict[str, Any]:
     active_trained = get_active_trained_model_info()
     
     external_val_summary = None
+    active_model_domain_summary = None
+    
     if active_trained and active_trained.get("status") in {"available", "active"}:
         model_id = active_trained.get("model_id")
         from app.services.admet_validation_service import get_latest_external_validation_by_model
@@ -48,13 +50,29 @@ def _model_summary() -> dict[str, Any]:
         except:
             pass
             
+        from app.services.admet_domain_service import get_domain_summary_by_model
+        try:
+            domain_sum = get_domain_summary_by_model(model_id)
+            if domain_sum:
+                active_model_domain_summary = {
+                    "status": "available",
+                    "training_record_count": domain_sum["training_record_count"],
+                    "task_type": domain_sum["task_type"],
+                    "dataset_name": domain_sum["dataset_name"],
+                    "warnings": domain_sum["warnings"]
+                }
+        except:
+            pass
+            
     return {
         "available_models": [model.model_id for model in status["available_models"]],
         "unavailable_models": [model.model_id for model in status["unavailable_models"]],
         "limitations": status["limitations"],
         "active_trained_model": active_trained if active_trained.get("status") in {"available", "active"} else None,
-        "active_model_external_validation": external_val_summary
+        "active_model_external_validation": external_val_summary,
+        "active_model_domain_summary": active_model_domain_summary
     }
+
 
 
 

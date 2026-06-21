@@ -349,6 +349,15 @@ def init_db() -> None:
         )
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS project_active_option (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                project_id INTEGER,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS admet_datasets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -453,5 +462,22 @@ def init_db() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS admet_domain_evaluations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                model_id TEXT NOT NULL,
+                training_run_id INTEGER,
+                smiles TEXT NOT NULL,
+                canonical_smiles TEXT NOT NULL,
+                domain_status TEXT NOT NULL,
+                uncertainty_level TEXT NOT NULL,
+                summary_json TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
 
 

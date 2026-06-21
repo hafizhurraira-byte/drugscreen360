@@ -467,6 +467,27 @@ def create_research_export(payload: ResearchExportRequest) -> ResearchExportCrea
         except Exception as exc:
             warnings.append(f"Could not include ADMET external validation in export: {exc}")
 
+        # ADMET Applicability Domain Export
+        sections.append("ADMET_DOMAIN")
+        try:
+            from app.services.admet_domain_service import get_domain_summaries_all, get_domain_evaluations_all
+            
+            domain_summaries = get_domain_summaries_all()
+            domain_evals = get_domain_evaluations_all()
+            
+            _write_json(zip_file, f"{root}/ADMET_DOMAIN/domain_summaries.json", domain_summaries, manifest)
+            _write_json(zip_file, f"{root}/ADMET_DOMAIN/domain_evaluations.json", domain_evals, manifest)
+            
+            limitations_domain_md = (
+                "# ADMET Applicability Domain Limitations & Scientific Disclaimer\n\n"
+                "1. Computational estimate only. Requires experimental and external validation.\n"
+                "2. Applicability domain status is based on heuristic range coverage and standardized Euclidean z-score distance thresholds to the model's training centroid.\n"
+                "3. Predictions outside or on the borderline of the domain carry higher uncertainty due to limited representation in the training set.\n"
+                "4. All domain decisions should be verified by wet-lab validation and qualified expert review.\n"
+            )
+            _write_text(zip_file, f"{root}/ADMET_DOMAIN/limitations.md", limitations_domain_md, manifest, "markdown")
+        except Exception as exc:
+            warnings.append(f"Could not include ADMET applicability domain data in export: {exc}")
 
         _write_json(zip_file, f"{root}/SCREENING_RESULTS/similarity_search_records.json", similarity_rows, manifest)
         _write_json(zip_file, f"{root}/SCREENING_RESULTS/finder_search_records.json", finder_rows, manifest)
