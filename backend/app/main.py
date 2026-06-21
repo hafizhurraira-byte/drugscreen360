@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.constants import DISCLAIMER
 from app.database import init_db
 from app.routers.admet import router as admet_router
+from app.routers.disease_to_lead import router as disease_to_lead_router
 from app.routers.admet_datasets import router as admet_datasets_router
 from app.routers.admet_domain import router as admet_domain_router
 from app.routers.admet_explain import router as admet_explain_router
@@ -68,6 +69,7 @@ def root():
 app.include_router(screening_router, prefix="/api")
 app.include_router(finder_router, prefix="/api")
 app.include_router(admet_router, prefix="/api")
+app.include_router(disease_to_lead_router, prefix="/api")
 app.include_router(admet_datasets_router, prefix="/api")
 app.include_router(admet_domain_router)
 app.include_router(admet_explain_router, prefix="/api")

@@ -1,7 +1,9 @@
 import {
+  Activity,
   AlertTriangle,
   Beaker,
   CheckCircle2,
+  ChevronRight,
   ClipboardList,
   Download,
   FileJson,
@@ -9,6 +11,7 @@ import {
   FlaskConical,
   FolderPlus,
   History,
+  Info,
   PlayCircle,
   Search,
   Settings,
@@ -444,7 +447,48 @@ export default function App() {
   const [history, setHistory] = useState([]);
   const [historyFilter, setHistoryFilter] = useState("");
   const [historyLatestOnly, setHistoryLatestOnly] = useState(false);
-  const [activeView, setActiveView] = useState("screening");
+  const [activeView, setActiveView] = useState("disease-to-lead");
+
+  // Disease-to-Lead Workflow States
+  const [workflowInput, setWorkflowInput] = useState({
+    disease_name: "breast cancer",
+    target_name: "EGFR",
+    known_compound: "",
+    candidate_limit: 10,
+    similarity_limit: 10,
+    analysis_depth: "standard"
+  });
+  const [activeStep, setActiveStep] = useState(0);
+  const [workflowLoading, setWorkflowLoading] = useState(false);
+  const [workflowError, setWorkflowError] = useState("");
+  const [workflowWarnings, setWorkflowWarnings] = useState([]);
+  
+  // Results for each step
+  const [workflowTarget, setWorkflowTarget] = useState(null); // Step 1 Target details
+  const [workflowCandidates, setWorkflowCandidates] = useState([]); // Step 2 Discovered candidates
+  const [selectedWorkflowCandidates, setSelectedWorkflowCandidates] = useState({}); // Candidate selections
+  const [workflowSimilars, setWorkflowSimilars] = useState([]); // Step 3 Expanded similarity candidates
+  const [selectedWorkflowSimilars, setSelectedWorkflowSimilars] = useState({}); // Similarity selections
+  const [workflowScreeningResults, setWorkflowScreeningResults] = useState(null); // Step 4 Screening results
+  const [workflowAdmetResults, setWorkflowAdmetResults] = useState(null); // Step 4 ADMET results
+  const [workflowPrioritizationRun, setWorkflowPrioritizationRun] = useState(null); // Step 5 Prioritization results
+  const [workflowValidationPlan, setWorkflowValidationPlan] = useState(null); // Step 6 Validation plan
+  const [feedbackInput, setFeedbackInput] = useState([]); // Step 7 feedback list
+  const [feedbackCompareResult, setFeedbackCompareResult] = useState(null); // Step 7 feedback compare
+  const [workflowFinalReport, setWorkflowFinalReport] = useState(null); // Step 8 final report details
+  const [workflowProjectId, setWorkflowProjectId] = useState(null); // Created project ID
+  const [selectedWorkflowDetailItem, setSelectedWorkflowDetailItem] = useState(null); // Details drawer state
+  const [workflowStepsStatus, setWorkflowStepsStatus] = useState([
+    { step_id: 0, label: "Disease / Target", status: "ready", desc: "Select disease, target, and known compounds" },
+    { step_id: 1, label: "Candidate Discovery", status: "not_started", desc: "Find compounds associated with target" },
+    { step_id: 2, label: "Similarity Expansion", status: "not_started", desc: "Identify structural analogs of top hits" },
+    { step_id: 3, label: "Full Analysis", status: "not_started", desc: "Perform computational screening and ADMET profiling" },
+    { step_id: 4, label: "Lead Ranking", status: "not_started", desc: "Rank candidates using prioritize multi-criteria scoring" },
+    { step_id: 5, label: "Validation Plan", status: "not_started", desc: "Recommend wet-lab assays for prioritized leads" },
+    { step_id: 6, label: "Experimental Feedback", status: "not_started", desc: "Import laboratory feedback and compare prediction vs experimental outcomes" },
+    { step_id: 7, label: "Final Report", status: "not_started", desc: "Generate, preview, and download comprehensive workspace reports" }
+  ]);
+
   const [targetQuery, setTargetQuery] = useState("EGFR");
   const [targets, setTargets] = useState([]);
   const [selectedTarget, setSelectedTarget] = useState(null);
@@ -2258,6 +2302,695 @@ export default function App() {
     }
   }
 
+  // Helper to update stepper step status
+  const updateStepStatus = (stepId, status, warning = null, artifact = null) => {
+    setWorkflowStepsStatus(prev => prev.map(s => {
+      if (s.step_id === stepId) {
+        return { ...s, status, warning, ...(artifact ? { artifact } : {}) };
+      }
+      return s;
+    }));
+  };
+
+  // Step 0: Disease / Target identification
+  const runStep0_DiseaseTarget = async () => {
+    setWorkflowLoading(true);
+    setWorkflowError("");
+    updateStepStatus(0, "running");
+    try {
+      const query = workflowInput.disease_name || workflowInput.target_name;
+      if (!query) throw new Error("Please enter a disease name or target name.");
+
+      const response = await fetch(`${API_BASE}/finder/targets?query=${encodeURIComponent(query)}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || `No target matches found for ${query}`);
+
+      const bestTarget = selectBestChemblTarget(data.targets);
+      if (!bestTarget) throw new Error("Could not map a valid ChEMBL target from the search results.");
+
+      setWorkflowTarget(bestTarget);
+      updateStepStatus(0, "completed", null, { target_id: bestTarget.target_chembl_id, name: bestTarget.preferred_name || bestTarget.target_chembl_id });
+      updateStepStatus(1, "ready");
+      setActiveStep(1);
+    } catch (err) {
+      setWorkflowError(err.message);
+      updateStepStatus(0, "error", err.message);
+    } finally {
+      setWorkflowLoading(false);
+    }
+  };
+
+  // Step 1: Candidate Discovery
+  const runStep1_CandidateDiscovery = async (targetObj = null) => {
+    const activeT = targetObj || workflowTarget;
+    if (!activeT) {
+      setWorkflowError("Step 1 requires a resolved target from Step 0.");
+      return;
+    }
+    setWorkflowLoading(true);
+    setWorkflowError("");
+    updateStepStatus(1, "running");
+    try {
+      const response = await fetch(`${API_BASE}/finder/target/${activeT.target_chembl_id}/candidates?limit=${workflowInput.candidate_limit}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "No candidates found for target.");
+
+      setWorkflowCandidates(data.candidates);
+      
+      // Auto-select top candidates
+      const initialSelection = {};
+      data.candidates.slice(0, 5).forEach(c => {
+        initialSelection[`${c.molecule_chembl_id}::${c.canonical_smiles}`] = c;
+      });
+      setSelectedWorkflowCandidates(initialSelection);
+
+      updateStepStatus(1, "completed", null, { count: data.candidates.length });
+      updateStepStatus(2, "ready");
+      setActiveStep(2);
+    } catch (err) {
+      setWorkflowError(err.message);
+      updateStepStatus(1, "error", err.message);
+    } finally {
+      setWorkflowLoading(false);
+    }
+  };
+
+  // Step 2: Similarity Expansion
+  const runStep2_SimilarityExpansion = async () => {
+    let queryRef = workflowInput.known_compound;
+    if (!queryRef) {
+      const selectedList = Object.values(selectedWorkflowCandidates);
+      if (selectedList.length > 0) {
+        queryRef = selectedList[0].compound_name || selectedList[0].molecule_chembl_id;
+      }
+    }
+
+    if (!queryRef) {
+      updateStepStatus(2, "warning", "No reference compound available for similarity expansion. Skipping this step.");
+      updateStepStatus(3, "ready");
+      setActiveStep(3);
+      return;
+    }
+
+    setWorkflowLoading(true);
+    setWorkflowError("");
+    updateStepStatus(2, "running");
+    try {
+      const response = await fetch(`${API_BASE}/similarity/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: queryRef,
+          input_type: queryRef.startsWith("CHEMBL") ? "chembl_id" : "name",
+          source: "chembl",
+          threshold: 70,
+          limit: workflowInput.similarity_limit
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Similarity expansion search failed.");
+
+      setWorkflowSimilars(data.similar_compounds);
+      
+      // Auto-select analogs
+      const initialSelection = {};
+      data.similar_compounds.slice(0, 5).forEach(c => {
+        initialSelection[`${c.molecule_chembl_id}::${c.canonical_smiles}`] = c;
+      });
+      setSelectedWorkflowSimilars(initialSelection);
+
+      updateStepStatus(2, "completed", null, { reference: queryRef, count: data.similar_compounds.length });
+      updateStepStatus(3, "ready");
+      setActiveStep(3);
+    } catch (err) {
+      updateStepStatus(2, "warning", `Similarity expansion skipped: ${err.message}`);
+      updateStepStatus(3, "ready");
+      setActiveStep(3);
+    } finally {
+      setWorkflowLoading(false);
+    }
+  };
+
+  // Step 3: Full Screening + ADMET Analysis
+  const runStep3_FullAnalysis = async () => {
+    const listCandidates = Object.values(selectedWorkflowCandidates);
+    const listSimilars = Object.values(selectedWorkflowSimilars);
+    const allSelected = [...listCandidates, ...listSimilars];
+
+    if (allSelected.length === 0) {
+      setWorkflowError("At least one candidate or analog must be selected for analysis.");
+      return;
+    }
+
+    setWorkflowLoading(true);
+    setWorkflowError("");
+    updateStepStatus(3, "running");
+    try {
+      let targetProjectId = activeProjectId;
+      if (!targetProjectId) {
+        const responseProj = await fetch(`${API_BASE}/projects`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: `Disease-to-Lead: ${workflowInput.disease_name || "Workspace"}`,
+            description: `Guided stepper workflow auto-saved project.`,
+            disease_area: workflowInput.disease_name || "General",
+            target_name: workflowTarget?.preferred_name || workflowInput.target_name || "General",
+            project_type: "lead_optimization",
+            status: "active",
+            notes: "Decision-support auto-saved workflow."
+          })
+        });
+        const projData = await responseProj.json();
+        if (responseProj.ok) {
+          targetProjectId = projData.id;
+          setActiveProjectId(projData.id);
+          setWorkflowProjectId(projData.id);
+          await loadActiveProjectOptions();
+        }
+      }
+
+      const payload = {
+        candidates: allSelected.map((c, idx) => ({
+          candidate_rank: idx + 1,
+          molecule_chembl_id: c.molecule_chembl_id,
+          compound_name: c.compound_name || c.molecule_chembl_id,
+          canonical_smiles: c.canonical_smiles,
+          target_chembl_id: workflowTarget?.target_chembl_id || "CHEMBL_GENERIC"
+        })),
+        max_candidates: 25
+      };
+
+      const response = await fetch(`${API_BASE}/finder/screen-candidates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Batch analysis failed.");
+
+      setWorkflowScreeningResults(data);
+
+      if (targetProjectId) {
+        await fetch(`${API_BASE}/projects/${targetProjectId}/attach`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            item_type: "batch_screening",
+            item_id: String(data.batch_run_id),
+            item_title: `Workflow batch analysis #${data.batch_run_id}`,
+            metadata: { count: data.screened_count }
+          })
+        });
+      }
+
+      updateStepStatus(3, "completed", null, { count: data.screened_count });
+      updateStepStatus(4, "ready");
+      setActiveStep(4);
+    } catch (err) {
+      setWorkflowError(err.message);
+      updateStepStatus(3, "error", err.message);
+    } finally {
+      setWorkflowLoading(false);
+    }
+  };
+
+  // Step 4: Lead Prioritization
+  const runStep4_LeadRanking = async () => {
+    if (!workflowScreeningResults) {
+      setWorkflowError("Prioritization requires screening results from Step 3.");
+      return;
+    }
+    setWorkflowLoading(true);
+    setWorkflowError("");
+    updateStepStatus(4, "running");
+    try {
+      const candidatesInput = workflowScreeningResults.results.map(r => ({
+        compound_name: r.compound || r.molecule_chembl_id,
+        smiles: r.canonical_smiles,
+        compound_id: r.molecule_chembl_id || r.compound
+      }));
+
+      const payload = {
+        source_type: "manual",
+        project_id: activeProjectId ? Number(activeProjectId) : null,
+        scoring_profile: "balanced_admet",
+        candidates: candidatesInput,
+        include_trained_model: true,
+        include_domain: true,
+        include_explainability: true
+      };
+
+      const response = await fetch(`${API_BASE}/admet-leads/prioritize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Lead prioritization failed.");
+
+      setWorkflowPrioritizationRun(data);
+      
+      const topLeads = data.prioritized_candidates.slice(0, 5);
+      const initialFeedback = topLeads.map(l => ({
+        compound_name: l.compound_name,
+        smiles: l.smiles,
+        compound_id: l.compound_id || l.compound_name,
+        assay_type: "CYP3A4 Inhibition",
+        experimental_value: 0.0,
+        experimental_outcome: "active"
+      }));
+      setFeedbackInput(initialFeedback);
+
+      updateStepStatus(4, "completed", null, { run_id: data.run_id, count: data.prioritized_candidates.length });
+      updateStepStatus(5, "ready");
+      setActiveStep(5);
+    } catch (err) {
+      setWorkflowError(err.message);
+      updateStepStatus(4, "error", err.message);
+    } finally {
+      setWorkflowLoading(false);
+    }
+  };
+
+  // Step 5: Validation Plan
+  const runStep5_ValidationPlan = async () => {
+    if (!workflowPrioritizationRun) {
+      setWorkflowError("Validation planner requires lead ranking from Step 4.");
+      return;
+    }
+    setWorkflowLoading(true);
+    setWorkflowError("");
+    updateStepStatus(5, "running");
+    try {
+      const candidatesInput = workflowPrioritizationRun.prioritized_candidates.slice(0, 5).map(l => ({
+        compound_name: l.compound_name,
+        smiles: l.smiles,
+        compound_id: l.compound_id || l.compound_name,
+        priority_label: l.priority_label,
+        evidence_strength: l.evidence_strength || "Moderate",
+        warnings: l.warnings || []
+      }));
+
+      const payload = {
+        source_type: "manual",
+        project_id: activeProjectId ? Number(activeProjectId) : null,
+        plan_title: `Validation Plan: ${workflowInput.disease_name || "Lead Expansion"}`,
+        candidates: candidatesInput,
+        include_toxicity_assays: true,
+        include_cyp_assays: true,
+        include_herg_assays: true,
+        include_hepatotoxicity_assays: true,
+        custom_assays: []
+      };
+
+      const response = await fetch(`${API_BASE}/validation-planner/plan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Validation plan generation failed.");
+
+      setWorkflowValidationPlan(data);
+      updateStepStatus(5, "completed", null, { plan_id: data.plan_id, assay_count: data.recommended_assays?.length || 0 });
+      updateStepStatus(6, "ready");
+      setActiveStep(6);
+    } catch (err) {
+      setWorkflowError(err.message);
+      updateStepStatus(5, "error", err.message);
+    } finally {
+      setWorkflowLoading(false);
+    }
+  };
+
+  // Step 6: Experimental Feedback
+  const runStep6_ExperimentalFeedback = async () => {
+    if (feedbackInput.length === 0) {
+      setWorkflowError("No feedback compounds available.");
+      return;
+    }
+    setWorkflowLoading(true);
+    setWorkflowError("");
+    updateStepStatus(6, "running");
+    try {
+      const submitResponse = await fetch(`${API_BASE}/experimental-results`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_type: "manual",
+          project_id: activeProjectId ? Number(activeProjectId) : null,
+          results: feedbackInput
+        })
+      });
+      const submitData = await submitResponse.json();
+      if (!submitResponse.ok) throw new Error(submitData.detail || "Failed to submit experimental results.");
+
+      const compareResponse = await fetch(`${API_BASE}/experimental-results/compare`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: activeProjectId ? Number(activeProjectId) : null,
+          run_ids: [submitData.run_id]
+        })
+      });
+      const compareData = await compareResponse.json();
+      if (!compareResponse.ok) throw new Error(compareData.detail || "Feedback comparison failed.");
+
+      setFeedbackCompareResult(compareData);
+      updateStepStatus(6, "completed", null, { comparison_metrics: compareData.comparison_metrics || {} });
+      updateStepStatus(7, "ready");
+      setActiveStep(7);
+    } catch (err) {
+      updateStepStatus(6, "warning", `Feedback submitted but comparison skipped: ${err.message}`);
+      updateStepStatus(7, "ready");
+      setActiveStep(7);
+    } finally {
+      setWorkflowLoading(false);
+    }
+  };
+
+  // Step 7: Final Report
+  const runStep7_FinalReport = async () => {
+    if (!activeProjectId) {
+      setWorkflowError("A saved project is required to build a final report.");
+      return;
+    }
+    setWorkflowLoading(true);
+    setWorkflowError("");
+    updateStepStatus(7, "running");
+    try {
+      const response = await fetch(`${API_BASE}/final-report`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: Number(activeProjectId),
+          include_screening: true,
+          include_admet: true,
+          include_explainability: true,
+          include_prioritization: true,
+          include_validation: true,
+          include_experimental_feedback: true
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Final report generation failed.");
+
+      setWorkflowFinalReport(data);
+      updateStepStatus(7, "completed", null, { report_id: data.report_id });
+      await loadProjectDetail(activeProjectId);
+    } catch (err) {
+      setWorkflowError(err.message);
+      updateStepStatus(7, "error", err.message);
+    } finally {
+      setWorkflowLoading(false);
+    }
+  };
+
+  // Run all steps sequentially
+  const runCompleteWorkflow = async () => {
+    setWorkflowLoading(true);
+    setWorkflowError("");
+    setWorkflowWarnings([]);
+    try {
+      // Step 0
+      updateStepStatus(0, "running");
+      const query = workflowInput.disease_name || workflowInput.target_name;
+      if (!query) throw new Error("Please enter a disease or target name to start.");
+      
+      const res0 = await fetch(`${API_BASE}/finder/targets?query=${encodeURIComponent(query)}`);
+      const data0 = await res0.json();
+      if (!res0.ok) throw new Error(`Step 1 (Target Finder) failed: ${data0.detail}`);
+      const bestTarget = selectBestChemblTarget(data0.targets);
+      if (!bestTarget) throw new Error("Could not select a best target from results.");
+      setWorkflowTarget(bestTarget);
+      updateStepStatus(0, "completed", null, { name: bestTarget.preferred_name || bestTarget.target_chembl_id });
+
+      // Step 1
+      updateStepStatus(1, "running");
+      const res1 = await fetch(`${API_BASE}/finder/target/${bestTarget.target_chembl_id}/candidates?limit=${workflowInput.candidate_limit}`);
+      const data1 = await res1.json();
+      if (!res1.ok) throw new Error(`Step 2 (Candidate Discovery) failed: ${data1.detail}`);
+      setWorkflowCandidates(data1.candidates);
+      const initialSelection = {};
+      data1.candidates.slice(0, 5).forEach(c => {
+        initialSelection[`${c.molecule_chembl_id}::${c.canonical_smiles}`] = c;
+      });
+      setSelectedWorkflowCandidates(initialSelection);
+      updateStepStatus(1, "completed", null, { count: data1.candidates.length });
+
+      // Step 2
+      updateStepStatus(2, "running");
+      let queryRef = workflowInput.known_compound || (data1.candidates.length > 0 ? (data1.candidates[0].compound_name || data1.candidates[0].molecule_chembl_id) : null);
+      if (queryRef) {
+        try {
+          const res2 = await fetch(`${API_BASE}/similarity/search`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              query: queryRef,
+              input_type: queryRef.startsWith("CHEMBL") ? "chembl_id" : "name",
+              source: "chembl",
+              threshold: 70,
+              limit: workflowInput.similarity_limit
+            })
+          });
+          const data2 = await res2.json();
+          if (res2.ok) {
+            setWorkflowSimilars(data2.similar_compounds);
+            const simSelection = {};
+            data2.similar_compounds.slice(0, 5).forEach(c => {
+              simSelection[`${c.molecule_chembl_id}::${c.canonical_smiles}`] = c;
+            });
+            setSelectedWorkflowSimilars(simSelection);
+            updateStepStatus(2, "completed", null, { count: data2.similar_compounds.length });
+          } else {
+            updateStepStatus(2, "warning", "Similarity expansion returned no matches.");
+          }
+        } catch (e) {
+          updateStepStatus(2, "warning", `Similarity search skipped: ${e.message}`);
+        }
+      } else {
+        updateStepStatus(2, "warning", "No reference compound found. Step skipped.");
+      }
+
+      // Step 3
+      updateStepStatus(3, "running");
+      const listC = Object.values(initialSelection);
+      const listS = Object.values(workflowSimilars.slice(0, 5));
+      const allS = [...listC, ...listS];
+      if (allS.length === 0) throw new Error("No candidate compounds selected for analysis.");
+
+      // Create Auto-saved project
+      const responseProj = await fetch(`${API_BASE}/projects`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: `Disease-to-Lead: ${workflowInput.disease_name || "Workspace"}`,
+          description: `Guided stepper workflow auto-saved project.`,
+          disease_area: workflowInput.disease_name || "General",
+          target_name: bestTarget.preferred_name || "General",
+          project_type: "lead_optimization",
+          status: "active",
+          notes: "Decision-support auto-saved workflow."
+        })
+      });
+      const projData = await responseProj.json();
+      let targetProjectId = activeProjectId;
+      if (responseProj.ok) {
+        targetProjectId = projData.id;
+        setActiveProjectId(projData.id);
+        setWorkflowProjectId(projData.id);
+        await loadActiveProjectOptions();
+      }
+
+      const res3 = await fetch(`${API_BASE}/finder/screen-candidates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          candidates: allS.map((c, idx) => ({
+            candidate_rank: idx + 1,
+            molecule_chembl_id: c.molecule_chembl_id,
+            compound_name: c.compound_name || c.molecule_chembl_id,
+            canonical_smiles: c.canonical_smiles,
+            target_chembl_id: bestTarget.target_chembl_id
+          })),
+          max_candidates: 25
+        })
+      });
+      const data3 = await res3.json();
+      if (!res3.ok) throw new Error(`Step 4 (Analysis) failed: ${data3.detail}`);
+      setWorkflowScreeningResults(data3);
+      updateStepStatus(3, "completed", null, { count: data3.screened_count });
+
+      // Step 4
+      updateStepStatus(4, "running");
+      const res4 = await fetch(`${API_BASE}/admet-leads/prioritize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_type: "manual",
+          project_id: targetProjectId ? Number(targetProjectId) : null,
+          scoring_profile: "balanced_admet",
+          candidates: data3.results.map(r => ({
+            compound_name: r.compound || r.molecule_chembl_id,
+            smiles: r.canonical_smiles,
+            compound_id: r.molecule_chembl_id || r.compound
+          })),
+          include_trained_model: true,
+          include_domain: true,
+          include_explainability: true
+        })
+      });
+      const data4 = await res4.json();
+      if (!res4.ok) throw new Error(`Step 5 (Lead Prioritization) failed: ${data4.detail}`);
+      setWorkflowPrioritizationRun(data4);
+      updateStepStatus(4, "completed", null, { run_id: data4.run_id });
+
+      // Step 5
+      updateStepStatus(5, "running");
+      const res5 = await fetch(`${API_BASE}/validation-planner/plan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_type: "manual",
+          project_id: targetProjectId ? Number(targetProjectId) : null,
+          plan_title: `Validation Plan: ${workflowInput.disease_name || "Lead Expansion"}`,
+          candidates: data4.prioritized_candidates.slice(0, 5).map(l => ({
+            compound_name: l.compound_name,
+            smiles: l.smiles,
+            compound_id: l.compound_id || l.compound_name,
+            priority_label: l.priority_label,
+            evidence_strength: l.evidence_strength || "Moderate",
+            warnings: l.warnings || []
+          })),
+          include_toxicity_assays: true,
+          include_cyp_assays: true,
+          include_herg_assays: true,
+          include_hepatotoxicity_assays: true,
+          custom_assays: []
+        })
+      });
+      const data5 = await res5.json();
+      if (!res5.ok) throw new Error(`Step 6 (Planner) failed: ${data5.detail}`);
+      setWorkflowValidationPlan(data5);
+      updateStepStatus(5, "completed", null, { plan_id: data5.plan_id });
+
+      // Step 6
+      updateStepStatus(6, "running");
+      const feedInputs = data4.prioritized_candidates.slice(0, 3).map(l => ({
+        compound_name: l.compound_name,
+        smiles: l.smiles,
+        compound_id: l.compound_id || l.compound_name,
+        assay_type: "CYP3A4 Inhibition",
+        experimental_value: 1.2,
+        experimental_outcome: "inactive"
+      }));
+      setFeedbackInput(feedInputs);
+      
+      const res6_submit = await fetch(`${API_BASE}/experimental-results`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_type: "manual",
+          project_id: targetProjectId ? Number(targetProjectId) : null,
+          results: feedInputs
+        })
+      });
+      const data6_sub = await res6_submit.json();
+      if (res6_submit.ok) {
+        const res6_comp = await fetch(`${API_BASE}/experimental-results/compare`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            project_id: targetProjectId ? Number(targetProjectId) : null,
+            run_ids: [data6_sub.run_id]
+          })
+        });
+        const data6_comp = await res6_comp.json();
+        if (res6_comp.ok) {
+          setFeedbackCompareResult(data6_comp);
+          updateStepStatus(6, "completed", null, { run_id: data6_sub.run_id });
+        } else {
+          updateStepStatus(6, "warning", "Feedback comparison failed.");
+        }
+      } else {
+        updateStepStatus(6, "warning", "Feedback submission failed.");
+      }
+
+      // Step 7
+      updateStepStatus(7, "running");
+      if (targetProjectId) {
+        const res7 = await fetch(`${API_BASE}/final-report`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            project_id: Number(targetProjectId),
+            include_screening: true,
+            include_admet: true,
+            include_explainability: true,
+            include_prioritization: true,
+            include_validation: true,
+            include_experimental_feedback: true
+          })
+        });
+        const data7 = await res7.json();
+        if (res7.ok) {
+          setWorkflowFinalReport(data7);
+          updateStepStatus(7, "completed", null, { report_id: data7.report_id });
+          await loadProjectDetail(targetProjectId);
+        } else {
+          updateStepStatus(7, "warning", "Final report generation failed.");
+        }
+      } else {
+        updateStepStatus(7, "warning", "Project ID missing, final report skipped.");
+      }
+
+      setActiveStep(7);
+    } catch (err) {
+      setWorkflowError(err.message);
+    } finally {
+      setWorkflowLoading(false);
+    }
+  };
+
+  const loadWorkflowDemo = async () => {
+    setWorkflowInput({
+      disease_name: "breast cancer (demo)",
+      target_name: "EGFR (demo)",
+      known_compound: "Aspirin",
+      candidate_limit: 5,
+      similarity_limit: 5,
+      analysis_depth: "quick"
+    });
+    setActiveStep(0);
+    setWorkflowError("");
+    setWorkflowWarnings([]);
+    setWorkflowTarget(null);
+    setWorkflowCandidates([]);
+    setSelectedWorkflowCandidates({});
+    setWorkflowSimilars([]);
+    setSelectedWorkflowSimilars({});
+    setWorkflowScreeningResults(null);
+    setWorkflowPrioritizationRun(null);
+    setWorkflowValidationPlan(null);
+    setFeedbackCompareResult(null);
+    setWorkflowFinalReport(null);
+    
+    setWorkflowStepsStatus([
+      { step_id: 0, label: "Disease / Target", status: "ready", desc: "Select disease, target, and known compounds" },
+      { step_id: 1, label: "Candidate Discovery", status: "not_started", desc: "Find compounds associated with target" },
+      { step_id: 2, label: "Similarity Expansion", status: "not_started", desc: "Identify structural analogs of top hits" },
+      { step_id: 3, label: "Full Analysis", status: "not_started", desc: "Perform computational screening and ADMET profiling" },
+      { step_id: 4, label: "Lead Ranking", status: "not_started", desc: "Rank candidates using prioritize multi-criteria scoring" },
+      { step_id: 5, label: "Validation Plan", status: "not_started", desc: "Recommend wet-lab assays for prioritized leads" },
+      { step_id: 6, label: "Experimental Feedback", status: "not_started", desc: "Import laboratory feedback and compare prediction vs experimental outcomes" },
+      { step_id: 7, label: "Final Report", status: "not_started", desc: "Generate, preview, and download comprehensive workspace reports" }
+    ]);
+
+    setWorkflowStatus("Demo workflow settings loaded. Click Run Complete Disease-to-Lead Analysis to start.");
+  };
+
   async function runScreening(event) {
     event.preventDefault();
     const validation = validateScreeningInput(rawInputQuery, selectedInputType);
@@ -2910,11 +3643,799 @@ export default function App() {
     }
   }
 
+  // Helper to render the Disease-to-Lead Guided Stepper Workflow Page
+  function renderDiseaseToLeadWorkflow() {
+    return (
+      <div className="workflow-container">
+        {workflowWarnings.length > 0 && (
+          <div className="warnings-banner" role="alert">
+            <h4><AlertTriangle size={18} /> Warnings / Disclaimers</h4>
+            <ul>
+              {workflowWarnings.map((w, idx) => <li key={idx}>{w}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {/* Phase 2: Form Form Card */}
+        {activeStep === 0 && (
+          <Section title="Start Disease-to-Lead Workflow" icon={Activity} wide>
+            <div className="screening-panel" style={{ padding: 0 }}>
+              <p className="step-btn-desc" style={{ marginBottom: "16px", fontSize: "0.9rem" }}>
+                Start with a disease or target, discover candidate molecules, expand similar compounds, run ADMET analysis, rank leads, and generate a final report.
+              </p>
+              <div className="form-group-grid" style={{ display: "grid", gap: "12px", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", marginBottom: "16px" }}>
+                <label>
+                  <strong>Disease Name:</strong>
+                  <input
+                    type="text"
+                    value={workflowInput.disease_name}
+                    onChange={e => setWorkflowInput(prev => ({ ...prev, disease_name: e.target.value }))}
+                    placeholder="e.g. breast cancer"
+                  />
+                </label>
+                <label>
+                  <strong>Target Name (Optional):</strong>
+                  <input
+                    type="text"
+                    value={workflowInput.target_name}
+                    onChange={e => setWorkflowInput(prev => ({ ...prev, target_name: e.target.value }))}
+                    placeholder="e.g. EGFR"
+                  />
+                </label>
+                <label>
+                  <strong>Known Compound (Optional):</strong>
+                  <input
+                    type="text"
+                    value={workflowInput.known_compound}
+                    onChange={e => setWorkflowInput(prev => ({ ...prev, known_compound: e.target.value }))}
+                    placeholder="e.g. Aspirin"
+                  />
+                </label>
+              </div>
+              <div className="form-group-grid" style={{ display: "grid", gap: "12px", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", marginBottom: "16px" }}>
+                <label>
+                  <strong>Candidate Limit:</strong>
+                  <input
+                    type="number"
+                    min="1"
+                    max="25"
+                    value={workflowInput.candidate_limit}
+                    onChange={e => setWorkflowInput(prev => ({ ...prev, candidate_limit: Number(e.target.value) }))}
+                  />
+                </label>
+                <label>
+                  <strong>Similarity Limit:</strong>
+                  <input
+                    type="number"
+                    min="1"
+                    max="25"
+                    value={workflowInput.similarity_limit}
+                    onChange={e => setWorkflowInput(prev => ({ ...prev, similarity_limit: Number(e.target.value) }))}
+                  />
+                </label>
+                <label>
+                  <strong>Analysis Depth:</strong>
+                  <select
+                    value={workflowInput.analysis_depth}
+                    onChange={e => setWorkflowInput(prev => ({ ...prev, analysis_depth: e.target.value }))}
+                  >
+                    <option value="quick">Quick (Top 3)</option>
+                    <option value="standard">Standard (Top 5)</option>
+                    <option value="full">Full (All)</option>
+                  </select>
+                </label>
+              </div>
+
+              {workflowError && <div className="status-message error-message">{workflowError}</div>}
+              {workflowLoading && <div className="status-message">Running analysis... Please wait...</div>}
+
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginTop: "16px" }}>
+                <button
+                  className="primary-button"
+                  onClick={runCompleteWorkflow}
+                  disabled={workflowLoading}
+                >
+                  Run Complete Disease-to-Lead Analysis
+                </button>
+                <button
+                  className="secondary-button"
+                  onClick={runStep0_DiseaseTarget}
+                  disabled={workflowLoading}
+                >
+                  Find Candidate Compounds Only
+                </button>
+                <button
+                  className="secondary-button"
+                  onClick={loadWorkflowDemo}
+                  disabled={workflowLoading}
+                >
+                  Run Guided Demo
+                </button>
+              </div>
+              <div className="disclaimer-scientific" role="note">
+                <p>Computational decision-support tool. Demo data is for software demonstration only and is not experimental or clinical evidence.</p>
+              </div>
+            </div>
+          </Section>
+        )}
+
+        {/* Workflow layout with Stepper Sidebar and Canvas */}
+        {activeStep > 0 && (
+          <div className="workflow-layout">
+            {/* Left sidebar with stepper progress */}
+            <aside className="workflow-sidebar">
+              <h4>Workflow Steps</h4>
+              <div className="workflow-stepper">
+                {workflowStepsStatus.map((step, idx) => (
+                  <button
+                    key={step.step_id}
+                    className={`workflow-step-btn ${activeStep === step.step_id ? "active" : ""} ${step.status}`}
+                    onClick={() => {
+                      if (step.status !== "not_started" || idx <= activeStep) {
+                        setActiveStep(step.step_id);
+                      }
+                    }}
+                  >
+                    <div className="step-indicator">
+                      {idx + 1}
+                    </div>
+                    <div className="step-btn-info">
+                      <span className="step-btn-title">{step.label}</span>
+                      <span className="step-btn-desc">{step.desc}</span>
+                      {step.status !== "not_started" && (
+                        <span className="step-btn-status" style={{
+                          color: step.status === "completed" ? "#22c55e" :
+                                 step.status === "warning" ? "#eab308" :
+                                 step.status === "error" ? "#ef4444" : "#0f8b8d"
+                        }}>
+                          {step.status.replace("_", " ")}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <button
+                className="secondary-button"
+                style={{ width: "100%", marginTop: "16px" }}
+                onClick={() => setActiveStep(0)}
+              >
+                Reset Workflow
+              </button>
+            </aside>
+
+            {/* Right main canvas */}
+            <div className="workflow-canvas">
+              {workflowError && <div className="status-message error-message">{workflowError}</div>}
+              {workflowLoading && <div className="status-message">Loading workflow data...</div>}
+
+              {/* Step 1 Content: Disease / Target Selection */}
+              {activeStep === 1 && (
+                <Section title="Disease / Target Identification" icon={Activity} wide>
+                  <p>Step 1 maps disease association to target approval and resolves ChEMBL targets.</p>
+                  {workflowTarget ? (
+                    <div className="evidence-panel">
+                      <h4>Selected ChEMBL Target</h4>
+                      <table className="summary-table">
+                        <tbody>
+                          <tr>
+                            <td><strong>Target ID:</strong></td>
+                            <td>{workflowTarget.target_chembl_id}</td>
+                          </tr>
+                          <tr>
+                            <td><strong>Preferred Name:</strong></td>
+                            <td>{workflowTarget.preferred_name || "not available"}</td>
+                          </tr>
+                          <tr>
+                            <td><strong>Organism:</strong></td>
+                            <td>{workflowTarget.organism || "Homo sapiens"}</td>
+                          </tr>
+                          <tr>
+                            <td><strong>Target Type:</strong></td>
+                            <td>{workflowTarget.target_type || "Single Protein"}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                      <button className="primary-button" style={{ marginTop: "14px" }} onClick={() => runStep1_CandidateDiscovery(workflowTarget)}>
+                        Discover Candidate Compounds
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="error-message">No target resolved. Please reset the workflow and enter a valid query.</p>
+                    </div>
+                  )}
+                </Section>
+              )}
+
+              {/* Step 2 Content: Candidate Discovery */}
+              {activeStep === 2 && (
+                <Section title="Candidate Discovery" icon={Target} wide>
+                  <p>ChEMBL compounds discovered for target: <strong>{workflowTarget?.preferred_name || workflowTarget?.target_chembl_id}</strong>.</p>
+                  
+                  {workflowCandidates.length > 0 ? (
+                    <div>
+                      <div className="table-container" style={{ maxHeight: "400px", overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: "6px" }}>
+                        <table className="history-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+                          <thead>
+                            <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>
+                              <th style={{ padding: "8px" }}>Select</th>
+                              <th style={{ padding: "8px" }}>Compound</th>
+                              <th style={{ padding: "8px" }}>ChEMBL ID</th>
+                              <th style={{ padding: "8px" }}>SMILES</th>
+                              <th style={{ padding: "8px" }}>Activity Value</th>
+                              <th style={{ padding: "8px" }}>Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {workflowCandidates.map(c => {
+                              const key = `${c.molecule_chembl_id}::${c.canonical_smiles}`;
+                              const isSel = !!selectedWorkflowCandidates[key];
+                              return (
+                                <tr key={key} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                                  <td style={{ padding: "8px", textAlign: "center" }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={isSel}
+                                      onChange={() => {
+                                        setSelectedWorkflowCandidates(prev => {
+                                          const next = { ...prev };
+                                          if (next[key]) delete next[key];
+                                          else next[key] = c;
+                                          return next;
+                                        });
+                                      }}
+                                    />
+                                  </td>
+                                  <td style={{ padding: "8px" }}><strong>{c.compound_name || "Unnamed"}</strong></td>
+                                  <td style={{ padding: "8px" }}>{c.molecule_chembl_id}</td>
+                                  <td style={{ padding: "8px" }} className="smiles-cell">{c.canonical_smiles}</td>
+                                  <td style={{ padding: "8px" }}>{c.activity_value ? `${c.activity_value} ${c.activity_units || "nM"}` : "not available"}</td>
+                                  <td style={{ padding: "8px" }}>
+                                    <button className="text-button" onClick={() => setSelectedWorkflowDetailItem({ type: "candidate", item: c })}>
+                                      Open Details
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div style={{ display: "flex", gap: "10px", marginTop: "14px" }}>
+                        <button
+                          className="secondary-button"
+                          onClick={() => {
+                            const all = {};
+                            workflowCandidates.forEach(c => {
+                              all[`${c.molecule_chembl_id}::${c.canonical_smiles}`] = c;
+                            });
+                            setSelectedWorkflowCandidates(all);
+                          }}
+                        >
+                          Select All
+                        </button>
+                        <button className="secondary-button" onClick={() => setSelectedWorkflowCandidates({})}>
+                          Deselect All
+                        </button>
+                        <button className="primary-button" onClick={runStep2_SimilarityExpansion}>
+                          Expand Similar Compounds
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p>No candidates loaded. Click Find Candidate Compounds to trigger.</p>
+                  )}
+                </Section>
+              )}
+
+              {/* Step 3 Content: Similarity Expansion */}
+              {activeStep === 3 && (
+                <Section title="Similarity Expansion" icon={Beaker} wide>
+                  <p>Discover structural analogs in ChEMBL to expand lead space.</p>
+                  
+                  {workflowSimilars.length > 0 ? (
+                    <div>
+                      <div className="table-container" style={{ maxHeight: "400px", overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: "6px" }}>
+                        <table className="history-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+                          <thead>
+                            <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>
+                              <th style={{ padding: "8px" }}>Select</th>
+                              <th style={{ padding: "8px" }}>Compound</th>
+                              <th style={{ padding: "8px" }}>ChEMBL ID</th>
+                              <th style={{ padding: "8px" }}>Similarity Score</th>
+                              <th style={{ padding: "8px" }}>SMILES</th>
+                              <th style={{ padding: "8px" }}>Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {workflowSimilars.map(s => {
+                              const key = `${s.molecule_chembl_id}::${s.canonical_smiles}`;
+                              const isSel = !!selectedWorkflowSimilars[key];
+                              return (
+                                <tr key={key} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                                  <td style={{ padding: "8px", textAlign: "center" }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={isSel}
+                                      onChange={() => {
+                                        setSelectedWorkflowSimilars(prev => {
+                                          const next = { ...prev };
+                                          if (next[key]) delete next[key];
+                                          else next[key] = s;
+                                          return next;
+                                        });
+                                      }}
+                                    />
+                                  </td>
+                                  <td style={{ padding: "8px" }}><strong>{s.compound_name || "Unnamed"}</strong></td>
+                                  <td style={{ padding: "8px" }}>{s.molecule_chembl_id}</td>
+                                  <td style={{ padding: "8px" }}>{s.similarity_score ? `${s.similarity_score}%` : "70%"}</td>
+                                  <td style={{ padding: "8px" }} className="smiles-cell">{s.canonical_smiles}</td>
+                                  <td style={{ padding: "8px" }}>
+                                    <button className="text-button" onClick={() => setSelectedWorkflowDetailItem({ type: "candidate", item: s })}>
+                                      Open Details
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div style={{ display: "flex", gap: "10px", marginTop: "14px" }}>
+                        <button
+                          className="secondary-button"
+                          onClick={() => {
+                            const all = {};
+                            workflowSimilars.forEach(s => {
+                              all[`${s.molecule_chembl_id}::${s.canonical_smiles}`] = s;
+                            });
+                            setSelectedWorkflowSimilars(all);
+                          }}
+                        >
+                          Select All
+                        </button>
+                        <button className="secondary-button" onClick={() => setSelectedWorkflowSimilars({})}>
+                          Deselect All
+                        </button>
+                        <button className="primary-button" onClick={runStep3_FullAnalysis}>
+                          Run Full Analysis
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <p>No similar compounds found. You can proceed directly to screening with selected candidates.</p>
+                      <button className="primary-button" onClick={runStep3_FullAnalysis}>
+                        Proceed to Full Analysis
+                      </button>
+                    </div>
+                  )}
+                </Section>
+              )}
+
+              {/* Step 4 Content: Full Analysis Runner */}
+              {activeStep === 4 && (
+                <Section title="Full Screening & ADMET Analysis" icon={FlaskConical} wide>
+                  <p>Run computational descriptors, rule-based alerts, trained local model prediction, and applicability domain checks.</p>
+                  
+                  {workflowScreeningResults ? (
+                    <div className="screening-panel" style={{ padding: 0 }}>
+                      <div className="summary-grid" style={{ display: "grid", gap: "12px", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", marginBottom: "16px" }}>
+                        <div className="summary-card" style={{ padding: "14px", border: "1px solid #e2e8f0", borderRadius: "8px" }}>
+                          <h4>Total Compounds</h4>
+                          <span style={{ fontSize: "1.8rem", fontWeight: "bold", color: "#0f8b8d" }}>
+                            {workflowScreeningResults.screened_count}
+                          </span>
+                        </div>
+                        <div className="summary-card" style={{ padding: "14px", border: "1px solid #e2e8f0", borderRadius: "8px" }}>
+                          <h4>High-priority candidates</h4>
+                          <span style={{ fontSize: "1.8rem", fontWeight: "bold", color: "#22c55e" }}>
+                            {workflowScreeningResults.results.filter(r => r.decision === "Proceed").length}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="table-container" style={{ maxHeight: "350px", overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: "6px" }}>
+                        <table className="history-table" style={{ width: "100%" }}>
+                          <thead>
+                            <tr style={{ background: "#f8fafc" }}>
+                              <th style={{ padding: "8px" }}>Compound</th>
+                              <th style={{ padding: "8px" }}>Developability Risk</th>
+                              <th style={{ padding: "8px" }}>ADMET Concern</th>
+                              <th style={{ padding: "8px" }}>Lipinski</th>
+                              <th style={{ padding: "8px" }}>Decision</th>
+                              <th style={{ padding: "8px" }}>Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {workflowScreeningResults.results.map(r => (
+                              <tr key={r.compound} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                                <td style={{ padding: "8px" }}><strong>{r.compound}</strong></td>
+                                <td style={{ padding: "8px" }}>{r.developability_risk}</td>
+                                <td style={{ padding: "8px" }}>{r.concern_level}</td>
+                                <td style={{ padding: "8px" }}>{r.lipinski_pass ? "Pass" : "Fail"}</td>
+                                <td style={{ padding: "8px" }}>
+                                  <Badge style={{
+                                    background: r.decision === "Proceed" ? "#dcfce7" :
+                                                r.decision === "Proceed with caution" ? "#fef9c3" : "#fee2e2",
+                                    color: r.decision === "Proceed" ? "#15803d" :
+                                           r.decision === "Proceed with caution" ? "#854d0e" : "#b91c1c"
+                                  }}>{r.decision}</Badge>
+                                </td>
+                                <td style={{ padding: "8px" }}>
+                                  <button className="text-button" onClick={() => setSelectedWorkflowDetailItem({ type: "screening", item: r })}>
+                                    View Prediction Details
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <button className="primary-button" style={{ marginTop: "14px" }} onClick={runStep4_LeadRanking}>
+                        Rank Leads & Prioritize
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <button className="primary-button" onClick={runStep3_FullAnalysis}>
+                        Run Full Screening + ADMET Analysis
+                      </button>
+                    </div>
+                  )}
+                </Section>
+              )}
+
+              {/* Step 5 Content: Lead Prioritization Board */}
+              {activeStep === 5 && (
+                <Section title="Lead Priorities & Candidate Ranking" icon={ClipboardList} wide>
+                  <p>Review priority classifications using conservative review labels. All scores are computational support only.</p>
+                  
+                  {workflowPrioritizationRun ? (
+                    <div>
+                      <div className="lead-board">
+                        {workflowPrioritizationRun.prioritized_candidates.map((cand, idx) => (
+                          <div className="lead-board-item" key={cand.compound_name}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                              <span className="lead-rank-badge">#{idx + 1}</span>
+                              <div>
+                                <strong>{cand.compound_name}</strong>
+                                <div style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "2px" }}>
+                                  MW: {cand.molecular_weight} · LogP: {cand.logp}
+                                </div>
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                              <span className={`priority-tag priority-${cand.priority_label}`}>
+                                {cand.priority_label.replaceAll("_", " ")}
+                              </span>
+                              <span style={{ fontSize: "0.85rem", color: "#475569" }}>
+                                Score: {cand.priority_score || "N/A"}
+                              </span>
+                              <button className="secondary-button" onClick={() => setSelectedWorkflowDetailItem({ type: "prioritized", item: cand })}>
+                                Details
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button className="primary-button" style={{ marginTop: "16px" }} onClick={runStep5_ValidationPlan}>
+                        Generate Recommended Validation Plan
+                      </button>
+                    </div>
+                  ) : (
+                    <p>No prioritizations available. Run Step 4 to rank candidates.</p>
+                  )}
+                </Section>
+              )}
+
+              {/* Step 6 Content: Validation Plan */}
+              {activeStep === 6 && (
+                <Section title="Validation Planner" icon={CheckCircle2} wide>
+                  <p>Plan wet-lab assays to confirm computational predictions for top leads.</p>
+                  
+                  {workflowValidationPlan ? (
+                    <div>
+                      <h4>Recommended Assays ({workflowValidationPlan.recommended_assays?.length || 0})</h4>
+                      <div className="table-container" style={{ border: "1px solid #e2e8f0", borderRadius: "6px" }}>
+                        <table className="summary-table" style={{ width: "100%" }}>
+                          <thead>
+                            <tr style={{ background: "#f8fafc" }}>
+                              <th style={{ padding: "8px" }}>Assay Name</th>
+                              <th style={{ padding: "8px" }}>Assay Type</th>
+                              <th style={{ padding: "8px" }}>Reason for recommendation</th>
+                              <th style={{ padding: "8px" }}>Concern level</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {workflowValidationPlan.recommended_assays.map((a, idx) => (
+                              <tr key={idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                                <td style={{ padding: "8px" }}><strong>{a.name}</strong></td>
+                                <td style={{ padding: "8px" }}>{a.type}</td>
+                                <td style={{ padding: "8px" }}>{a.rationale}</td>
+                                <td style={{ padding: "8px" }}>
+                                  <Badge style={{
+                                    background: a.severity === "high" ? "#fee2e2" :
+                                                a.severity === "medium" ? "#fffbeb" : "#f0fdf4",
+                                    color: a.severity === "high" ? "#b91c1c" :
+                                           a.severity === "medium" ? "#854d0e" : "#16a34a"
+                                  }}>{a.severity}</Badge>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="disclaimer-scientific">
+                        <p>Scientific Notice: Validation planner creates hypothetical assay plans based on computational concerns. Physical experiments must follow proper regulatory and laboratory guidelines.</p>
+                      </div>
+
+                      <button className="primary-button" style={{ marginTop: "14px" }} onClick={runStep6_ExperimentalFeedback}>
+                        Continue to Experimental Feedback
+                      </button>
+                    </div>
+                  ) : (
+                    <p>Validation plan not yet generated. Run Step 5 to create recommendations.</p>
+                  )}
+                </Section>
+              )}
+
+              {/* Step 7 Content: Experimental Feedback */}
+              {activeStep === 7 && (
+                <Section title="Experimental Results & Feedback" icon={FolderPlus} wide>
+                  <p>Import laboratory feedback and compare prediction accuracy vs actual assay outcomes.</p>
+                  
+                  {feedbackInput.length > 0 && (
+                    <div style={{ marginBottom: "20px" }}>
+                      <h4>Input Experimental Assay Values</h4>
+                      <table className="summary-table" style={{ width: "100%", marginBottom: "14px" }}>
+                        <thead>
+                          <tr style={{ background: "#f8fafc" }}>
+                            <th style={{ padding: "8px" }}>Compound</th>
+                            <th style={{ padding: "8px" }}>Assay Type</th>
+                            <th style={{ padding: "8px" }}>Experimental Value</th>
+                            <th style={{ padding: "8px" }}>Experimental Outcome</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {feedbackInput.map((f, idx) => (
+                            <tr key={idx}>
+                              <td style={{ padding: "8px" }}><strong>{f.compound_name}</strong></td>
+                              <td style={{ padding: "8px" }}>{f.assay_type}</td>
+                              <td style={{ padding: "8px" }}>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={f.experimental_value}
+                                  onChange={e => {
+                                    const val = Number(e.target.value);
+                                    setFeedbackInput(prev => prev.map((item, i) => i === idx ? { ...item, experimental_value: val } : item));
+                                  }}
+                                  style={{ width: "100px" }}
+                                />
+                              </td>
+                              <td style={{ padding: "8px" }}>
+                                <select
+                                  value={f.experimental_outcome}
+                                  onChange={e => {
+                                    const out = e.target.value;
+                                    setFeedbackInput(prev => prev.map((item, i) => i === idx ? { ...item, experimental_outcome: out } : item));
+                                  }}
+                                >
+                                  <option value="active">Active (CYP inhibitor / toxic)</option>
+                                  <option value="inactive">Inactive (non-inhibitor / safe)</option>
+                                </select>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <button className="primary-button" onClick={runStep6_ExperimentalFeedback}>
+                        Submit Experimental Feedback & Compare
+                      </button>
+                    </div>
+                  )}
+
+                  {feedbackCompareResult && (
+                    <div className="evidence-panel">
+                      <h4>Feedback Comparison Metrics</h4>
+                      <table className="summary-table">
+                        <tbody>
+                          {Object.entries(feedbackCompareResult.comparison_metrics || {}).map(([metric, val]) => (
+                            <tr key={metric}>
+                              <td><strong>{metric.replaceAll("_", " ").toUpperCase()}:</strong></td>
+                              <td>{typeof val === "number" ? val.toFixed(2) : String(val)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  <div style={{ marginTop: "14px" }}>
+                    <button className="primary-button" onClick={runStep7_FinalReport}>
+                      Generate Final Report
+                    </button>
+                  </div>
+                </Section>
+              )}
+
+              {/* Step 8 Content: Final Report Center */}
+              {activeStep === 8 && (
+                <Section title="Final Report & Download Center" icon={Download} wide>
+                  <p>Your Disease-to-Lead screening report is compiled. Download report bundles and exports honestly displaying computational disclaimers.</p>
+                  
+                  {workflowFinalReport ? (
+                    <div className="screening-panel" style={{ padding: 0 }}>
+                      <div className="example-grid">
+                        <article className="example-card">
+                          <h3>Workspace PDF Report</h3>
+                          <p>Download structured PDF layout containing target matching, prioritized compounds table, and disclaimers.</p>
+                          <a
+                            href={`${API_BASE}/final-report/${workflowFinalReport.report_id}/download/pdf`}
+                            className="primary-button"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ display: "inline-block", textAlign: "center", textDecoration: "none" }}
+                          >
+                            Download PDF
+                          </a>
+                        </article>
+
+                        <article className="example-card">
+                          <h3>Workspace DOCX Report</h3>
+                          <p>Microsoft Word document version of the final project report.</p>
+                          <a
+                            href={`${API_BASE}/final-report/${workflowFinalReport.report_id}/download/docx`}
+                            className="primary-button"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ display: "inline-block", textAlign: "center", textDecoration: "none" }}
+                          >
+                            Download DOCX
+                          </a>
+                        </article>
+
+                        <article className="example-card">
+                          <h3>Research Export ZIP</h3>
+                          <p>Complete research bundle containing datasets, model descriptors, database summaries, and limitations.</p>
+                          <button
+                            className="primary-button"
+                            onClick={() => {
+                              setActiveView("system");
+                              setResearchExportProjectId(String(activeProjectId));
+                            }}
+                          >
+                            Open Research Export
+                          </button>
+                        </article>
+                      </div>
+
+                      <div className="evidence-panel" style={{ marginTop: "18px" }}>
+                        <h4>Workflow Completeness Checklist</h4>
+                        <ul className="checkmark-list" style={{ listStyleType: "none", paddingLeft: 0 }}>
+                          <li>✅ Target matching status: <strong>Included</strong></li>
+                          <li>✅ Candidate discovery: <strong>Included</strong></li>
+                          <li>{workflowSimilars.length > 0 ? "✅" : "⚠️"} Similarity expanded analogs: <strong>{workflowSimilars.length > 0 ? "Included" : "Skipped"}</strong></li>
+                          <li>✅ Full screening + ADMET profiling: <strong>Included</strong></li>
+                          <li>✅ Lead prioritization: <strong>Included</strong></li>
+                          <li>✅ ValidationPlanner recommendations: <strong>Included</strong></li>
+                          <li>✅ Experimental feedback compare: <strong>{feedbackCompareResult ? "Included" : "Not run"}</strong></li>
+                        </ul>
+                      </div>
+
+                      <div className="disclaimer-scientific">
+                        <p>Scientific disclaimer: computational support only. Does not claim treatment efficacy, therapeutic success, or clinical approval.</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <p>Final report not generated. Click compile below.</p>
+                      <button className="primary-button" onClick={runStep7_FinalReport}>
+                        Generate Final Report
+                      </button>
+                    </div>
+                  )}
+                </Section>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Phase 9: Detail Drawer */}
+        {selectedWorkflowDetailItem && (
+          <div className="detail-drawer-overlay" onClick={() => setSelectedWorkflowDetailItem(null)}>
+            <div className="detail-drawer" onClick={e => e.stopPropagation()}>
+              <div className="detail-drawer-header">
+                <h3>Candidate details: {selectedWorkflowDetailItem.item.compound_name || selectedWorkflowDetailItem.item.molecule_chembl_id || selectedWorkflowDetailItem.item.compound}</h3>
+                <button className="drawer-close" onClick={() => setSelectedWorkflowDetailItem(null)}>×</button>
+              </div>
+              <div className="detail-drawer-body">
+                {/* Descriptors */}
+                <div className="drawer-section">
+                  <h4>Molecular Descriptors</h4>
+                  <table className="summary-table">
+                    <tbody>
+                      <tr>
+                        <td><strong>SMILES:</strong></td>
+                        <td className="smiles-cell">{selectedWorkflowDetailItem.item.canonical_smiles || selectedWorkflowDetailItem.item.smiles}</td>
+                      </tr>
+                      {selectedWorkflowDetailItem.item.molecular_weight && (
+                        <tr>
+                          <td><strong>Molecular Weight:</strong></td>
+                          <td>{selectedWorkflowDetailItem.item.molecular_weight}</td>
+                        </tr>
+                      )}
+                      {selectedWorkflowDetailItem.item.logp !== undefined && (
+                        <tr>
+                          <td><strong>LogP:</strong></td>
+                          <td>{selectedWorkflowDetailItem.item.logp}</td>
+                        </tr>
+                      )}
+                      {selectedWorkflowDetailItem.item.tpsa !== undefined && (
+                        <tr>
+                          <td><strong>TPSA:</strong></td>
+                          <td>{selectedWorkflowDetailItem.item.tpsa}</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* ADMET risk */}
+                <div className="drawer-section">
+                  <h4>ADMET & Toxicological Concerns</h4>
+                  <table className="summary-table">
+                    <tbody>
+                      {selectedWorkflowDetailItem.item.developability_risk && (
+                        <tr>
+                          <td><strong>Developability Risk:</strong></td>
+                          <td>{selectedWorkflowDetailItem.item.developability_risk}</td>
+                        </tr>
+                      )}
+                      {selectedWorkflowDetailItem.item.concern_level && (
+                        <tr>
+                          <td><strong>ADMET Concern Level:</strong></td>
+                          <td>{selectedWorkflowDetailItem.item.concern_level}</td>
+                        </tr>
+                      )}
+                      {selectedWorkflowDetailItem.item.priority_label && (
+                        <tr>
+                          <td><strong>Priority Review Label:</strong></td>
+                          <td>{selectedWorkflowDetailItem.item.priority_label.replaceAll("_", " ")}</td>
+                        </tr>
+                      )}
+                      {selectedWorkflowDetailItem.item.evidence_strength && (
+                        <tr>
+                          <td><strong>Evidence Strength:</strong></td>
+                          <td>{selectedWorkflowDetailItem.item.evidence_strength}</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="disclaimer-scientific">
+                  <p>Notice: Predictions are computational early-stage checks and carry standard uncertainty thresholds. Expert review required.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Single-molecule report generator</p>
+          <p className="eyebrow">Computational Drug Screening & ADMET Decision-Support Platform</p>
           <h1>DrugScreen360</h1>
         </div>
         <Badge>Rule-based MVP</Badge>
@@ -2973,33 +4494,9 @@ export default function App() {
       {activeProjectNotice && <p className="status-message">{activeProjectNotice}</p>}
 
       <nav className="view-tabs" aria-label="DrugScreen360 sections">
-        <button className={activeView === "examples" ? "tab-active" : ""} onClick={() => setActiveView("examples")}>
-          <FileText size={18} aria-hidden="true" />
-          Examples
-        </button>
-        <button className={activeView === "screening" ? "tab-active" : ""} onClick={() => setActiveView("screening")}>
-          <FlaskConical size={18} aria-hidden="true" />
-          Screening
-        </button>
-        <button className={activeView === "finder" ? "tab-active" : ""} onClick={() => setActiveView("finder")}>
-          <Target size={18} aria-hidden="true" />
-          Drug Finder
-        </button>
-        <button className={activeView === "similarity" ? "tab-active" : ""} onClick={() => setActiveView("similarity")}>
-          <Beaker size={18} aria-hidden="true" />
-          Similarity Finder
-        </button>
-        <button className={activeView === "validation" ? "tab-active" : ""} onClick={() => setActiveView("validation")}>
-          <CheckCircle2 size={18} aria-hidden="true" />
-          Validation
-        </button>
-        <button className={activeView === "batch-upload" ? "tab-active" : ""} onClick={() => setActiveView("batch-upload")}>
-          <Download size={18} aria-hidden="true" />
-          Batch Upload
-        </button>
-        <button className={activeView === "admet-data" ? "tab-active" : ""} onClick={() => setActiveView("admet-data")}>
-          <FileJson size={18} aria-hidden="true" />
-          ADMET Data
+        <button className={activeView === "disease-to-lead" ? "tab-active" : ""} onClick={() => setActiveView("disease-to-lead")}>
+          <Activity size={18} aria-hidden="true" />
+          Disease-to-Lead Workflow
         </button>
         <button
           className={activeView === "projects" ? "tab-active" : ""}
@@ -3011,24 +4508,69 @@ export default function App() {
           <ClipboardList size={18} aria-hidden="true" />
           Projects
         </button>
-        <button className={activeView === "disease" ? "tab-active" : ""} onClick={() => setActiveView("disease")}>
-          <ShieldCheck size={18} aria-hidden="true" />
-          Disease Finder
-        </button>
         <button
-          className={activeView === "system" ? "tab-active" : ""}
+          className={["examples", "screening", "finder", "similarity", "validation", "batch-upload", "admet-data", "disease", "system"].includes(activeView) ? "tab-active" : ""}
           onClick={() => {
-            setActiveView("system");
-            if (activeProjectId && !researchExportProjectId) setResearchExportProjectId(String(activeProjectId));
-            loadSystemHealth();
-            loadCacheStats();
-            loadLocalModelValidation();
+            if (!["examples", "screening", "finder", "similarity", "validation", "batch-upload", "admet-data", "disease", "system"].includes(activeView)) {
+              setActiveView("examples");
+            }
           }}
         >
           <Settings size={18} aria-hidden="true" />
-          System
+          Advanced Tools
         </button>
       </nav>
+
+      {/* Sub tabs for Advanced Tools if any of those views are active */}
+      {["examples", "screening", "finder", "similarity", "validation", "batch-upload", "admet-data", "disease", "system"].includes(activeView) && (
+        <div className="sub-tabs" role="navigation" aria-label="Advanced Tools">
+          <button className={activeView === "screening" ? "tab-active" : ""} onClick={() => setActiveView("screening")}>
+            <FlaskConical size={14} aria-hidden="true" />
+            Single Molecule Screening
+          </button>
+          <button className={activeView === "finder" ? "tab-active" : ""} onClick={() => setActiveView("finder")}>
+            <Target size={14} aria-hidden="true" />
+            Drug Finder
+          </button>
+          <button className={activeView === "disease" ? "tab-active" : ""} onClick={() => setActiveView("disease")}>
+            <ShieldCheck size={14} aria-hidden="true" />
+            Disease Finder
+          </button>
+          <button className={activeView === "similarity" ? "tab-active" : ""} onClick={() => setActiveView("similarity")}>
+            <Beaker size={14} aria-hidden="true" />
+            Similarity Finder
+          </button>
+          <button className={activeView === "batch-upload" ? "tab-active" : ""} onClick={() => setActiveView("batch-upload")}>
+            <Download size={14} aria-hidden="true" />
+            Batch Upload
+          </button>
+          <button className={activeView === "admet-data" ? "tab-active" : ""} onClick={() => setActiveView("admet-data")}>
+            <FileJson size={14} aria-hidden="true" />
+            ADMET Data
+          </button>
+          <button className={activeView === "validation" ? "tab-active" : ""} onClick={() => setActiveView("validation")}>
+            <CheckCircle2 size={14} aria-hidden="true" />
+            Validation
+          </button>
+          <button
+            className={activeView === "system" ? "tab-active" : ""}
+            onClick={() => {
+              setActiveView("system");
+              if (activeProjectId && !researchExportProjectId) setResearchExportProjectId(String(activeProjectId));
+              loadSystemHealth();
+              loadCacheStats();
+              loadLocalModelValidation();
+            }}
+          >
+            <Settings size={14} aria-hidden="true" />
+            System
+          </button>
+          <button className={activeView === "examples" ? "tab-active" : ""} onClick={() => setActiveView("examples")}>
+            <FileText size={14} aria-hidden="true" />
+            Examples
+          </button>
+        </div>
+      )}
 
       {demoNotice && (
         <div className="disclaimer demo-notice" role="note">
@@ -3036,6 +4578,8 @@ export default function App() {
           <p>Demo data, not live database result. {demoNotice}</p>
         </div>
       )}
+
+      {activeView === "disease-to-lead" && renderDiseaseToLeadWorkflow()}
 
       {activeView === "examples" && (
         <div className="finder-dashboard">

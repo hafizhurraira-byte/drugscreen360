@@ -68,6 +68,8 @@ Use `System -> Guided Demo Workflow -> Run Full Demo Workflow` to create a label
 - Search diseases through Open Targets, rank associated targets, and hand selected targets into ChEMBL candidate discovery.
 - Score target-linked candidates with Evidence Quality Engine V1.
 - Include evidence score, potency quality, and final candidate priority in Drug Finder and Disease Finder comparisons.
+- Disease-to-Lead Guided Stepper Workflow V1: A unified, step-by-step pipeline coordinating target identification, candidate discovery, similarity expansion, ADMET profiling, lead ranking, validation planning, experimental feedback, and final report generation.
+- Visual consolidation: Grouped older standalone tools (Single Molecule Screening, Drug Finder, Similarity Finder, validation, etc.) under an "Advanced Tools" visual submenu to maintain a focused entry workspace.
 
 ## Project Structure
 
