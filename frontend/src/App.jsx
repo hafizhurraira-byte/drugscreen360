@@ -601,8 +601,18 @@ export default function App() {
   const [externalValidationRuns, setExternalValidationRuns] = useState([]);
   const [selectedValidationRunId, setSelectedValidationRunId] = useState("");
   const [selectedValidationRunDetail, setSelectedValidationRunDetail] = useState(null);
-  const [validationLoading, setValidationLoading] = useState(false);
+  const [domainEvalForm, setDomainEvalForm] = useState({
+    model_id: "",
+    smiles: "",
+    top_k: 5
+  });
+  const [domainEvalResult, setDomainEvalResult] = useState(null);
+  const [domainEvalLoading, setDomainEvalLoading] = useState(false);
+  const [domainEvalError, setDomainEvalError] = useState("");
 
+  const [predictWithDomainResult, setPredictWithDomainResult] = useState(null);
+  const [predictWithDomainLoading, setPredictWithDomainLoading] = useState(false);
+  const [predictWithDomainError, setPredictWithDomainError] = useState("");
 
   const synonyms = useMemo(() => {
     const list = report?.compound_identity?.synonyms || [];
@@ -1428,6 +1438,66 @@ export default function App() {
       setWorkflowStatus("");
     } finally {
       setValidationLoading(false);
+    }
+  }
+
+  async function evaluateDomain(event) {
+    if (event) event.preventDefault();
+    if (!domainEvalForm.smiles.trim()) {
+      setDomainEvalError("Please enter a SMILES string.");
+      return;
+    }
+    setDomainEvalLoading(true);
+    setDomainEvalError("");
+    setDomainEvalResult(null);
+    try {
+      const response = await fetch(`${API_BASE}/admet-domain/evaluate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model_id: domainEvalForm.model_id || (activeTrainedModel?.model_id) || "",
+          smiles: domainEvalForm.smiles.trim(),
+          top_k: Number(domainEvalForm.top_k) || 5
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Domain evaluation failed.");
+      setDomainEvalResult(data);
+      setActiveProjectNotice("Domain evaluation completed.");
+    } catch (err) {
+      setDomainEvalError(err.message);
+    } finally {
+      setDomainEvalLoading(false);
+    }
+  }
+
+  async function predictWithDomain(event) {
+    if (event) event.preventDefault();
+    if (!domainEvalForm.smiles.trim()) {
+      setPredictWithDomainError("Please enter a SMILES string.");
+      return;
+    }
+    setPredictWithDomainLoading(true);
+    setPredictWithDomainError("");
+    setPredictWithDomainResult(null);
+    try {
+      const response = await fetch(`${API_BASE}/admet-domain/predict-with-domain`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model_id: domainEvalForm.model_id || (activeTrainedModel?.model_id) || null,
+          smiles: domainEvalForm.smiles.trim()
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Predict with domain failed.");
+      setPredictWithDomainResult(data);
+      setTestPrediction(data.prediction);
+      setActiveProjectNotice("Prediction with domain check completed.");
+    } catch (err) {
+      setPredictWithDomainError(err.message);
+    } finally {
+      setPredictWithDomainLoading(false);
     }
   }
 
@@ -3913,6 +3983,22 @@ export default function App() {
                 icon={Target}
               />
               <SummaryCard
+                label="Domain Summary Available"
+                value={
+                  dashboardSummary?.active_model_domain_info?.domain_summary_available ? "Yes" : "No"
+                }
+                icon={ShieldCheck}
+              />
+              <SummaryCard
+                label="Recent Evaluations (In/Border/Out)"
+                value={
+                  dashboardSummary?.active_model_domain_info?.recent_evaluations_count
+                    ? `${dashboardSummary.active_model_domain_info.recent_evaluations_count.inside || 0} / ${dashboardSummary.active_model_domain_info.recent_evaluations_count.borderline || 0} / ${dashboardSummary.active_model_domain_info.recent_evaluations_count.outside || 0}`
+                    : "N/A"
+                }
+                icon={AlertTriangle}
+              />
+              <SummaryCard
                 label="Failed / Invalid Models"
                 value={dashboardSummary ? dashboardSummary.failed_invalid_model_count : 0}
                 icon={AlertTriangle}
@@ -4356,6 +4442,118 @@ export default function App() {
             </Section>
           )}
 
+          <Section title="Applicability Domain &amp; Uncertainty" icon={ShieldCheck} wide>
+            <p className="limitation-label">
+              Evaluate whether a query molecule lies inside the chemical applicability domain of a trained model before trusting its prediction. This is a computational estimate only.
+            </p>
+            <form className="finder-search" onSubmit={evaluateDomain}>
+              <label>
+                Select Trained Model (optional, defaults to active model)
+                <select
+                  value={domainEvalForm.model_id}
+                  onChange={(e) => setDomainEvalForm((curr) => ({ ...curr, model_id: e.target.value }))}
+                >
+                  <option value="">-- Active Model --</option>
+                  {trainedModels.filter(m => m.status === "valid").map(m => (
+                    <option key={m.model_id} value={m.model_id}>
+                      {m.model_name || m.model_id} ({m.task_name || m.task_type})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                SMILES String
+                <input
+                  value={domainEvalForm.smiles}
+                  onChange={(e) => setDomainEvalForm((curr) => ({ ...curr, smiles: e.target.value }))}
+                  placeholder="CC(=O)OC1=CC=CC=C1C(=O)O"
+                  required
+                />
+              </label>
+              <button type="submit" disabled={domainEvalLoading || !domainEvalForm.smiles.trim()}>
+                {domainEvalLoading ? "Evaluating..." : "Evaluate Applicability Domain"}
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={predictWithDomain}
+                disabled={predictWithDomainLoading || !domainEvalForm.smiles.trim()}
+              >
+                {predictWithDomainLoading ? "Predicting..." : "Predict with Domain Check"}
+              </button>
+            </form>
+            {domainEvalError && <p className="warning-text">{domainEvalError}</p>}
+            {predictWithDomainError && <p className="warning-text">{predictWithDomainError}</p>}
+
+            {domainEvalResult && (
+              <article className="evidence-panel" style={{ marginTop: "15px" }}>
+                <h3>Domain Evaluation Result</h3>
+                <div className="metric-grid compact-metrics">
+                  <Field label="Domain Status" value={
+                    <Badge tone={
+                      domainEvalResult.domain_status === "inside_domain" ? "Good" :
+                      domainEvalResult.domain_status === "borderline" ? "Warn" : "Bad"
+                    }>
+                      {domainEvalResult.domain_status?.replace(/_/g, " ") || "Unknown"}
+                    </Badge>
+                  } />
+                  <Field label="Uncertainty Level" value={
+                    <Badge tone={
+                      domainEvalResult.uncertainty_level === "low" ? "Good" :
+                      domainEvalResult.uncertainty_level === "moderate" ? "Warn" : "Bad"
+                    }>
+                      {domainEvalResult.uncertainty_level || "Unknown"}
+                    </Badge>
+                  } />
+                  <Field label="Range Coverage" value={`${(domainEvalResult.descriptor_range_check?.range_coverage_fraction * 100)?.toFixed(0)}%`} />
+                  <Field label="Out of Range Features" value={(domainEvalResult.descriptor_range_check?.out_of_range_features || []).join(", ") || "None"} />
+                  <Field label="Distance to Centroid" value={domainEvalResult.distance_summary?.distance_to_training_centroid} />
+                  <Field label="Nearest Training Distance" value={domainEvalResult.distance_summary?.nearest_training_distance} />
+                  <Field label="Max Tanimoto Similarity" value={domainEvalResult.fingerprint_similarity?.max_tanimoto_similarity} />
+                  <Field label="Similarity Status" value={domainEvalResult.fingerprint_similarity?.similarity_status?.replace(/_/g, " ")} />
+                </div>
+                {domainEvalResult.nearest_neighbors && domainEvalResult.nearest_neighbors.length > 0 && (
+                  <>
+                    <h4>Nearest Training Neighbors</h4>
+                    <div className="responsive-table">
+                      <table>
+                        <thead>
+                          <tr><th>Name</th><th>Distance</th><th>Tanimoto</th></tr>
+                        </thead>
+                        <tbody>
+                          {domainEvalResult.nearest_neighbors.map((n, i) => (
+                            <tr key={i}>
+                              <td>{n.compound_name || "Unknown"}</td>
+                              <td>{n.distance}</td>
+                              <td>{n.tanimoto_similarity}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+                {domainEvalResult.warnings && domainEvalResult.warnings.length > 0 && (
+                  <>
+                    <h4>Warnings</h4>
+                    {domainEvalResult.warnings.map((w, i) => (
+                      <p key={i} className="warning-text" style={{ fontSize: "0.85rem" }}>• {w}</p>
+                    ))}
+                  </>
+                )}
+                {domainEvalResult.limitations && domainEvalResult.limitations.length > 0 && (
+                  <>
+                    <h4>Limitations</h4>
+                    {domainEvalResult.limitations.map((l, i) => (
+                      <p key={i} className="limitation-label" style={{ fontSize: "0.85rem" }}>• {l}</p>
+                    ))}
+                  </>
+                )}
+                <p className="limitation-label">{domainEvalResult.scientific_notice}</p>
+              </article>
+            )}
+          </Section>
+
           <Section title="Trained Model Prediction Test" icon={ShieldCheck} wide>
             <p className="limitation-label">
               Test predictions are dataset-dependent, computational, and require expert external validation.
@@ -4391,6 +4589,32 @@ export default function App() {
                   )}
                   {testPrediction.prediction_score !== null && (
                     <Field label="Confidence / Probability" value={testPrediction.prediction_score} />
+                  )}
+                  {testPrediction.domain_status && (
+                    <Field label="Domain Status" value={
+                      <Badge tone={
+                        testPrediction.domain_status === "inside_domain" ? "Good" :
+                        testPrediction.domain_status === "borderline" ? "Warn" : "Bad"
+                      }>
+                        {testPrediction.domain_status.replace(/_/g, " ")}
+                      </Badge>
+                    } />
+                  )}
+                  {testPrediction.uncertainty_level && (
+                    <Field label="Uncertainty Level" value={
+                      <Badge tone={
+                        testPrediction.uncertainty_level === "low" ? "Good" :
+                        testPrediction.uncertainty_level === "moderate" ? "Warn" : "Bad"
+                      }>
+                        {testPrediction.uncertainty_level}
+                      </Badge>
+                    } />
+                  )}
+                  {testPrediction.nearest_training_distance !== null && (
+                    <Field label="Nearest Training Distance" value={testPrediction.nearest_training_distance} />
+                  )}
+                  {testPrediction.out_of_range_features && testPrediction.out_of_range_features.length > 0 && (
+                    <Field label="Out of Range Features" value={testPrediction.out_of_range_features.join(", ")} />
                   )}
                 </div>
                 <p className="warning-text">{testPrediction.experimental_model_notice}</p>

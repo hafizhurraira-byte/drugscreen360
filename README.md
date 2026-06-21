@@ -1480,6 +1480,61 @@ Limitations:
 - Auto-save does not change scientific scoring, descriptors, ADMET/Tox rules, evidence scores, or model status.
 - No fake predictions or clinical, regulatory, safety, efficacy, or market-readiness claims are created.
 
+DrugScreen360 now includes Applicability Domain & Prediction Uncertainty estimation for trained ADMET models. Before showing or trusting a trained model prediction, the system estimates whether the input molecule is inside or outside the model's chemical applicability domain and provides conservative uncertainty/risk warnings.
+
+### What is Applicability Domain?
+
+The applicability domain (AD) of a model defines the region of chemical space where the model was trained and is expected to make reliable predictions. Molecules outside this domain may receive unreliable predictions because the model has not learned patterns representative of those chemical structures.
+
+### Methods Used
+
+1. **Descriptor Range Check**: For each descriptor (molecular weight, LogP, TPSA, HBD, HBA, rotatable bonds, ring count, aromatic ring count, formal charge, fraction Csp3), the query molecule is checked against the min/max range observed in the training dataset.
+2. **Distance-to-Training Distribution**: A standardized Euclidean distance (z-score distance) is computed between the query molecule and the training descriptor centroid. Thresholds at the 95th and 99th percentiles classify molecules as:
+   - `inside_domain` (distance ≤ 95th percentile)
+   - `borderline` (95th < distance ≤ 99th percentile)
+   - `outside_domain` (distance > 99th percentile)
+3. **Nearest-Neighbor Similarity**: The nearest training molecules are found by descriptor distance, and Morgan fingerprint Tanimoto similarity is computed.
+
+### Uncertainty Levels
+
+- **low**: Molecule is inside the domain and has high structural similarity to training records.
+- **moderate**: Molecule is borderline or inside domain but with lower structural similarity.
+- **high**: Molecule is outside the domain.
+- **unknown**: Domain could not be computed (e.g., missing training data or model not found).
+
+### Important Scientific Limitations
+
+- Applicability domain is a **computational estimate only**. It requires experimental and external validation.
+- Descriptor range checks are heuristic and assume descriptor normality.
+- Z-score Euclidean boundaries are statistical approximations, not physical laws.
+- Predictions outside the domain should be treated as **unreliable**.
+- Borderline predictions should be treated with **caution**.
+- Even inside-domain predictions are **not guarantees** of model accuracy.
+- This is **not clinical validation**, safety assessment, or regulatory approval.
+
+### How to Use
+
+1. **Evaluate Applicability Domain**: Enter a SMILES string and optionally select a trained model. Click "Evaluate Applicability Domain" to see domain status, uncertainty level, descriptor range check, nearest neighbors, and distance summary.
+2. **Predict with Domain Check**: Enter a SMILES string and click "Predict with Domain Check" to run the trained model prediction together with the domain evaluation. The prediction result will include domain status and uncertainty warnings.
+3. **Dashboard Integration**: The ADMET Model Performance Dashboard shows whether the active model has a domain summary available and displays recent domain evaluation counts (inside / borderline / outside).
+4. **Project Integration**: Domain evaluations are auto-saved to the active project workspace (when a project is selected).
+5. **Research Export**: Domain summaries, evaluations, and limitations are included in the research export package under `ADMET_DOMAIN/`.
+
+### API Endpoints
+
+- `POST /api/admet-domain/evaluate`: Evaluate applicability domain for a molecule against a trained model.
+- `GET /api/admet-domain/model/{model_id}/summary`: Get training-domain summary (descriptor stats, thresholds, record count).
+- `POST /api/admet-domain/predict-with-domain`: Run prediction plus domain evaluation together.
+
+### Integration with Existing Workflows
+
+- **Single Molecule Screening**: Domain status is included in trained-model predictions when available.
+- **Drug Finder Batch**: Domain status is included in batch predictions.
+- **Similarity Batch**: Domain status is included in similarity batch predictions.
+- **Batch Upload**: Domain status is included in batch upload screening results.
+- **Project Reports**: Domain summaries are included in project workspace reports.
+- **Research Export**: `ADMET_DOMAIN/domain_summary.json`, `ADMET_DOMAIN/domain_evaluations/`, `ADMET_DOMAIN/limitations.md`.
+
 ## ADMET Dataset Import & Curation
 
 ADMET Dataset Import & Curation prepares labeled compound datasets for future real model training.

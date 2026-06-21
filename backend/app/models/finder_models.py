@@ -127,6 +127,8 @@ class CandidateScreeningSummary(BaseModel):
     external_model_used: bool = False
     external_model_available: bool = False
     external_model_warning: str | None = None
+    model_predictions: dict | None = None
+
 
 
 class BatchScreeningResponse(BaseModel):

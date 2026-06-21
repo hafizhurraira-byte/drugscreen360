@@ -156,6 +156,10 @@ class TrainedModelPredictionResponse(BaseModel):
     warnings: list[str]
     limitations: list[str]
     experimental_model_notice: str
+    domain_status: str | None = None
+    uncertainty_level: str | None = None
+    nearest_training_distance: float | None = None
+    out_of_range_features: list[str] | None = None
 
 
 class AdmetDashboardSummaryResponse(BaseModel):
@@ -170,6 +174,8 @@ class AdmetDashboardSummaryResponse(BaseModel):
     best_regression_model: dict[str, Any] | None = None
     warnings: list[str] = []
     scientific_limitations: list[str] = []
+    active_model_domain_info: dict[str, Any] | None = None
+
 
 
 class TrainingRunDashboardResponse(BaseModel):

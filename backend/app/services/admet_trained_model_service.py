@@ -389,6 +389,28 @@ def predict_trained_model(smiles: str, model_id: str | None = None, project_id: 
     version = manifest_data.get("version") or "unknown"
     task_name = model_summary["task_name"] or "admet_task"
     
+    # Run applicability domain evaluation
+    domain_status = "not_available"
+    uncertainty_level = "unknown"
+    nearest_training_distance = None
+    out_of_range_features = []
+    
+    try:
+        from app.services.admet_domain_service import evaluate_domain_internal
+        domain_info = evaluate_domain_internal(model_id, smiles)
+        if domain_info:
+            domain_status = domain_info.get("domain_status", "not_available")
+            uncertainty_level = domain_info.get("uncertainty_level", "unknown")
+            nearest_training_distance = domain_info.get("distance_summary", {}).get("nearest_training_distance")
+            out_of_range_features = domain_info.get("descriptor_range_check", {}).get("out_of_range_features", [])
+            
+            if domain_status == "outside_domain":
+                warnings.append("Prediction is outside the model applicability domain and should be treated as unreliable.")
+            elif domain_status == "borderline":
+                warnings.append("Prediction is borderline inside the model applicability domain.")
+    except Exception as e:
+        warnings.append(f"Applicability domain not available: {e}")
+
     result = {
         "prediction_label": prediction_label,
         "prediction_value": prediction_value,
@@ -401,7 +423,11 @@ def predict_trained_model(smiles: str, model_id: str | None = None, project_id: 
         "features_used": feature_columns,
         "warnings": warnings,
         "limitations": limitations,
-        "experimental_model_notice": "Experimental local model prediction. Requires external validation."
+        "experimental_model_notice": "Experimental local model prediction. Requires external validation.",
+        "domain_status": domain_status,
+        "uncertainty_level": uncertainty_level,
+        "nearest_training_distance": nearest_training_distance,
+        "out_of_range_features": out_of_range_features,
     }
     
     if project_id:
@@ -422,6 +448,8 @@ def predict_trained_model(smiles: str, model_id: str | None = None, project_id: 
                         "prediction": pred_str,
                         "task_name": task_name,
                         "task_type": task_type,
+                        "domain_status": domain_status,
+                        "uncertainty_level": uncertainty_level,
                         "tested_at": _now()
                     }
                 )
@@ -430,3 +458,4 @@ def predict_trained_model(smiles: str, model_id: str | None = None, project_id: 
             pass
             
     return result
+

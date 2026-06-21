@@ -302,8 +302,13 @@ class TrainedLocalAdmetModelAdapter:
                     model_status="available",
                     limitations=res["limitations"],
                     warnings=res["warnings"] + ["Experimental local model prediction. Requires external validation."],
+                    domain_status=res.get("domain_status"),
+                    uncertainty_level=res.get("uncertainty_level"),
+                    nearest_training_distance=res.get("nearest_training_distance"),
+                    out_of_range_features=res.get("out_of_range_features"),
                 )
             ]
+
             return ModelPredictionBundle(
                 model_id=self.model_id,
                 model_name=self.model_name,

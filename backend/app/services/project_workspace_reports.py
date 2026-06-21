@@ -99,6 +99,7 @@ def _report_payload(project_id: int, options: ProjectWorkspaceReportCreateReques
     active_trained = get_active_trained_model_info()
     
     external_val_summary = {"status": "no_validation"}
+    active_model_domain_summary = {"status": "no_domain_info"}
     if active_trained and active_trained.get("status") in {"available", "active"}:
         model_id = active_trained.get("model_id")
         from app.services.admet_validation_service import get_latest_external_validation_by_model
@@ -115,6 +116,21 @@ def _report_payload(project_id: int, options: ProjectWorkspaceReportCreateReques
                     "calibration_status": latest_run.get("calibration_summary", {}).get("calibration_status") or "available",
                     "warnings": latest_run["warnings"],
                     "created_at": latest_run["created_at"],
+                }
+        except:
+            pass
+
+        from app.services.admet_domain_service import get_domain_summary_by_model
+        try:
+            domain_sum = get_domain_summary_by_model(model_id)
+            if domain_sum:
+                active_model_domain_summary = {
+                    "dataset_name": domain_sum["dataset_name"],
+                    "task_type": domain_sum["task_type"],
+                    "training_record_count": domain_sum["training_record_count"],
+                    "centroid_distance_threshold_95": domain_sum["domain_thresholds_used"].get("centroid_distance_threshold_95"),
+                    "centroid_distance_threshold_99": domain_sum["domain_thresholds_used"].get("centroid_distance_threshold_99"),
+                    "warnings": ", ".join(domain_sum["warnings"]) if domain_sum["warnings"] else "None",
                 }
         except:
             pass
@@ -154,6 +170,7 @@ def _report_payload(project_id: int, options: ProjectWorkspaceReportCreateReques
         "local_model_validation": local_validation if options.include_model_status else {"status": "not included"},
         "trained_model_status": active_trained if options.include_model_status else {"status": "not included"},
         "active_model_external_validation": external_val_summary if options.include_model_status else {"status": "not included"},
+        "active_model_domain_summary": active_model_domain_summary if options.include_model_status else {"status": "not included"},
         "trained_model_dashboard_summary": dashboard_summary_item,
         "limitations": dashboard.get("limitations", []) if options.include_limitations else [],
         "reproducibility": {
@@ -216,6 +233,8 @@ def _build_pdf(payload: dict[str, Any]) -> bytes:
     story.append(_pdf_table(_pairs(payload["trained_model_status"])))
     story.append(Paragraph("Active Model External Validation Summary", styles["Heading2"]))
     story.append(_pdf_table(_pairs(payload["active_model_external_validation"])))
+    story.append(Paragraph("Active Model Applicability Domain Summary", styles["Heading2"]))
+    story.append(_pdf_table(_pairs(payload["active_model_domain_summary"])))
     story.append(Paragraph("Trained ADMET Models Dashboard Summary", styles["Heading2"]))
     story.append(_pdf_table(_pairs(payload["trained_model_dashboard_summary"])))
     story.append(Paragraph("Local Model Validation Summary", styles["Heading2"]))
@@ -259,6 +278,7 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
         ("Model Status Summary", payload["model_status_summary"]),
         ("Active Trained ADMET Model Status", payload["trained_model_status"]),
         ("Active Model External Validation Summary", payload["active_model_external_validation"]),
+        ("Active Model Applicability Domain Summary", payload["active_model_domain_summary"]),
         ("Trained ADMET Models Dashboard Summary", payload["trained_model_dashboard_summary"]),
         ("Local Model Validation Summary", payload["local_model_validation"]),
         ("Reproducibility", payload["reproducibility"]),

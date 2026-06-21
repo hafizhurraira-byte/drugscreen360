@@ -37,6 +37,11 @@ class PredictionResult(BaseModel):
     model_status: ModelStatus
     limitations: list[str]
     warnings: list[str] = Field(default_factory=list)
+    domain_status: str | None = None
+    uncertainty_level: str | None = None
+    nearest_training_distance: float | None = None
+    out_of_range_features: list[str] | None = None
+
 
 
 class ModelPredictionBundle(BaseModel):

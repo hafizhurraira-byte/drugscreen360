@@ -474,6 +474,30 @@ def get_admet_dashboard_summary() -> dict[str, Any]:
     invalid_count = sum(1 for m in discovered if m.get("status") == "invalid")
     active_status = get_active_trained_model_info()
     
+    active_model_domain_info = {
+        "domain_summary_available": False,
+        "descriptor_stats": {},
+        "training_record_count": 0,
+        "recent_evaluations_count": {
+            "inside": 0,
+            "borderline": 0,
+            "outside": 0,
+            "unknown": 0
+        }
+    }
+    if active_status and active_status.get("status") == "available":
+        active_model_id = active_status.get("model_id")
+        try:
+            from app.services.admet_domain_service import get_domain_summary_by_model, get_recent_evaluations_count
+            domain_sum = get_domain_summary_by_model(active_model_id)
+            if domain_sum:
+                active_model_domain_info["domain_summary_available"] = True
+                active_model_domain_info["descriptor_stats"] = domain_sum["descriptor_stats"]
+                active_model_domain_info["training_record_count"] = domain_sum["training_record_count"]
+            active_model_domain_info["recent_evaluations_count"] = get_recent_evaluations_count(active_model_id)
+        except:
+            pass
+
     warnings = []
     if total_runs == 0:
         warnings.append("No training runs recorded. Train models in the ADMET training tab.")
@@ -492,7 +516,9 @@ def get_admet_dashboard_summary() -> dict[str, Any]:
         "best_regression_model": best_reg,
         "warnings": warnings,
         "scientific_limitations": LIMITATIONS,
+        "active_model_domain_info": active_model_domain_info,
     }
+
 
 
 def get_training_run_dashboard(run_id: int) -> dict[str, Any]:
