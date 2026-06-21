@@ -2374,6 +2374,22 @@ export default function App() {
     }
   };
 
+  const workflowReportDownloadUrl = (format) => {
+    const path = workflowFinalReport?.generated_files?.[format];
+    if (path) return path.startsWith("http") ? path : `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+    return workflowFinalReport?.report_id ? `${API_BASE}/final-report/reports/${workflowFinalReport.report_id}/${format}` : "#";
+  };
+
+  const workflowHasStarted = Boolean(
+    workflowTarget ||
+    (workflowCandidates || []).length ||
+    (workflowSimilars || []).length ||
+    workflowScreeningResults ||
+    workflowPrioritizationRun ||
+    workflowValidationPlan ||
+    workflowFinalReport
+  );
+
   // Step 0: Disease / Target identification
   const runStep0_DiseaseTarget = async () => {
     setWorkflowLoading(true);
@@ -2799,6 +2815,12 @@ export default function App() {
 
       setWorkflowFinalReport(data);
       updateStepStatus(7, "completed", null, { report_id: data.report_id });
+      if ((data.missing_sections || []).length) {
+        setWorkflowWarnings((current) => [...current, "Final report generated with missing sections. Review missing-section warnings."]);
+      } else {
+        setWorkflowWarnings((current) => [...current, "Final report generated successfully."]);
+      }
+      setActiveStep(8);
       await loadProjectDetail(projectForReport);
     } catch (err) {
       const message = "Final report could not be generated right now. Screening and ranking outputs remain available.";
@@ -3042,6 +3064,11 @@ export default function App() {
         if (res7.ok) {
           setWorkflowFinalReport(data7);
           updateStepStatus(7, "completed", null, { report_id: data7.report_id });
+          if ((data7.missing_sections || []).length) {
+            setWorkflowWarnings((current) => [...current, "Final report generated with missing sections. Review missing-section warnings."]);
+          } else {
+            setWorkflowWarnings((current) => [...current, "Final report generated successfully."]);
+          }
           await loadProjectDetail(targetProjectId);
         } else {
           updateStepStatus(7, "warning", "Final report generation failed.");
@@ -3050,7 +3077,7 @@ export default function App() {
         updateStepStatus(7, "warning", "Project ID missing, final report skipped.");
       }
 
-      setActiveStep(7);
+      setActiveStep(8);
     } catch (err) {
       setWorkflowError(friendlyWorkflowMessage(err.message));
     } finally {
@@ -4094,7 +4121,14 @@ export default function App() {
                       </div>
                     </div>
                   ) : (
-                    <p className="status-message info">Workflow data is not available yet. Start the workflow or run the demo.</p>
+                    <div>
+                      <p className="status-message info">
+                        Validation planning could not be completed for the current candidate set. The final report can still be generated with available computational workflow results.
+                      </p>
+                      <button className="primary-button" style={{ marginTop: "14px" }} onClick={runStep7_FinalReport}>
+                        Generate Final Report
+                      </button>
+                    </div>
                   )}
                 </Section>
               )}
@@ -4299,7 +4333,11 @@ export default function App() {
                       </button>
                     </div>
                   ) : (
-                    <p className="status-message info">Workflow data is not available yet. Start the workflow or run the demo.</p>
+                    <p className="status-message info">
+                      {workflowHasStarted
+                        ? "No user-entered experimental feedback has been imported yet. The final report can still be generated with available computational workflow results."
+                        : "Workflow data is not available yet. Start the workflow or run the demo."}
+                    </p>
                   )}
                 </Section>
               )}
@@ -4447,10 +4485,24 @@ export default function App() {
                     <div className="screening-panel" style={{ padding: 0 }}>
                       <div className="example-grid">
                         <article className="example-card">
+                          <h3>Workspace JSON Report</h3>
+                          <p>Machine-readable final report with included sections, missing sections, warnings, and scientific notice.</p>
+                          <a
+                            href={workflowReportDownloadUrl("json")}
+                            className="primary-button"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ display: "inline-block", textAlign: "center", textDecoration: "none" }}
+                          >
+                            Download JSON
+                          </a>
+                        </article>
+
+                        <article className="example-card">
                           <h3>Workspace PDF Report</h3>
                           <p>Download structured PDF layout containing target matching, prioritized compounds table, and disclaimers.</p>
                           <a
-                            href={`${API_BASE}/final-report/reports/${workflowFinalReport?.report_id}/pdf`}
+                            href={workflowReportDownloadUrl("pdf")}
                             className="primary-button"
                             target="_blank"
                             rel="noopener noreferrer"
@@ -4464,7 +4516,7 @@ export default function App() {
                           <h3>Workspace DOCX Report</h3>
                           <p>Microsoft Word document version of the final project report.</p>
                           <a
-                            href={`${API_BASE}/final-report/reports/${workflowFinalReport?.report_id}/docx`}
+                            href={workflowReportDownloadUrl("docx")}
                             className="primary-button"
                             target="_blank"
                             rel="noopener noreferrer"
@@ -4481,7 +4533,7 @@ export default function App() {
                             className="primary-button"
                             onClick={() => {
                               setActiveView("system");
-                              setResearchExportProjectId(String(activeProjectId));
+                              setResearchExportProjectId(String(activeProjectId || workflowProjectId || workflowFinalReport?.project_id || ""));
                             }}
                           >
                             Open Research Export
@@ -4491,6 +4543,7 @@ export default function App() {
 
                       <div className="evidence-panel" style={{ marginTop: "18px" }}>
                         <h4>Workflow Completeness Checklist</h4>
+                        <p className="limitation-label">Available data only. Missing sections are shown honestly and do not block report download.</p>
                         <ul className="checkmark-list" style={{ listStyleType: "none", paddingLeft: 0 }}>
                           <li>✅ Target matching status: <strong>Included</strong></li>
                           <li>✅ Candidate discovery: <strong>Included</strong></li>
@@ -4502,13 +4555,42 @@ export default function App() {
                         </ul>
                       </div>
 
+                      <div className="evidence-panel" style={{ marginTop: "14px" }}>
+                        <h4>Report Availability Summary</h4>
+                        <ul className="checkmark-list" style={{ listStyleType: "none", paddingLeft: 0 }}>
+                          <li>Target matching status: <strong>{workflowTarget ? "Included" : "Missing"}</strong></li>
+                          <li>Candidate discovery/fallback: <strong>{(workflowCandidates || []).length > 0 ? "Included" : "Missing"}</strong></li>
+                          <li>Similarity expanded analogs: <strong>{(workflowSimilars || []).length > 0 ? "Included" : "Skipped or unavailable"}</strong></li>
+                          <li>Full screening + ADMET profiling: <strong>{workflowScreeningResults ? "Included" : "Missing"}</strong></li>
+                          <li>Lead prioritization: <strong>{workflowPrioritizationRun ? "Included" : "Missing"}</strong></li>
+                          <li>Validation planner recommendations: <strong>{workflowValidationPlan ? "Included" : "Skipped or unavailable"}</strong></li>
+                          <li>Experimental feedback compare: <strong>{feedbackCompareResult ? "Included" : "Not available; no user-entered experimental results imported"}</strong></li>
+                        </ul>
+                      </div>
+
+                      {((workflowFinalReport?.missing_sections || []).length > 0 || (workflowFinalReport?.warnings || []).length > 0) && (
+                        <div className="status-message warning-message" style={{ marginTop: "14px" }}>
+                          <strong>Report generated with notes.</strong>
+                          {(workflowFinalReport?.missing_sections || []).length > 0 && (
+                            <p>Missing sections: {(workflowFinalReport.missing_sections || []).join(", ")}</p>
+                          )}
+                          {(workflowFinalReport?.warnings || []).length > 0 && (
+                            <p>Warnings: {(workflowFinalReport.warnings || []).join(" ")}</p>
+                          )}
+                        </div>
+                      )}
+
                       <div className="disclaimer-scientific">
                         <p>Scientific disclaimer: computational support only. Does not claim treatment efficacy, therapeutic success, or clinical approval.</p>
                       </div>
                     </div>
                   ) : (
                     <div>
-                      <p className="status-message info">Workflow data is not available yet. Start the workflow or run the demo.</p>
+                      <p className="status-message info">
+                        {workflowHasStarted
+                          ? "No final report has been generated yet. You can generate one from the available computational workflow results."
+                          : "Workflow data is not available yet. Start the workflow or run the demo."}
+                      </p>
                       <button className="primary-button" onClick={runStep7_FinalReport}>
                         Generate Final Report
                       </button>
