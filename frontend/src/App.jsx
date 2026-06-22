@@ -2403,7 +2403,7 @@ export default function App() {
     setWorkflowError("");
     updateStepStatus(0, "running");
     try {
-      const query = workflowInput.disease_name || workflowInput.target_name;
+      const query = workflowInput.target_name || workflowInput.disease_name;
       if (!query) throw new Error("Please enter a disease name or target name.");
 
       const response = await fetch(`${API_BASE}/finder/targets?query=${encodeURIComponent(query)}`);
@@ -2818,7 +2818,14 @@ export default function App() {
           report_mode: "concise_disease_to_lead_report",
           prioritization_run_id: workflowPrioritizationRun?.run_id ? Number(workflowPrioritizationRun.run_id) : null,
           validation_plan_id: workflowValidationPlan?.plan_id ? Number(workflowValidationPlan.plan_id) : null,
-          experimental_feedback_id: feedbackCompareResult?.feedback_id ? Number(feedbackCompareResult.feedback_id) : null
+          experimental_feedback_id: feedbackCompareResult?.feedback_id ? Number(feedbackCompareResult.feedback_id) : null,
+          disease_name: workflowInput.disease_name || null,
+          user_entered_target: workflowInput.target_name || null,
+          resolved_target: workflowTarget?.preferred_name || workflowTarget?.target_name || workflowInput.target_name || null,
+          known_compound: workflowInput.known_compound || null,
+          candidate_limit: workflowInput.candidate_limit ? Number(workflowInput.candidate_limit) : null,
+          similarity_limit: workflowInput.similarity_limit ? Number(workflowInput.similarity_limit) : null,
+          analysis_depth: workflowInput.analysis_depth || null
         })
       });
       const data = await response.json();
@@ -2850,7 +2857,7 @@ export default function App() {
     try {
       // Step 0
       updateStepStatus(0, "running");
-      const query = workflowInput.disease_name || workflowInput.target_name;
+      const query = workflowInput.target_name || workflowInput.disease_name;
       if (!query) throw new Error("Please enter a disease or target name to start.");
       
       let bestTarget = null;
@@ -3074,7 +3081,14 @@ export default function App() {
             report_mode: "concise_disease_to_lead_report",
             prioritization_run_id: data4?.run_id ? Number(data4.run_id) : null,
             validation_plan_id: validationPlanId ? Number(validationPlanId) : null,
-            experimental_feedback_id: null
+            experimental_feedback_id: null,
+            disease_name: workflowInput.disease_name || null,
+            user_entered_target: workflowInput.target_name || null,
+            resolved_target: bestTarget?.preferred_name || bestTarget?.target_chembl_id || workflowInput.target_name || null,
+            known_compound: workflowInput.known_compound || null,
+            candidate_limit: workflowInput.candidate_limit ? Number(workflowInput.candidate_limit) : null,
+            similarity_limit: workflowInput.similarity_limit ? Number(workflowInput.similarity_limit) : null,
+            analysis_depth: workflowInput.analysis_depth || null
           })
         });
         const data7 = await res7.json();

@@ -20,6 +20,13 @@ class FinalProjectReportRequest(BaseModel):
     prioritization_run_id: int | None = None
     validation_plan_id: int | None = None
     experimental_feedback_id: int | None = None
+    disease_name: str | None = None
+    user_entered_target: str | None = None
+    resolved_target: str | None = None
+    known_compound: str | None = None
+    candidate_limit: int | None = None
+    similarity_limit: int | None = None
+    analysis_depth: str | None = None
 
 
 class FinalProjectReportSection(BaseModel):

@@ -257,3 +257,143 @@ def test_concise_disease_to_lead_report_quality(tmp_path, monkeypatch):
     assert "External validation/calibration was not available for this project." in combined_text
     assert "No user-entered experimental assay results were imported. Experimental feedback comparison was not performed." in combined_text
     assert "No active trained ADMET model was available. This report used descriptor-based and rule-based evidence only." in combined_text
+
+
+def test_final_report_polish_requirements(tmp_path, monkeypatch):
+    from docx import Document
+    monkeypatch.setattr(final_report_service, "REPORT_DIR", tmp_path / "final_project_reports")
+    
+    # 1. Create a project
+    project = client.post("/api/projects/create", json={"title": "EGFR Polish Project", "project_type": "general_research", "status": "active"}).json()
+    project_id = project["id"]
+    
+    # 2. Run prioritization with duplicate compounds:
+    # We will pass:
+    #   - Aspirin (CC(=O)Oc1ccccc1C(=O)O)
+    #   - ASPIRIN (CC(=O)Oc1ccccc1C(=O)O) -- duplicate SMILES
+    #   - Ibuprofen (CC(C)Cc1ccc(cc1)C(C)C(=O)O)
+    lead = client.post(
+        "/api/admet-leads/prioritize",
+        json={
+            "project_id": project_id,
+            "source_type": "manual",
+            "candidates": [
+                {"compound_name": "Aspirin", "smiles": "CC(=O)Oc1ccccc1C(=O)O"},
+                {"compound_name": "ASPIRIN", "smiles": "CC(=O)Oc1ccccc1C(=O)O"},
+                {"compound_name": "Ibuprofen", "smiles": "CC(C)Cc1ccc(cc1)C(C)C(=O)O"}
+            ],
+            "include_trained_model": False,
+            "include_domain": False,
+            "include_explainability": False,
+        },
+    )
+    assert lead.status_code == 200
+    run_id = lead.json()["run_id"]
+    
+    # 3. Create a validation plan with a candidate having None/null rationale or empty rationale
+    plan = client.post(
+        "/api/validation-planner/create",
+        json={
+            "project_id": project_id,
+            "source_type": "manual",
+            "plan_title": "Validation Plan: Polish Test",
+            "candidates": [
+                {"compound_name": "Aspirin", "smiles": "CC(=O)Oc1ccccc1C(=O)O", "compound_id": "Aspirin"}
+            ]
+        }
+    )
+    assert plan.status_code == 200
+    plan_id = plan.json()["plan_id"]
+    
+    # 4. Generate the final report with:
+    #   - user_entered_target: EGFR
+    #   - resolved_target: Epidermal growth factor receptor (different to trigger warning)
+    #   - disease_name: Breast Cancer
+    #   - known_compound: Aspirin
+    report_response = client.post(
+        "/api/final-report/create",
+        json={
+            "project_id": project_id,
+            "report_title": "Concise Disease-to-Lead Quality Polish Report",
+            "report_mode": "concise_disease_to_lead_report",
+            "prioritization_run_id": run_id,
+            "validation_plan_id": plan_id,
+            "disease_name": "Breast Cancer",
+            "user_entered_target": "EGFR",
+            "resolved_target": "Epidermal growth factor receptor",
+            "known_compound": "Aspirin",
+            "formats": ["json", "pdf", "docx"],
+        }
+    )
+    assert report_response.status_code == 200
+    report_id = report_response.json()["report_id"]
+    
+    # 5. Download the DOCX via the real download endpoint
+    download_response = client.get(f"/api/final-report/reports/{report_id}/docx")
+    assert download_response.status_code == 200
+    
+    # 6. Open with python-docx and scan content
+    doc_bytes = BytesIO(download_response.content)
+    doc = Document(doc_bytes)
+    
+    # Extract all text from paragraphs and tables
+    full_text = []
+    for para in doc.paragraphs:
+        full_text.append(para.text)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                full_text.append(cell.text)
+                
+    combined_text = "\n".join(full_text)
+    
+    # Confirm EGFR appears as user-entered target
+    assert "EGFR" in combined_text
+    
+    # Confirm resolved target appears separately
+    assert "Epidermal growth factor receptor" in combined_text
+    
+    # Confirm warning appears if resolved target differs
+    assert "Resolved target differs from user-entered target. Please verify target selection before interpretation." in combined_text
+    
+    # Confirm duplicate Aspirin rows are merged
+    assert "removing 1 duplicate record(s)" in combined_text
+    
+    # Confirm ADMET descriptor values appear
+    assert "MW" in combined_text
+    assert "LogP" in combined_text
+    assert "TPSA" in combined_text
+    assert "HBD" in combined_text
+    assert "HBA" in combined_text
+    assert "RotB" in combined_text
+    assert "Lipinski" in combined_text
+    assert "Veber" in combined_text
+    assert "Concern Lvl" in combined_text
+    assert "Score" in combined_text
+    
+    # Check that actual numerical values appear in the text/tables (Aspirin MW is ~180.16, Ibuprofen MW is ~206.29)
+    assert any("180." in text or "206." in text for text in full_text)
+    
+    # Confirm validation planner is capped/grouped
+    assert "Category:" in combined_text
+    
+    # Confirm no "Rationale None", "Rationale: None", "Rationale: null" or "Rationale None" appears
+    assert "Rationale None" not in combined_text
+    assert "Rationale: None" not in combined_text
+    assert "Rationale: null" not in combined_text
+    assert "Rationale null" not in combined_text
+    
+    # Confirm fallback rationale is present
+    assert "Recommended to reduce key uncertainty before experimental follow-up." in combined_text
+    
+    # Confirm no raw JSON/database dump strings appear
+    forbidden_strings = [
+        "[{",
+        "}]",
+        '"compound_name"',
+        '"score_components"',
+        '"descriptors"'
+    ]
+    for forbidden in forbidden_strings:
+        assert forbidden not in combined_text
+
