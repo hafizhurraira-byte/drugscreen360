@@ -16,6 +16,10 @@ class FinalProjectReportRequest(BaseModel):
     include_validation_planner: bool = True
     include_experimental_feedback: bool = True
     formats: list[str] = Field(default_factory=lambda: ["json", "pdf", "docx"])
+    report_mode: str | None = None
+    prioritization_run_id: int | None = None
+    validation_plan_id: int | None = None
+    experimental_feedback_id: int | None = None
 
 
 class FinalProjectReportSection(BaseModel):

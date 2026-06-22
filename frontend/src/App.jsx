@@ -2377,8 +2377,14 @@ export default function App() {
 
   const workflowReportDownloadUrl = (format) => {
     const path = workflowFinalReport?.generated_files?.[format];
-    if (path) return path.startsWith("http") ? path : `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
-    return workflowFinalReport?.report_id ? `${API_BASE}/final-report/reports/${workflowFinalReport.report_id}/${format}` : "#";
+    if (path) {
+      if (path.startsWith("http")) return path;
+      if (path.startsWith("/api/api/")) {
+        return `${API_ROOT}${path.substring(4)}`;
+      }
+      return `${API_ROOT}${path.startsWith("/") ? path : `/${path}`}`;
+    }
+    return workflowFinalReport?.report_id ? `${API_ROOT}/api/final-report/reports/${workflowFinalReport.report_id}/${format}` : "#";
   };
 
   const workflowHasStarted = Boolean(
@@ -2808,7 +2814,11 @@ export default function App() {
           include_lead_prioritization: true,
           include_validation_planner: true,
           include_experimental_feedback: true,
-          formats: ["json", "pdf", "docx"]
+          formats: ["json", "pdf", "docx"],
+          report_mode: "concise_disease_to_lead_report",
+          prioritization_run_id: workflowPrioritizationRun?.run_id ? Number(workflowPrioritizationRun.run_id) : null,
+          validation_plan_id: workflowValidationPlan?.plan_id ? Number(workflowValidationPlan.plan_id) : null,
+          experimental_feedback_id: feedbackCompareResult?.feedback_id ? Number(feedbackCompareResult.feedback_id) : null
         })
       });
       const data = await response.json();
@@ -3002,6 +3012,7 @@ export default function App() {
         evidence_strength: l.evidence_strength || l.explainability_evidence_strength || "not available",
         warnings: l.warnings || []
       }));
+      let validationPlanId = null;
       if (plannerCandidates.length === 0) {
         const plannerMessage = "No valid candidate set is available for validation planning. Run candidate discovery or lead prioritization first.";
         setWorkflowWarnings((current) => [...current, plannerMessage]);
@@ -3024,6 +3035,7 @@ export default function App() {
           });
           const data5 = await res5.json();
           if (!res5.ok) throw new Error(data5.detail || "Validation plan generation failed.");
+          validationPlanId = data5.plan_id;
           setWorkflowValidationPlan(data5);
           updateStepStatus(5, "completed", null, { plan_id: data5.plan_id });
         } catch (plannerError) {
@@ -3058,7 +3070,11 @@ export default function App() {
             include_lead_prioritization: true,
             include_validation_planner: true,
             include_experimental_feedback: true,
-            formats: ["json", "pdf", "docx"]
+            formats: ["json", "pdf", "docx"],
+            report_mode: "concise_disease_to_lead_report",
+            prioritization_run_id: data4?.run_id ? Number(data4.run_id) : null,
+            validation_plan_id: validationPlanId ? Number(validationPlanId) : null,
+            experimental_feedback_id: null
           })
         });
         const data7 = await res7.json();
