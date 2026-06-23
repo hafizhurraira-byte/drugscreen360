@@ -27,6 +27,7 @@ class FinalProjectReportRequest(BaseModel):
     candidate_limit: int | None = None
     similarity_limit: int | None = None
     analysis_depth: str | None = None
+    disease_to_lead_run_id: int | None = None
 
 
 class FinalProjectReportSection(BaseModel):

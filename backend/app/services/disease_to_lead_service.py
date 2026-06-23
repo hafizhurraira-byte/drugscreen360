@@ -76,9 +76,21 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
     warnings = []
     missing_steps = []
     
-    # 1. Target Discovery
+    # Import context helpers
+    from app.services.disease_to_lead_context import (
+        resolve_target_status,
+        are_targets_equivalent,
+        deduplicate_candidates,
+        save_disease_to_lead_run,
+        update_disease_to_lead_run_report
+    )
+    
+    # 1. Target Discovery (target-first)
     target_id = None
     target_name = payload.target_name
+    target_resolution_status = "no_match"
+    target_organism = "Homo sapiens"
+    target_confidence = 100.0
     
     if target_name:
         try:
@@ -89,13 +101,26 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
                 selected_t = human_target or targets[0]
                 target_id = selected_t.target_chembl_id
                 target_name = selected_t.preferred_name or selected_t.target_chembl_id
+                target_organism = selected_t.organism or "Homo sapiens"
+                
+                # Check confidence/equivalence
+                priority_score = getattr(selected_t, 'target_priority_score', 100)
+                target_resolution_status = resolve_target_status(payload.target_name, target_name, priority_score)
+                target_confidence = float(priority_score)
+                
+                if target_resolution_status == "mismatch_warning":
+                    warnings.append("Resolved target differs from user-entered target. Please verify target selection before interpretation.")
+                elif target_resolution_status == "ambiguous_match":
+                    warnings.append("Target resolution was ambiguous. Verify target selection.")
             else:
-                warnings.append(f"No ChEMBL target found for target_name: {target_name}")
+                target_resolution_status = "no_match"
+                warnings.append(f"No ChEMBL target found for target_name: {payload.target_name}")
         except Exception:
+            target_resolution_status = "no_match"
             _add_warning(warnings, FRIENDLY_EXTERNAL_WARNING)
             
-    if not target_id and payload.disease_name:
-        # Search Open Targets
+    if not target_id and not payload.target_name and payload.disease_name:
+        # ONLY fall back to searching target by disease if target_name was not provided
         try:
             diseases = open_targets_service.search_diseases(payload.disease_name)
             if diseases:
@@ -110,6 +135,8 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
                             selected_t = human_target or targets[0]
                             target_id = selected_t.target_chembl_id
                             target_name = selected_t.preferred_name or selected_t.target_chembl_id
+                            target_organism = selected_t.organism or "Homo sapiens"
+                            target_resolution_status = "synonym_match"
                     except Exception:
                         _add_warning(warnings, FRIENDLY_EXTERNAL_WARNING)
                         pass
@@ -120,22 +147,25 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
         except Exception:
             _add_warning(warnings, FRIENDLY_EXTERNAL_WARNING)
             
-    # Fallback: search ChEMBL with disease name
-    if not target_id and payload.disease_name:
-        try:
-            targets = chembl_service.search_targets(payload.disease_name)
-            if targets:
-                selected_t = targets[0]
-                target_id = selected_t.target_chembl_id
-                target_name = selected_t.preferred_name or selected_t.target_chembl_id
-        except Exception:
-            _add_warning(warnings, FRIENDLY_EXTERNAL_WARNING)
-            
+        # Fallback: search ChEMBL with disease name
+        if not target_id:
+            try:
+                targets = chembl_service.search_targets(payload.disease_name)
+                if targets:
+                    selected_t = targets[0]
+                    target_id = selected_t.target_chembl_id
+                    target_name = selected_t.preferred_name or selected_t.target_chembl_id
+                    target_organism = selected_t.organism or "Homo sapiens"
+                    target_resolution_status = "full_name_match"
+            except Exception:
+                _add_warning(warnings, FRIENDLY_EXTERNAL_WARNING)
+                
     if not target_id:
         known = _known_compound_candidate(payload.known_compound)
         if known:
             target_id = "known_compound_fallback"
             target_name = payload.target_name or "Known compound fallback"
+            target_resolution_status = "synonym_match" if payload.target_name else "no_match"
             _add_warning(warnings, FRIENDLY_EXTERNAL_WARNING)
         else:
             raise HTTPException(
@@ -180,13 +210,18 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
             _add_warning(warnings, "Similarity expansion is unavailable right now. Continuing with available candidates.")
             missing_steps.append("similarity_expansion")
             
+    # Deduplicate combined candidates
+    combined_candidates = candidates + similar_candidates
+    unique_candidates = deduplicate_candidates(combined_candidates)
+    duplicate_records_removed = len(combined_candidates) - len(unique_candidates)
+            
     # 4. Project Initialization
     project_id = payload.project_id
     if not project_id:
         try:
             proj = create_project(
                 ProjectCreateRequest(
-                    title=f"Disease-to-Lead: {payload.disease_name or target_name}",
+                    title=f"Disease-to-Lead: {payload.disease_name or target_name}".strip(),
                     description=f"Auto-generated Disease-to-Lead workflow for disease '{payload.disease_name}' and target '{target_name}'.",
                     disease_area=payload.disease_name or "General",
                     target_name=target_name,
@@ -202,9 +237,9 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
                 "Could not create a project automatically. Please create/select a project before generating final reports.",
             )
             
-    # Attach candidates to project
+    # Attach unique candidates to project
     attached_candidate_ids = []
-    for c in candidates:
+    for c in unique_candidates:
         if project_id:
             try:
                 attached = attach_project_item(
@@ -224,60 +259,23 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
                 attached_candidate_ids.append(attached.item_id)
             except:
                 pass
-                
-    # Attach similar compounds
-    for s in similar_candidates:
-        if project_id:
-            try:
-                attach_project_item(
-                    project_id,
-                    ProjectAttachRequest(
-                        item_type="similarity_analog",
-                        item_id=s["molecule_chembl_id"],
-                        item_title=s.get("compound_name") or s["molecule_chembl_id"],
-                        metadata={
-                            "smiles": s["canonical_smiles"],
-                            "similarity_score": s.get("similarity_score"),
-                            "parent_compound": ref_compound
-                        }
-                    )
-                )
-            except:
-                pass
 
     # 5. Full Screening & ADMET Analysis
     # Analyze first 3-5 candidates depending on depth
-    analysis_candidates = candidates
+    analysis_candidates = unique_candidates
     if payload.analysis_depth == "quick":
-        analysis_candidates = candidates[:3]
+        analysis_candidates = unique_candidates[:3]
     elif payload.analysis_depth == "standard":
-        analysis_candidates = candidates[:5]
+        analysis_candidates = unique_candidates[:5]
         
-    analysis_similars = similar_candidates
-    if payload.analysis_depth == "quick":
-        analysis_similars = similar_candidates[:3]
-    elif payload.analysis_depth == "standard":
-        analysis_similars = similar_candidates[:5]
-        
-    all_compounds_to_analyze = []
-    seen_smiles = set()
-    
-    for c in analysis_candidates:
-        sm = c["canonical_smiles"]
-        if sm and sm not in seen_smiles:
-            seen_smiles.add(sm)
-            all_compounds_to_analyze.append((c.get("compound_name") or c["molecule_chembl_id"], sm))
-            
-    for s in analysis_similars:
-        sm = s["canonical_smiles"]
-        if sm and sm not in seen_smiles:
-            seen_smiles.add(sm)
-            all_compounds_to_analyze.append((s.get("compound_name") or s["molecule_chembl_id"], sm))
-            
     screening_results = []
     admet_results = []
     
-    for name, smiles in all_compounds_to_analyze:
+    for c in analysis_candidates:
+        name = c.get("compound_name") or c["molecule_chembl_id"]
+        smiles = c.get("canonical_smiles") or c.get("smiles")
+        if not smiles:
+            continue
         try:
             desc = calculate_descriptors(smiles)
             rules = evaluate_rules(desc)
@@ -305,6 +303,7 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
                 "overall_concern": admet_tox.overall.concern_level,
                 "absorption": admet_tox.absorption.absorption_risk,
                 "solubility": admet_tox.solubility.solubility_risk,
+                "descriptors": desc.model_dump(),
                 "model_predictions": model_predictions.model_dump()
             })
             
@@ -331,20 +330,12 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
     # 6. Lead Prioritization
     lead_run_id = None
     lead_inputs = []
-    for c in analysis_candidates:
+    for c in unique_candidates:
         lead_inputs.append(
             LeadCandidateInput(
                 compound_name=c.get("compound_name") or c["molecule_chembl_id"],
-                smiles=c["canonical_smiles"],
+                smiles=c.get("canonical_smiles") or c.get("smiles"),
                 compound_id=c["molecule_chembl_id"]
-            )
-        )
-    for s in analysis_similars:
-        lead_inputs.append(
-            LeadCandidateInput(
-                compound_name=s.get("compound_name") or s["molecule_chembl_id"],
-                smiles=s["canonical_smiles"],
-                compound_id=s["molecule_chembl_id"]
             )
         )
         
@@ -365,10 +356,14 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
         except Exception as e:
             warnings.append(f"Lead prioritization failed: {e}")
             missing_steps.append("lead_ranking")
+            lead_res = None
+    else:
+        lead_res = None
             
     # 7. Validation Planner
     validation_plan_id = None
     planner_status = "not_available"
+    val_res = None
     validation_candidates = []
     for li in lead_inputs[:5]:
         validation_candidates.append(
@@ -388,7 +383,7 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
                 ExperimentalValidationPlanRequest(
                     source_type="manual",
                     project_id=project_id,
-                    plan_title=f"Validation Plan: {payload.disease_name or target_name}",
+                    plan_title=f"Validation Plan: {payload.disease_name or target_name}".strip(),
                     candidates=validation_candidates,
                     include_toxicity_assays=True,
                     include_cyp_assays=True,
@@ -409,6 +404,74 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
     else:
         warnings.append("No valid candidate set is available for validation planning. Run candidate discovery or lead prioritization first.")
         missing_steps.append("validation_plan")
+
+    # Save the run context snapshot to database
+    workflow_id = str(uuid.uuid4())
+    
+    # Extract prioritization details
+    ranked_candidates_data = []
+    if lead_res:
+        ranked_candidates_data = [c.model_dump() if hasattr(c, "model_dump") else c for c in lead_res.ranked_candidates]
+        
+    # Extract validation planner results
+    validation_planner_results = {}
+    if val_res:
+        recommended_assays = []
+        for cp in val_res.candidate_plans:
+            comp_name = cp.compound_name or cp.compound_id
+            for assay in cp.recommended_assays:
+                recommended_assays.append({
+                    "compound_name": comp_name,
+                    "assay_name": assay.assay_name,
+                    "recommendation_priority": assay.recommendation_priority,
+                    "rationale": getattr(assay, "reason", getattr(assay, "rationale", ""))
+                })
+        validation_planner_results = {
+            "plan_title": val_res.plan_title,
+            "recommended_assays": recommended_assays
+        }
+        
+    missing_evidence_summary = []
+    for c in (ranked_candidates_data or unique_candidates):
+        missing_evidence_summary.append({
+            "compound_name": c.get("compound_name") or c.get("molecule_chembl_id") or c.get("compound_id") or "Unnamed",
+            "missing_evidence": c.get("missing_evidence") or []
+        })
+        
+    run_data = {
+        "workflow_id": workflow_id,
+        "project_id": project_id,
+        "report_id": None,
+        "disease_name_raw": payload.disease_name,
+        "disease_name_normalized": (payload.disease_name or "").strip(),
+        "user_entered_target_raw": payload.target_name,
+        "user_entered_target_normalized": (payload.target_name or "").strip(),
+        "resolved_target_name": target_name,
+        "resolved_target_id": target_id,
+        "resolved_target_gene_symbol": target_name,
+        "resolved_target_organism": target_organism,
+        "target_resolution_confidence": target_confidence,
+        "target_resolution_status": target_resolution_status,
+        "known_compound_raw": payload.known_compound,
+        "known_compound_normalized": (payload.known_compound or "").strip(),
+        "known_compound_id": known_candidate.get("molecule_chembl_id") if known_candidate else None,
+        "candidate_limit": payload.candidate_limit,
+        "similarity_limit": payload.similarity_limit,
+        "analysis_depth": payload.analysis_depth,
+        "scoring_profile": "balanced_admet",
+        "generated_candidate_list": combined_candidates,
+        "deduplicated_candidate_list": unique_candidates,
+        "duplicate_records_removed": duplicate_records_removed,
+        "admet_results": admet_results,
+        "prioritization_results": {
+            "ranked_candidates": ranked_candidates_data or unique_candidates,
+            "warnings": warnings
+        },
+        "validation_planner_results": validation_planner_results,
+        "missing_evidence_summary": missing_evidence_summary
+    }
+    
+    run_id = save_disease_to_lead_run(run_data)
             
     # 8. Final Report Generation
     final_report_id = None
@@ -417,7 +480,7 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
             report_res = create_final_project_report(
                 FinalProjectReportRequest(
                     project_id=project_id,
-                    report_title=f"Disease-to-Lead Final Report: {payload.disease_name or target_name}",
+                    report_title=f"Disease-to-Lead Final Report: {payload.disease_name or target_name}".strip(),
                     include_screening=True,
                     include_admet_prediction=True,
                     include_model_training=True,
@@ -428,15 +491,26 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
                     include_validation_planner=True,
                     include_experimental_feedback=True,
                     formats=["json", "pdf", "docx"],
+                    report_mode="concise_disease_to_lead_report",
+                    disease_to_lead_run_id=run_id,
+                    disease_name=payload.disease_name,
+                    user_entered_target=payload.target_name,
+                    resolved_target=target_name,
+                    known_compound=payload.known_compound,
+                    candidate_limit=payload.candidate_limit,
+                    similarity_limit=payload.similarity_limit,
+                    analysis_depth=payload.analysis_depth
                 )
             )
             final_report_id = report_res.report_id
-        except Exception:
-            _add_warning(warnings, "Final report could not be generated right now. Screening and ranking outputs remain available.")
+            update_disease_to_lead_run_report(run_id, final_report_id)
+        except Exception as e:
+            _add_warning(warnings, f"Final report could not be generated right now. Error: {e}")
             missing_steps.append("final_report")
             
     return {
-        "workflow_id": str(uuid.uuid4()),
+        "workflow_id": workflow_id,
+        "disease_to_lead_run_id": run_id,
         "project_id": project_id,
         "disease_name": payload.disease_name,
         "target_name": target_name,
@@ -459,3 +533,4 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
         "missing_steps": missing_steps,
         "scientific_notice": "Computational estimate only. Requires experimental and external validation."
     }
+

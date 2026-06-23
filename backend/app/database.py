@@ -631,6 +631,41 @@ def init_db() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS disease_to_lead_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                workflow_id TEXT UNIQUE,
+                project_id INTEGER,
+                report_id INTEGER,
+                disease_name_raw TEXT,
+                disease_name_normalized TEXT,
+                user_entered_target_raw TEXT,
+                user_entered_target_normalized TEXT,
+                resolved_target_name TEXT,
+                resolved_target_id TEXT,
+                resolved_target_gene_symbol TEXT,
+                resolved_target_organism TEXT,
+                target_resolution_confidence REAL,
+                target_resolution_status TEXT,
+                known_compound_raw TEXT,
+                known_compound_normalized TEXT,
+                known_compound_id TEXT,
+                candidate_limit INTEGER,
+                similarity_limit INTEGER,
+                analysis_depth TEXT,
+                scoring_profile TEXT,
+                generated_candidate_list TEXT,
+                deduplicated_candidate_list TEXT,
+                duplicate_records_removed INTEGER,
+                admet_results TEXT,
+                prioritization_results TEXT,
+                validation_planner_results TEXT,
+                missing_evidence_summary TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
 
 
 

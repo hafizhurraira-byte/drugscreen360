@@ -7,12 +7,14 @@ from pathlib import Path
 from typing import Any
 
 from docx import Document
+from docx.shared import Inches
 from fastapi import HTTPException
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from rdkit import Chem
 
 from app.database import get_connection, init_db
 from app.models.final_report_models import (
@@ -27,6 +29,14 @@ from app.services.local_admet_model import validate_local_admet_model
 from app.services.model_registry import model_status_response
 from app.services.project_workspace_service import attach_project_item, project_dashboard
 from app.services.version import app_version
+from app.services.disease_to_lead_context import (
+    are_targets_equivalent,
+    resolve_target_status,
+    deduplicate_candidates,
+    get_disease_to_lead_run,
+    get_latest_disease_to_lead_run_for_project,
+    create_disease_to_lead_run_snapshot
+)
 
 REPORT_DIR = Path(__file__).resolve().parents[2] / "final_project_reports"
 SCIENTIFIC_NOTICE = "Computational decision-support report only. Experimental and clinical interpretation requires qualified scientific review."
@@ -556,17 +566,134 @@ def _generate_candidate_explanation(c: dict[str, Any], scoring_profile: str) -> 
     return explanation
 
 
+def validate_report_payload_consistency(payload: dict[str, Any]) -> None:
+    disease = payload.get("disease_area") or ""
+    user_target = payload.get("workflow_input_table", {}).get("user_entered_target") or ""
+    resolved_target = payload.get("workflow_input_table", {}).get("resolved_target") or ""
+    
+    norm_disease = "".join(c for c in disease.lower() if c.isalnum())
+    
+    report_title = payload.get("report_title") or ""
+    project_title = payload.get("project_title") or ""
+    w_input = payload.get("workflow_input_table") or {}
+    w_disease = w_input.get("disease") or w_input.get("disease_area") or ""
+    norm_w_disease = "".join(c for c in w_disease.lower() if c.isalnum())
+    
+    norm_report_title = "".join(c for c in report_title.lower() if c.isalnum())
+    norm_project_title = "".join(c for c in project_title.lower() if c.isalnum())
+    
+    if norm_disease:
+        if norm_disease not in norm_report_title:
+            raise ValueError(f"Report title disease mismatch. Disease '{disease}' not in report title '{report_title}'.")
+        if norm_disease not in norm_project_title:
+            raise ValueError(f"Project title disease mismatch. Disease '{disease}' not in project title '{project_title}'.")
+        if norm_disease != norm_w_disease:
+            raise ValueError(f"Workflow input disease mismatch. Disease '{disease}' != Workflow disease '{w_disease}'.")
+            
+    warnings = payload.get("warnings") or []
+    if user_target and resolved_target:
+        if are_targets_equivalent(user_target, resolved_target):
+            mismatch_msg = "Resolved target differs from user-entered target"
+            if any(mismatch_msg in w for w in warnings):
+                raise ValueError("False target mismatch warning found for equivalent targets.")
+
 def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) -> dict[str, Any]:
     project_id = request.project_id
     context = _project_context(project_id)
     
-    project_title = (context.get("project") or {}).get("title") or "Unknown Project"
     disease_area = (context.get("project") or {}).get("disease_area") or "not available"
     target_name = (context.get("project") or {}).get("target_name") or "not available"
+    
+    # 1. Fetch/Create snapshot
+    run_snapshot = None
+    if request.disease_to_lead_run_id:
+        run_snapshot = get_disease_to_lead_run(request.disease_to_lead_run_id)
+    elif project_id:
+        run_snapshot = get_latest_disease_to_lead_run_for_project(project_id)
+        
+    if not run_snapshot:
+        new_run_id = create_disease_to_lead_run_snapshot(request)
+        run_snapshot = get_disease_to_lead_run(new_run_id)
+        request.disease_to_lead_run_id = new_run_id
+
+    # 2. Resolve source of truth values
+    disease_name = request.disease_name
+    if not disease_name and run_snapshot:
+        disease_name = run_snapshot.get("disease_name_normalized") or run_snapshot.get("disease_name_raw")
+    if not disease_name and project_id:
+        disease_name = disease_area
+    if not disease_name:
+        disease_name = "breast cancer"
+    disease_name = " ".join(disease_name.strip().split())
+    
+    user_target = request.user_entered_target
+    if not user_target and run_snapshot:
+        user_target = run_snapshot.get("user_entered_target_normalized") or run_snapshot.get("user_entered_target_raw")
+    if not user_target and project_id:
+        user_target = target_name
+    if not user_target:
+        user_target = "EGFR"
+    user_target = " ".join(user_target.strip().split())
+    
+    resolved_target = request.resolved_target
+    if not resolved_target and run_snapshot:
+        resolved_target = run_snapshot.get("resolved_target_name")
+    if not resolved_target and project_id:
+        resolved_target = target_name
+    if not resolved_target:
+        resolved_target = user_target
+    resolved_target = " ".join(resolved_target.strip().split())
+    
+    known_compound = request.known_compound
+    if not known_compound and run_snapshot:
+        known_compound = run_snapshot.get("known_compound_raw")
+    if known_compound:
+        known_compound = " ".join(known_compound.strip().split())
+        
+    candidate_limit = request.candidate_limit
+    if candidate_limit is None and run_snapshot:
+        candidate_limit = run_snapshot.get("candidate_limit")
+    if candidate_limit is None:
+        candidate_limit = 10
+        
+    similarity_limit = request.similarity_limit
+    if similarity_limit is None and run_snapshot:
+        similarity_limit = run_snapshot.get("similarity_limit")
+    if similarity_limit is None:
+        similarity_limit = 10
+        
+    analysis_depth = request.analysis_depth
+    if not analysis_depth and run_snapshot:
+        analysis_depth = run_snapshot.get("analysis_depth")
+    if not analysis_depth:
+        analysis_depth = "standard"
+        
+    scoring_profile = "balanced_admet"
+    if run_snapshot and run_snapshot.get("scoring_profile"):
+        scoring_profile = run_snapshot["scoring_profile"]
+        
+    # Check project metadata conflict and override
+    metadata_override_warning = None
+    if project_id and context.get("project"):
+        p_info = context["project"]
+        p_disease = p_info.get("disease_area") or ""
+        p_target = p_info.get("target_name") or ""
+        
+        disease_conflict = p_disease.strip().lower() != disease_name.lower()
+        target_conflict = not (are_targets_equivalent(p_target, user_target) or are_targets_equivalent(p_target, resolved_target))
+        if disease_conflict or target_conflict:
+            metadata_override_warning = "Active project metadata differed from latest Disease-to-Lead workflow input and was overridden for this report."
+
+    project_title = f"Disease-to-Lead: {disease_name} / {user_target}".strip()
+    project_title = " ".join(project_title.strip().split())
+    disease_area = disease_name
+    target_name = resolved_target
+
+    request.report_title = f"Disease-to-Lead Final Report: {disease_name}".strip()
+    request.report_title = " ".join(request.report_title.strip().split())
 
     init_db()
     with get_connection() as connection:
-        # 1. Prioritization Run
         run_row = None
         if request.prioritization_run_id:
             run_row = connection.execute(
@@ -579,7 +706,6 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
                 (project_id,)
             ).fetchone()
 
-        # 2. Validation Plan
         plan_row = None
         if request.validation_plan_id:
             plan_row = connection.execute(
@@ -592,7 +718,6 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
                 (project_id,)
             ).fetchone()
 
-        # 3. Experimental Feedback
         feedback_row = None
         if request.experimental_feedback_id:
             feedback_row = connection.execute(
@@ -605,40 +730,38 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
                 (project_id,)
             ).fetchone()
 
-    # Extract prioritization run details
-    scoring_profile = "balanced_admet"
+    # Get raw candidates
     raw_candidates = []
     prioritization_warnings = []
-    if run_row:
-        scoring_profile = run_row["scoring_profile"]
+    if run_snapshot:
+        prior_res = run_snapshot.get("prioritization_results") or {}
+        if isinstance(prior_res, str):
+            try:
+                prior_res = json.loads(prior_res)
+            except Exception:
+                prior_res = {}
+        raw_candidates = prior_res.get("ranked_candidates") or run_snapshot.get("deduplicated_candidate_list") or []
+        prioritization_warnings = prior_res.get("warnings") or []
+    elif run_row:
         run_summary = _json_loads(run_row["summary_json"], {})
         raw_candidates = run_summary.get("ranked_candidates", [])
         prioritization_warnings = _json_loads(run_row["warnings_json"], [])
 
-    # Deduplicate candidates using RDKit canonical SMILES or normalized name/ID fallback
-    seen_keys = {}
-    for c in raw_candidates:
-        key = _get_dedup_key(c)
-        if key not in seen_keys:
-            seen_keys[key] = []
-        seen_keys[key].append(c)
-        
-    ranked_candidates = []
-    for key, duplicates in seen_keys.items():
-        duplicates.sort(key=_candidate_quality_key, reverse=True)
-        ranked_candidates.append(duplicates[0])
-        
-    ranked_candidates.sort(key=lambda x: (x.get("rank") if x.get("rank") is not None else 999999))
-    for idx, c in enumerate(ranked_candidates):
-        c["rank"] = idx + 1
-        
+    # Deduplicate candidates
+    ranked_candidates = deduplicate_candidates(raw_candidates)
     removed_count = len(raw_candidates) - len(ranked_candidates)
 
-    # Extract validation plan details
-    plan_title = None
+    plan_title = f"Experimental Validation Plan: {disease_name} / {user_target}"
     recommended_assays_list = []
-    if plan_row:
-        plan_title = plan_row["plan_title"]
+    if run_snapshot:
+        val_res = run_snapshot.get("validation_planner_results") or {}
+        if isinstance(val_res, str):
+            try:
+                val_res = json.loads(val_res)
+            except Exception:
+                val_res = {}
+        recommended_assays_list = val_res.get("recommended_assays") or []
+    elif plan_row:
         plan_summary = _json_loads(plan_row["summary_json"], {})
         candidate_plans = plan_summary.get("candidate_plans", [])
         for cp in candidate_plans:
@@ -651,7 +774,7 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
                     "rationale": assay.get("rationale")
                 })
 
-    # Group and limit top 10 recommended assays
+    # Group assays
     sorted_assays = []
     for assay in recommended_assays_list:
         clean_rat = _get_rationale(assay.get("rationale"))
@@ -672,7 +795,6 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
             grouped_top_assays[cat] = []
         grouped_top_assays[cat].append(assay)
 
-    # Clean rationale for full recommended assays list in JSON payload
     full_clean_assays = []
     for assay in recommended_assays_list:
         full_clean_assays.append({
@@ -682,7 +804,7 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
             "rationale": _get_rationale(assay.get("rationale"))
         })
 
-    # Extract experimental feedback details
+    # Experimental feedback
     agreement_summary = {}
     candidate_feedback_list = []
     if feedback_row:
@@ -690,26 +812,24 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
         feedback_summary = _json_loads(feedback_row["feedback_summary_json"], {})
         candidate_feedback_list = feedback_summary.get("candidate_feedback", [])
 
-    # Target handling and warnings
-    user_disease = request.disease_name or disease_area or "breast cancer"
-    user_target = request.user_entered_target or target_name or "EGFR"
-    resolved_target = request.resolved_target or target_name or "EGFR"
-    
-    if user_target.strip().lower() != resolved_target.strip().lower():
+    # Target resolution warning check using equivalence
+    target_resolution_status = resolve_target_status(user_target, resolved_target)
+    if not are_targets_equivalent(user_target, resolved_target):
         warning_msg = "Resolved target differs from user-entered target. Please verify target selection before interpretation."
         if warning_msg not in prioritization_warnings:
             prioritization_warnings.append(warning_msg)
 
-    # Compile Executive Summary findings paragraph
     findings_str = (
-        f"This concise Disease-to-Lead report details computational decision-support analysis for disease area '{user_disease}' "
-        f"and user-entered target '{user_target}'. Target query resolved to '{resolved_target}'."
+        f"This concise Disease-to-Lead report details computational decision-support analysis for disease area '{disease_name}' "
+        f"and user-entered target '{user_target}'."
     )
-    if user_target.strip().lower() != resolved_target.strip().lower():
+    if are_targets_equivalent(user_target, resolved_target):
+        findings_str += f" Target query resolved to and matches '{resolved_target}'. Resolved target expands or matches the user-entered target."
+    else:
         findings_str += f" WARNING: Resolved target '{resolved_target}' differs from user-entered target '{user_target}'. Please verify target selection before interpretation."
         
-    if request.known_compound:
-        findings_str += f" The known reference compound '{request.known_compound}' was included for workflow calibration."
+    if known_compound:
+        findings_str += f" The known reference compound '{known_compound}' was included for workflow calibration."
         
     findings_str += f" After deduplicating candidates using RDKit (removing {removed_count} duplicate record(s)), a total of {len(ranked_candidates)} unique compound(s) were analyzed."
     
@@ -728,11 +848,9 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
     else:
         findings_str += " No candidates were prioritized."
 
-    # Active trained model details
     active_model = get_active_trained_model_info()
     has_active_model = active_model and active_model.get("status") not in ("unavailable", "disabled", "error")
 
-    # External Validation runs
     ext_runs = []
     if has_active_model and active_model.get("model_id"):
         with get_connection() as connection:
@@ -750,16 +868,14 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
                     "metric_summary": _json_loads(r["metric_summary_json"], {})
                 })
 
-    # Recommended next steps
     next_steps = [
-        "Confirm target relevance by verifying EGFR binding selectivity profiles.",
+        f"Confirm target relevance by verifying {user_target} binding selectivity profiles.",
         "Perform identity and structural purity verification for top priority candidates.",
         "Design and execute basic in vitro ADMET assays to validate computational predictions.",
-        "Run specific bioassays targeting EGFR to establish cellular efficacy metrics.",
+        f"Run specific bioassays targeting {user_target} in the context of {disease_name} to establish cellular efficacy metrics.",
         "Integrate experimental results back into the DrugScreen360 active learning loop."
     ]
 
-    # Limitations
     limitations = [
         "Computational predictions are statistical in nature and do not guarantee safety or efficacy.",
         "Missing experimental assay data reduces confidence in overall project outcomes.",
@@ -800,7 +916,7 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
         "next_recommended_steps": next_steps
     }
 
-    return {
+    payload = {
         "report_title": request.report_title,
         "scientific_notice": SCIENTIFIC_NOTICE,
         "is_concise_mode": True,
@@ -814,21 +930,23 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
         "missing_sections": missing_sections,
         "warnings": prioritization_warnings,
         "executive_summary": executive_summary,
-        
-        # Section 1: Executive Summary
         "executive_summary_paragraph": findings_str,
         
-        # Section 2: Workflow Input Table
         "workflow_input_table": {
-            "target_name": resolved_target,
+            "disease": disease_name,
             "user_entered_target": user_target,
             "resolved_target": resolved_target,
-            "disease_area": disease_area,
+            "target_resolution_status": target_resolution_status.replace("_", " ").title(),
+            "known_compound": known_compound or "None",
+            "candidate_limit": candidate_limit,
+            "similarity_limit": similarity_limit,
+            "analysis_depth": analysis_depth,
             "scoring_profile": scoring_profile,
-            "candidate_count": len(ranked_candidates)
+            "candidate_count": len(ranked_candidates),
+            "duplicate_records_removed": removed_count,
+            "report_id": None
         },
         
-        # Section 3: Workflow Completion Table
         "workflow_completion": {
             "screening": "Completed",
             "admet_prediction": "Completed",
@@ -837,20 +955,18 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
             "experimental_feedback": "Completed" if feedback_row else "Skipped/Not Run"
         },
         
-        # Section 4: Top Candidate Table
         "top_candidate_table": [
             {
                 "rank": idx + 1,
                 "compound_name": c.get("compound_name") or c.get("compound_id") or "Unnamed",
                 "compound_id": c.get("compound_id") or "N/A",
-                "smiles": c.get("smiles") or "N/A",
+                "smiles": c.get("smiles") or c.get("canonical_smiles") or "N/A",
                 "total_score": c.get("total_score") or 0.0,
                 "priority_label": c.get("priority_label") or "N/A"
             }
             for idx, c in enumerate(ranked_candidates[:5])
         ],
         
-        # Section 5: Top Candidate Interpretation
         "top_candidate_interpretation": [
             {
                 "compound_name": c.get("compound_name") or "Unnamed",
@@ -863,7 +979,6 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
             for c in ranked_candidates[:5]
         ],
         
-        # Section 6: ADMET & Drug-likeness Summary
         "admet_drug_likeness": [
             {
                 "compound_name": c.get("compound_name") or "Unnamed",
@@ -878,7 +993,6 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
             for c in ranked_candidates[:5]
         ],
         
-        # Section 7: Model Evidence Summary
         "has_active_model": has_active_model,
         "model_evidence": {
             "model_id": active_model.get("model_id") if has_active_model else None,
@@ -887,13 +1001,11 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
             "status": active_model.get("status") if has_active_model else "unavailable"
         },
         
-        # Section 8: External Validation Summary
         "external_validation": {
             "has_external_validation": len(ext_runs) > 0,
             "validation_details": ext_runs
         },
         
-        # Section 9: Experimental Feedback Summary
         "experimental_feedback": {
             "has_feedback": bool(feedback_row),
             "supported_count": agreement_summary.get("supported_count", 0) if feedback_row else 0,
@@ -912,7 +1024,6 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
             ]
         },
         
-        # Section 10: Validation Planner Summary
         "validation_planner": {
             "has_plan": bool(plan_row),
             "plan_title": plan_title,
@@ -920,13 +1031,9 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
             "grouped_top_assays": grouped_top_assays
         },
         
-        # Section 11: Limitations
         "limitations": limitations,
-        
-        # Section 12: Recommended Next Steps
         "recommended_next_steps": next_steps,
         
-        # Section 13: Reproducibility
         "reproducibility": {
             "app_version": app_version(),
             "python_version": sys.version.split()[0],
@@ -934,6 +1041,12 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
             "generated_at": created_at
         }
     }
+    
+    if metadata_override_warning:
+        payload["metadata_override_warning"] = metadata_override_warning
+        
+    validate_report_payload_consistency(payload)
+    return payload
 
 
 def _build_payload(request: FinalProjectReportRequest, created_at: str) -> dict[str, Any]:
@@ -1056,16 +1169,20 @@ def _build_pdf_table(headers: list[str], rows: list[list[str]], widths: list[flo
     return table
 
 
-def _build_docx_table(doc, headers: list[str], rows: list[list[str]]):
+def _build_docx_table(doc, headers: list[str], rows: list[list[str]], widths: list = None):
     table = doc.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
     hdr_cells = table.rows[0].cells
     for i, title in enumerate(headers):
         hdr_cells[i].text = title
+        if widths and i < len(widths):
+            hdr_cells[i].width = widths[i]
     for row_data in rows:
         row_cells = table.add_row().cells
         for i, val in enumerate(row_data):
             row_cells[i].text = str(val)
+            if widths and i < len(widths):
+                row_cells[i].width = widths[i]
     return table
 
 
@@ -1096,17 +1213,29 @@ def _build_pdf(payload: dict[str, Any]) -> bytes:
         story.append(Spacer(1, 5))
         inputs = payload["workflow_input_table"]
         input_rows = [
+            ["Disease", inputs.get("disease") or inputs.get("disease_area") or "not available"],
             ["User-entered Target", inputs.get("user_entered_target") or "not available"],
             ["Resolved Target", inputs.get("resolved_target") or "not available"],
-            ["Disease Area", inputs["disease_area"]],
-            ["Scoring Profile", inputs["scoring_profile"]],
-            ["Candidate Count", str(inputs["candidate_count"])]
+            ["Target Resolution Status", inputs.get("target_resolution_status") or "not available"],
+            ["Known Compound", inputs.get("known_compound") or "None"],
+            ["Candidate Limit", str(inputs.get("candidate_limit") or 10)],
+            ["Similarity Limit", str(inputs.get("similarity_limit") or 10)],
+            ["Analysis Depth", (inputs.get("analysis_depth") or "standard").title()],
+            ["Scoring Profile", (inputs.get("scoring_profile") or "balanced_admet").replace("_", " ").title()],
+            ["Candidate Count (Deduplicated)", str(inputs.get("candidate_count") or len(payload.get("top_candidate_table") or []))],
+            ["Duplicate Records Removed", str(inputs.get("duplicate_records_removed") or 0)],
+            ["Report ID", str(inputs.get("report_id") or "Pending/Not Saved")]
         ]
         story.append(_build_pdf_table(["Input Parameter", "Value"], input_rows, widths=[2.5*inch, 4.5*inch]))
         story.append(Spacer(1, 15))
         
-        if inputs.get("user_entered_target") != inputs.get("resolved_target"):
+        u_tgt = inputs.get("user_entered_target")
+        r_tgt = inputs.get("resolved_target")
+        if not are_targets_equivalent(u_tgt, r_tgt):
             story.append(Paragraph("<b>WARNING: Resolved target differs from user-entered target. Please verify target selection before interpretation.</b>", styles["Normal"]))
+            story.append(Spacer(1, 10))
+        else:
+            story.append(Paragraph("Resolved target expands or matches the user-entered target.", styles["Normal"]))
             story.append(Spacer(1, 10))
 
         # 3. Workflow Completion Table
@@ -1173,30 +1302,43 @@ def _build_pdf(payload: dict[str, Any]) -> bytes:
         story.append(Spacer(1, 5))
         admet_list = payload["admet_drug_likeness"]
         if admet_list:
-            headers = ["Compound", "MW", "LogP", "TPSA", "HBD", "HBA", "RotB", "Lipinski", "Veber", "Concern Lvl", "Score", "Warning/Missing Evidence"]
-            rows = []
+            story.append(Paragraph("<b>Physicochemical Descriptors</b>", styles["Normal"]))
+            story.append(Spacer(1, 3))
+            headers1 = ["Compound", "MW", "LogP", "TPSA", "HBD", "HBA", "RotB"]
+            rows1 = []
             for a in admet_list:
                 desc = a.get("descriptors") or {}
-                rules = a.get("rule_based_admet_summary") or {}
-                missing = a.get("missing_evidence") or []
-                main_warning = ", ".join(missing) if missing else "None"
-                if len(main_warning) > 30:
-                    main_warning = main_warning[:27] + "..."
-                rows.append([
+                rows1.append([
                     a["compound_name"],
                     f"{desc.get('molecular_weight', 'N/A')}",
                     f"{desc.get('logp', 'N/A')}",
                     f"{desc.get('tpsa', 'N/A')}",
                     f"{desc.get('hydrogen_bond_donors', 'N/A')}",
                     f"{desc.get('hydrogen_bond_acceptors', 'N/A')}",
-                    f"{desc.get('rotatable_bonds', 'N/A')}",
+                    f"{desc.get('rotatable_bonds', 'N/A')}"
+                ])
+            story.append(_build_pdf_table(headers1, rows1, widths=[1.8*inch, 0.8*inch, 0.8*inch, 0.9*inch, 0.8*inch, 0.8*inch, 0.8*inch]))
+            story.append(Spacer(1, 10))
+            
+            story.append(Paragraph("<b>ADMET / Drug-likeness Interpretation</b>", styles["Normal"]))
+            story.append(Spacer(1, 3))
+            headers2 = ["Compound", "Lipinski", "Veber", "Concern Level", "Concern Score", "Key Missing Evidence"]
+            rows2 = []
+            for a in admet_list:
+                rules = a.get("rule_based_admet_summary") or {}
+                missing = a.get("missing_evidence") or []
+                main_warning = ", ".join(missing) if missing else "None"
+                if len(main_warning) > 30:
+                    main_warning = main_warning[:27] + "..."
+                rows2.append([
+                    a["compound_name"],
                     a["lipinski_status"].title(),
                     a["veber_status"].title(),
                     rules.get("concern_level", "N/A").replace("_", " ").title(),
                     f"{rules.get('concern_score', 'N/A')}",
                     main_warning
                 ])
-            story.append(_build_pdf_table(headers, rows, widths=[0.9*inch, 0.5*inch, 0.4*inch, 0.45*inch, 0.35*inch, 0.35*inch, 0.4*inch, 0.7*inch, 0.6*inch, 0.8*inch, 0.5*inch, 1.65*inch]))
+            story.append(_build_pdf_table(headers2, rows2, widths=[1.5*inch, 0.9*inch, 0.8*inch, 1.2*inch, 0.8*inch, 2.4*inch]))
         else:
             story.append(Paragraph("No ADMET evaluations available.", styles["BodyText"]))
         story.append(Spacer(1, 15))
@@ -1367,16 +1509,28 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
         document.add_heading("Workflow Input Table", level=1)
         inputs = payload["workflow_input_table"]
         _build_docx_table(document, ["Input Parameter", "Value"], [
+            ["Disease", inputs.get("disease") or inputs.get("disease_area") or "not available"],
             ["User-entered Target", inputs.get("user_entered_target") or "not available"],
             ["Resolved Target", inputs.get("resolved_target") or "not available"],
-            ["Disease Area", inputs["disease_area"]],
-            ["Scoring Profile", inputs["scoring_profile"]],
-            ["Candidate Count", str(inputs["candidate_count"])]
-        ])
+            ["Target Resolution Status", inputs.get("target_resolution_status") or "not available"],
+            ["Known Compound", inputs.get("known_compound") or "None"],
+            ["Candidate Limit", str(inputs.get("candidate_limit") or 10)],
+            ["Similarity Limit", str(inputs.get("similarity_limit") or 10)],
+            ["Analysis Depth", (inputs.get("analysis_depth") or "standard").title()],
+            ["Scoring Profile", (inputs.get("scoring_profile") or "balanced_admet").replace("_", " ").title()],
+            ["Candidate Count (Deduplicated)", str(inputs.get("candidate_count") or len(payload.get("top_candidate_table") or []))],
+            ["Duplicate Records Removed", str(inputs.get("duplicate_records_removed") or 0)],
+            ["Report ID", str(inputs.get("report_id") or "Pending/Not Saved")]
+        ], widths=[Inches(2.5), Inches(4.5)])
         
-        if inputs.get("user_entered_target") != inputs.get("resolved_target"):
+        u_tgt = inputs.get("user_entered_target")
+        r_tgt = inputs.get("resolved_target")
+        if not are_targets_equivalent(u_tgt, r_tgt):
             p = document.add_paragraph()
             p.add_run("WARNING: Resolved target differs from user-entered target. Please verify target selection before interpretation.").bold = True
+        else:
+            p = document.add_paragraph()
+            p.add_run("Resolved target expands or matches the user-entered target.")
             
         # 3. Workflow Completion Table
         document.add_heading("Workflow Completion Table", level=1)
@@ -1387,7 +1541,7 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
             ["Step 3: Lead Prioritization & Scoring", completion["lead_prioritization"]],
             ["Step 4: Validation Planning", completion["validation_planning"]],
             ["Step 5: Experimental Feedback Analysis", completion["experimental_feedback"]]
-        ])
+        ], widths=[Inches(3.5), Inches(3.5)])
         
         # 4. Top Candidate Table
         document.add_heading("Top Candidate Table", level=1)
@@ -1403,7 +1557,7 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
                     f"{c['total_score']:.2f}",
                     c["priority_label"].replace("_", " ").title()
                 ])
-            _build_docx_table(document, ["Rank", "Compound Name", "Compound ID", "SMILES", "Total Score", "Priority Label"], rows)
+            _build_docx_table(document, ["Rank", "Compound Name", "Compound ID", "SMILES", "Total Score", "Priority Label"], rows, widths=[Inches(0.5), Inches(1.3), Inches(1.2), Inches(2.0), Inches(0.8), Inches(1.2)])
             document.add_paragraph("Duplicate candidate records were merged based on canonical SMILES or compound identity.", style="Normal")
         else:
             document.add_paragraph("No candidates evaluated.")
@@ -1427,28 +1581,39 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
         document.add_heading("ADMET & Drug-likeness Summary", level=1)
         admet_list = payload["admet_drug_likeness"]
         if admet_list:
-            headers = ["Compound", "MW", "LogP", "TPSA", "HBD", "HBA", "RotB", "Lipinski", "Veber", "Concern Lvl", "Score", "Warning/Missing Evidence"]
-            rows = []
+            document.add_heading("Physicochemical Descriptors", level=2)
+            headers1 = ["Compound", "MW", "LogP", "TPSA", "HBD", "HBA", "RotB"]
+            rows1 = []
             for a in admet_list:
                 desc = a.get("descriptors") or {}
-                rules = a.get("rule_based_admet_summary") or {}
-                missing = a.get("missing_evidence") or []
-                main_warning = ", ".join(missing) if missing else "None"
-                rows.append([
+                rows1.append([
                     a["compound_name"],
                     f"{desc.get('molecular_weight', 'N/A')}",
                     f"{desc.get('logp', 'N/A')}",
                     f"{desc.get('tpsa', 'N/A')}",
                     f"{desc.get('hydrogen_bond_donors', 'N/A')}",
                     f"{desc.get('hydrogen_bond_acceptors', 'N/A')}",
-                    f"{desc.get('rotatable_bonds', 'N/A')}",
+                    f"{desc.get('rotatable_bonds', 'N/A')}"
+                ])
+            _build_docx_table(document, headers1, rows1, widths=[Inches(1.8), Inches(0.8), Inches(0.8), Inches(0.9), Inches(0.8), Inches(0.8), Inches(0.8)])
+            document.add_paragraph("")
+            
+            document.add_heading("ADMET / Drug-likeness Interpretation", level=2)
+            headers2 = ["Compound", "Lipinski", "Veber", "Concern Level", "Concern Score", "Key Missing Evidence"]
+            rows2 = []
+            for a in admet_list:
+                rules = a.get("rule_based_admet_summary") or {}
+                missing = a.get("missing_evidence") or []
+                main_warning = ", ".join(missing) if missing else "None"
+                rows2.append([
+                    a["compound_name"],
                     a["lipinski_status"].title(),
                     a["veber_status"].title(),
                     rules.get("concern_level", "N/A").replace("_", " ").title(),
                     f"{rules.get('concern_score', 'N/A')}",
                     main_warning
                 ])
-            _build_docx_table(document, headers, rows)
+            _build_docx_table(document, headers2, rows2, widths=[Inches(1.5), Inches(0.9), Inches(0.8), Inches(1.2), Inches(0.8), Inches(2.4)])
         else:
             document.add_paragraph("No ADMET evaluations available.")
             
@@ -1461,7 +1626,7 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
                 ["Model Type", m["model_type"] or "N/A"],
                 ["Task Type", m["task_type"] or "N/A"],
                 ["Status", m["status"].title() if m["status"] else "N/A"]
-            ])
+            ], widths=[Inches(2.5), Inches(4.5)])
         else:
             document.add_paragraph("No active trained ADMET model was available. This report used descriptor-based and rule-based evidence only.")
             
@@ -1479,7 +1644,7 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
                     r["status"].title(),
                     metric_str or "N/A"
                 ])
-            _build_docx_table(document, ["Task Name", "Task Type", "Status", "Accuracy / AUC"], rows)
+            _build_docx_table(document, ["Task Name", "Task Type", "Status", "Accuracy / AUC"], rows, widths=[Inches(2.0), Inches(1.5), Inches(1.2), Inches(2.3)])
         else:
             document.add_paragraph("External validation/calibration was not available for this project.")
             
@@ -1504,7 +1669,7 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
                     ]
                     for f in fb["candidate_feedback"]
                 ]
-                _build_docx_table(document, ["Compound Name", "Assay Name", "Measured Value", "Feedback Label", "Explanation"], rows)
+                _build_docx_table(document, ["Compound Name", "Assay Name", "Measured Value", "Feedback Label", "Explanation"], rows, widths=[Inches(1.2), Inches(1.3), Inches(1.0), Inches(1.5), Inches(2.0)])
         else:
             document.add_paragraph("No user-entered experimental assay results were imported. Experimental feedback comparison was not performed.")
             
@@ -1527,7 +1692,7 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
                             a["recommendation_priority"].title(),
                             a["rationale"]
                         ])
-                    _build_docx_table(document, ["Compound Name", "Assay Name", "Priority", "Rationale"], rows)
+                    _build_docx_table(document, ["Compound Name", "Assay Name", "Priority", "Rationale"], rows, widths=[Inches(1.5), Inches(1.5), Inches(1.0), Inches(3.0)])
             else:
                 document.add_paragraph("No validation planner recommendations available.")
         else:
@@ -1551,7 +1716,7 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
             ["Python Version", rep["python_version"]],
             ["Platform", rep["platform"]],
             ["Generated At", rep["generated_at"]]
-        ])
+        ], widths=[Inches(2.5), Inches(4.5)])
         
         buffer = BytesIO()
         document.save(buffer)
@@ -1632,6 +1797,22 @@ def create_final_project_report(request: FinalProjectReportRequest) -> FinalProj
         (REPORT_DIR / name).write_bytes(_build_docx(payload))
         files["docx"] = name
     report_id = _save_report(request, payload, files)
+    
+    # Update report ID in payload and rewrite JSON
+    if "workflow_input_table" in payload:
+        payload["workflow_input_table"]["report_id"] = report_id
+        if "json" in files:
+            name = files["json"]
+            (REPORT_DIR / name).write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+            
+    # Update disease_to_lead_runs database with the report_id
+    if request.disease_to_lead_run_id:
+        try:
+            from app.services.disease_to_lead_context import update_disease_to_lead_run_report
+            update_disease_to_lead_run_report(request.disease_to_lead_run_id, report_id)
+        except Exception:
+            pass
+
     if request.project_id:
         try:
             attach_project_item(
