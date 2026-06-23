@@ -478,6 +478,7 @@ export default function App() {
   const [feedbackCompareResult, setFeedbackCompareResult] = useState(null); // Step 7 feedback compare
   const [workflowFinalReport, setWorkflowFinalReport] = useState(null); // Step 8 final report details
   const [workflowProjectId, setWorkflowProjectId] = useState(null); // Created project ID
+  const [workflowDiseaseToLeadRunId, setWorkflowDiseaseToLeadRunId] = useState(null); // Created run ID
   const [selectedWorkflowDetailItem, setSelectedWorkflowDetailItem] = useState(null); // Details drawer state
   const [workflowStepsStatus, setWorkflowStepsStatus] = useState([
     { step_id: 0, label: "Disease / Target", status: "ready", desc: "Select disease, target, and known compounds" },
@@ -2821,11 +2822,14 @@ export default function App() {
           experimental_feedback_id: feedbackCompareResult?.feedback_id ? Number(feedbackCompareResult.feedback_id) : null,
           disease_name: workflowInput.disease_name || null,
           user_entered_target: workflowInput.target_name || null,
+          target_name: workflowInput.target_name || null,
           resolved_target: workflowTarget?.preferred_name || workflowTarget?.target_name || workflowInput.target_name || null,
           known_compound: workflowInput.known_compound || null,
           candidate_limit: workflowInput.candidate_limit ? Number(workflowInput.candidate_limit) : null,
           similarity_limit: workflowInput.similarity_limit ? Number(workflowInput.similarity_limit) : null,
-          analysis_depth: workflowInput.analysis_depth || null
+          analysis_depth: workflowInput.analysis_depth || null,
+          scoring_profile: "balanced_admet",
+          disease_to_lead_run_id: workflowDiseaseToLeadRunId ? Number(workflowDiseaseToLeadRunId) : null
         })
       });
       const data = await response.json();
@@ -3084,11 +3088,14 @@ export default function App() {
             experimental_feedback_id: null,
             disease_name: workflowInput.disease_name || null,
             user_entered_target: workflowInput.target_name || null,
+            target_name: workflowInput.target_name || null,
             resolved_target: bestTarget?.preferred_name || bestTarget?.target_chembl_id || workflowInput.target_name || null,
             known_compound: workflowInput.known_compound || null,
             candidate_limit: workflowInput.candidate_limit ? Number(workflowInput.candidate_limit) : null,
             similarity_limit: workflowInput.similarity_limit ? Number(workflowInput.similarity_limit) : null,
-            analysis_depth: workflowInput.analysis_depth || null
+            analysis_depth: workflowInput.analysis_depth || null,
+            scoring_profile: "balanced_admet",
+            disease_to_lead_run_id: workflowDiseaseToLeadRunId ? Number(workflowDiseaseToLeadRunId) : null
           })
         });
         const data7 = await res7.json();
