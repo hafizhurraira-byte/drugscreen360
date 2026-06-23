@@ -666,6 +666,45 @@ def init_db() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS admet_model_evidence_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER,
+                disease_to_lead_run_id INTEGER,
+                active_model_id TEXT,
+                candidate_count INTEGER NOT NULL,
+                evidence_available_count INTEGER NOT NULL,
+                outside_domain_count INTEGER NOT NULL,
+                high_uncertainty_count INTEGER NOT NULL,
+                model_task_type TEXT,
+                summary_json TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS admet_model_evidence_candidates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL,
+                candidate_name TEXT,
+                smiles TEXT,
+                canonical_smiles TEXT,
+                model_available INTEGER NOT NULL,
+                prediction_json TEXT NOT NULL,
+                domain_json TEXT NOT NULL,
+                uncertainty_json TEXT NOT NULL,
+                explainability_json TEXT NOT NULL,
+                evidence_strength TEXT NOT NULL,
+                missing_evidence_json TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(run_id) REFERENCES admet_model_evidence_runs(id)
+            )
+            """
+        )
 
 
 

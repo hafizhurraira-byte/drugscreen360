@@ -20,6 +20,7 @@ from app.services.admet_explain_service import explain_prediction
 from app.services.admet_toxicity_engine import evaluate_admet_toxicity
 from app.services.admet_trained_model_service import get_active_trained_model_info, predict_trained_model
 from app.services.descriptors import calculate_descriptors, parse_smiles
+from app.services.admet_model_evidence_resolver import resolve_model_evidence
 from app.services.project_workspace_service import attach_project_item, get_project
 from app.services.rules import build_decision, evaluate_rules, plan_experimental_tests
 
@@ -218,17 +219,26 @@ def _score_candidate(
     external_warning = "not available"
     evidence_strength = "not available"
 
+    if active_model.get("status") == "available":
+        try:
+            evidence = resolve_model_evidence(
+                candidate_name=candidate.compound_name or candidate.compound_id or "Unnamed",
+                smiles=canonical,
+                descriptors=descriptors.model_dump() if hasattr(descriptors, "model_dump") else descriptors,
+                project_id=payload.project_id
+            )
+            if evidence.get("model_available"):
+                trained_prediction = evidence
+                domain_status = evidence.get("applicability_domain_status") or domain_status
+                uncertainty_level = evidence.get("uncertainty_level") or uncertainty_level
+                evidence_strength = evidence.get("evidence_strength") or evidence_strength
+                external_warning = "validated" if evidence.get("external_validation_status") == "validated" else "not available"
+        except Exception as exc:
+            warnings.append(f"Model resolver could not execute: {exc}")
+
     if payload.include_trained_model:
-        if active_model.get("status") == "available":
-            try:
-                trained_prediction = predict_trained_model(canonical, active_model["model_id"])
-                domain_status = trained_prediction.get("domain_status") or domain_status
-                uncertainty_level = trained_prediction.get("uncertainty_level") or uncertainty_level
-                positive_factors.append("Active trained-model prediction was available.")
-            except Exception as exc:
-                missing_evidence.append("trained model prediction")
-                warnings.append(f"Trained model evidence not available: {exc}")
-                score -= 8 * weights["evidence"]
+        if trained_prediction is not None:
+            positive_factors.append("Active trained-model prediction was available.")
         else:
             missing_evidence.append("trained model prediction")
             warnings.append("trained model evidence not available")
@@ -237,76 +247,64 @@ def _score_candidate(
         missing_evidence.append("trained model prediction not requested")
 
     if payload.include_domain:
-        if active_model.get("status") == "available":
-            try:
-                domain = evaluate_domain_internal(active_model["model_id"], canonical)
-                domain_status = domain.get("domain_status", domain_status)
-                uncertainty_level = domain.get("uncertainty_level", uncertainty_level)
-                if domain_status == "outside_domain":
-                    penalty = 18 * weights["domain"]
-                    score -= penalty
-                    risk_factors.append("Candidate is outside the trained model applicability domain.")
-                    components["domain_penalty"] = round(penalty, 2)
-                elif domain_status == "borderline":
-                    penalty = 10 * weights["domain"]
-                    score -= penalty
-                    risk_factors.append("Candidate is borderline in the trained model applicability domain.")
-                    components["domain_penalty"] = round(penalty, 2)
-                else:
-                    positive_factors.append("Candidate is inside the trained model applicability domain.")
-                if uncertainty_level == "high":
-                    penalty = 12 * weights["domain"]
-                    score -= penalty
-                    risk_factors.append("Prediction uncertainty is high.")
-                    components["uncertainty_penalty"] = round(penalty, 2)
-                elif uncertainty_level == "moderate":
-                    penalty = 5 * weights["domain"]
-                    score -= penalty
-                    risk_factors.append("Prediction uncertainty is moderate.")
-                    components["uncertainty_penalty"] = round(penalty, 2)
-            except Exception as exc:
-                missing_evidence.append("applicability domain")
-                warnings.append(f"Applicability domain evidence not available: {exc}")
-                score -= 6 * weights["domain"]
+        if trained_prediction is not None:
+            if domain_status == "outside_domain":
+                penalty = 18 * weights["domain"]
+                score -= penalty
+                risk_factors.append("Candidate is outside the trained model applicability domain.")
+                components["domain_penalty"] = round(penalty, 2)
+            elif domain_status == "borderline":
+                penalty = 10 * weights["domain"]
+                score -= penalty
+                risk_factors.append("Candidate is borderline in the trained model applicability domain.")
+                components["domain_penalty"] = round(penalty, 2)
+            else:
+                positive_factors.append("Candidate is inside the trained model applicability domain.")
+
+            if uncertainty_level == "high":
+                penalty = 12 * weights["domain"]
+                score -= penalty
+                risk_factors.append("Prediction uncertainty is high.")
+                components["uncertainty_penalty"] = round(penalty, 2)
+            elif uncertainty_level == "moderate":
+                penalty = 5 * weights["domain"]
+                score -= penalty
+                risk_factors.append("Prediction uncertainty is moderate.")
+                components["uncertainty_penalty"] = round(penalty, 2)
         else:
             missing_evidence.append("applicability domain")
+            score -= 6 * weights["domain"]
     else:
         missing_evidence.append("applicability domain not requested")
 
     if payload.include_explainability:
-        if active_model.get("status") == "available":
-            try:
-                explanation = explain_prediction(
-                    AdmetPredictionExplainRequest(
-                        model_id=active_model["model_id"],
-                        smiles=canonical,
-                        include_domain=payload.include_domain,
-                        include_external_validation=True,
-                    )
-                )
-                evidence_strength = explanation.evidence_strength
-                external_warning = explanation.external_validation_status.get("status") or "not available"
-                evidence_penalty = {
-                    "externally_supported": -3,
-                    "strong_internal_only": 0,
-                    "moderate_internal_only": 4,
-                    "weak_internal": 14,
-                    "externally_weak": 18,
-                    "uncertain": 10,
-                    "not_available": 8,
-                }.get(evidence_strength, 8) * weights["evidence"]
-                score -= evidence_penalty
-                components["explainability_evidence_penalty"] = round(evidence_penalty, 2)
-                if evidence_strength in {"externally_supported", "strong_internal_only", "moderate_internal_only"}:
-                    positive_factors.append(f"Explainability evidence strength is {evidence_strength}.")
-                else:
-                    risk_factors.append(f"Explainability evidence strength is {evidence_strength}.")
-            except Exception as exc:
-                missing_evidence.append("explainability evidence")
-                warnings.append(f"Explainability evidence not available: {exc}")
-                score -= 8 * weights["evidence"]
+        if trained_prediction is not None and evidence_strength != "not available":
+            score_strength = "not_available"
+            if evidence_strength == "strong_model_evidence":
+                score_strength = "externally_supported" if external_warning == "validated" else "strong_internal_only"
+            elif evidence_strength == "moderate_model_evidence":
+                score_strength = "moderate_internal_only"
+            elif evidence_strength == "weak_model_evidence":
+                score_strength = "externally_weak" if external_warning == "validated" else "weak_internal"
+            
+            evidence_penalty = {
+                "externally_supported": -3,
+                "strong_internal_only": 0,
+                "moderate_internal_only": 4,
+                "weak_internal": 14,
+                "externally_weak": 18,
+                "uncertain": 10,
+                "not_available": 8,
+            }.get(score_strength, 8) * weights["evidence"]
+            score -= evidence_penalty
+            components["explainability_evidence_penalty"] = round(evidence_penalty, 2)
+            if score_strength in {"externally_supported", "strong_internal_only", "moderate_internal_only"}:
+                positive_factors.append(f"Explainability evidence strength is {score_strength}.")
+            else:
+                risk_factors.append(f"Explainability evidence strength is {score_strength}.")
         else:
             missing_evidence.append("explainability evidence")
+            score -= 8 * weights["evidence"]
     else:
         missing_evidence.append("explainability not requested")
 

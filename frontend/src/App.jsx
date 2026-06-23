@@ -480,6 +480,9 @@ export default function App() {
   const [workflowProjectId, setWorkflowProjectId] = useState(null); // Created project ID
   const [workflowDiseaseToLeadRunId, setWorkflowDiseaseToLeadRunId] = useState(null); // Created run ID
   const [selectedWorkflowDetailItem, setSelectedWorkflowDetailItem] = useState(null); // Details drawer state
+  const [workflowIncludeTrainedModel, setWorkflowIncludeTrainedModel] = useState(true);
+  const [workflowIncludeDomain, setWorkflowIncludeDomain] = useState(true);
+  const [workflowIncludeExplainability, setWorkflowIncludeExplainability] = useState(true);
   const [workflowStepsStatus, setWorkflowStepsStatus] = useState([
     { step_id: 0, label: "Disease / Target", status: "ready", desc: "Select disease, target, and known compounds" },
     { step_id: 1, label: "Candidate Discovery", status: "not_started", desc: "Find compounds associated with target" },
@@ -648,6 +651,8 @@ export default function App() {
 
   const [trainedModels, setTrainedModels] = useState([]);
   const [activeTrainedModel, setActiveTrainedModel] = useState(null);
+  const [activeModelEvidenceStatus, setActiveModelEvidenceStatus] = useState(null);
+  const [modelReadiness, setModelReadiness] = useState(null);
   const [testSmiles, setTestSmiles] = useState("");
   const [testPrediction, setTestPrediction] = useState(null);
   const [testLoading, setTestLoading] = useState(false);
@@ -1556,6 +1561,28 @@ export default function App() {
     }
   }
 
+  async function loadActiveModelEvidenceStatus() {
+    try {
+      const response = await fetch(`${API_BASE}/admet-model-evidence/status`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load active model evidence status.");
+      setActiveModelEvidenceStatus(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function loadModelReadiness() {
+    try {
+      const response = await fetch(`${API_BASE}/admet-model-evidence/readiness`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load model readiness.");
+      setModelReadiness(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
   async function loadActiveTrainedModel() {
     try {
       const response = await fetch(`${API_BASE}/admet-training/active-model`);
@@ -1565,6 +1592,8 @@ export default function App() {
     } catch (err) {
       console.error(err);
     }
+    await loadActiveModelEvidenceStatus();
+    await loadModelReadiness();
   }
 
   async function loadDashboardSummary() {
@@ -2629,9 +2658,9 @@ export default function App() {
         project_id: activeProjectId ? Number(activeProjectId) : null,
         scoring_profile: "balanced_admet",
         candidates: candidatesInput,
-        include_trained_model: true,
-        include_domain: true,
-        include_explainability: true
+        include_trained_model: workflowIncludeTrainedModel,
+        include_domain: workflowIncludeDomain,
+        include_explainability: workflowIncludeExplainability
       };
 
       const response = await fetch(`${API_BASE}/admet-leads/prioritize`, {
@@ -3002,9 +3031,9 @@ export default function App() {
             smiles: r.smiles || r.canonical_smiles,
             compound_id: r.molecule_chembl_id || r.compound || r.compound_name
           })),
-          include_trained_model: true,
-          include_domain: true,
-          include_explainability: true
+          include_trained_model: workflowIncludeTrainedModel,
+          include_domain: workflowIncludeDomain,
+          include_explainability: workflowIncludeExplainability
         })
       });
       const data4 = await res4.json();
@@ -4317,6 +4346,33 @@ export default function App() {
                         </table>
                       </div>
 
+                      <div className="evidence-toggles-container" style={{ marginTop: "14px", display: "flex", gap: "16px", flexWrap: "wrap", marginBottom: "10px" }}>
+                        <label className="checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={workflowIncludeTrainedModel}
+                            onChange={(event) => setWorkflowIncludeTrainedModel(event.target.checked)}
+                          />
+                          Include trained model predictions
+                        </label>
+                        <label className="checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={workflowIncludeDomain}
+                            onChange={(event) => setWorkflowIncludeDomain(event.target.checked)}
+                          />
+                          Include applicability domain check
+                        </label>
+                        <label className="checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={workflowIncludeExplainability}
+                            onChange={(event) => setWorkflowIncludeExplainability(event.target.checked)}
+                          />
+                          Include explainability features
+                        </label>
+                      </div>
+
                       <button className="primary-button" style={{ marginTop: "14px" }} onClick={runStep4_LeadRanking}>
                         Rank Leads & Prioritize
                       </button>
@@ -4364,6 +4420,77 @@ export default function App() {
                             </div>
                           </div>
                         ))}
+                      </div>
+
+                      <h4 style={{ marginTop: "24px", marginBottom: "10px" }}>Model Evidence & Prediction Confidence</h4>
+                      <div className="responsive-table" style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflowX: "auto", marginBottom: "20px" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                          <thead>
+                            <tr style={{ background: "#f8fafc", textAlign: "left", borderBottom: "2px solid #e2e8f0" }}>
+                              <th style={{ padding: "10px", fontSize: "0.85rem", color: "#475569" }}>Rank & Candidate</th>
+                              <th style={{ padding: "10px", fontSize: "0.85rem", color: "#475569" }}>Model Evidence</th>
+                              <th style={{ padding: "10px", fontSize: "0.85rem", color: "#475569" }}>Prediction</th>
+                              <th style={{ padding: "10px", fontSize: "0.85rem", color: "#475569" }}>Confidence</th>
+                              <th style={{ padding: "10px", fontSize: "0.85rem", color: "#475569" }}>Domain</th>
+                              <th style={{ padding: "10px", fontSize: "0.85rem", color: "#475569" }}>Uncertainty</th>
+                              <th style={{ padding: "10px", fontSize: "0.85rem", color: "#475569" }}>Evidence Strength</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(workflowPrioritizationRun?.prioritized_candidates || []).map((cand, idx) => {
+                              const ev = cand.trained_model_prediction;
+                              return (
+                                <tr key={cand.compound_name} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                                  <td style={{ padding: "10px", fontSize: "0.85rem" }}>
+                                    <strong>#{idx + 1}</strong> {cand.compound_name}
+                                  </td>
+                                  <td style={{ padding: "10px", fontSize: "0.85rem" }}>
+                                    {ev && ev.model_available ? (
+                                      <span style={{ fontSize: "0.8rem", fontWeight: "bold", color: "#0f8b8d" }}>
+                                        {ev.model_name} ({ev.endpoint_predicted})
+                                      </span>
+                                    ) : (
+                                      <span style={{ fontSize: "0.8rem", color: "#64748b" }}>Rule-Based Only</span>
+                                    )}
+                                  </td>
+                                  <td style={{ padding: "10px", fontSize: "0.85rem" }}>
+                                    {ev && ev.model_available ? (ev.prediction_label || String(ev.prediction_value ?? "N/A")) : "N/A"}
+                                  </td>
+                                  <td style={{ padding: "10px", fontSize: "0.85rem" }}>
+                                    {ev && ev.model_available ? (
+                                      <Badge tone={ev.confidence_level === "High" ? "Good" : ev.confidence_level === "Medium" ? "Warning" : "High"}>
+                                        {ev.confidence_level}
+                                      </Badge>
+                                    ) : (
+                                      "N/A"
+                                    )}
+                                  </td>
+                                  <td style={{ padding: "10px", fontSize: "0.85rem" }}>
+                                    {ev && ev.model_available ? (
+                                      <span style={{ textTransform: "capitalize" }}>
+                                        {(ev.applicability_domain_status || "").replaceAll("_", " ")}
+                                      </span>
+                                    ) : (
+                                      "N/A"
+                                    )}
+                                  </td>
+                                  <td style={{ padding: "10px", fontSize: "0.85rem" }}>
+                                    {ev && ev.model_available ? ev.uncertainty_score : "N/A"}
+                                  </td>
+                                  <td style={{ padding: "10px", fontSize: "0.85rem" }}>
+                                    {ev && ev.model_available ? (
+                                      <span style={{ textTransform: "capitalize" }}>
+                                        {(ev.evidence_strength || "").replaceAll("_", " ")}
+                                      </span>
+                                    ) : (
+                                      "Rule-Based Only"
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
 
                       <button className="primary-button" style={{ marginTop: "16px" }} onClick={runStep5_ValidationPlan}>
@@ -4507,6 +4634,19 @@ export default function App() {
                   )}
 
                   <div style={{ marginTop: "14px" }}>
+                    {modelReadiness && modelReadiness.status !== "Ready" && (
+                      <article className="empty-state-card warning-state-card" style={{ marginBottom: "14px", padding: "12px", border: "1px solid #eab308", borderRadius: "6px", backgroundColor: "#fffbeb", color: "#854d0e" }}>
+                        <h4 style={{ margin: 0, fontWeight: "bold", display: "flex", alignItems: "center", gap: "6px" }}>
+                          ⚠️ Model Evidence Quality Notice ({modelReadiness.status})
+                        </h4>
+                        <p style={{ margin: "6px 0 0 0", fontSize: "0.85rem", color: "#713f12" }}>
+                           Toggles were configured for trained model predictions, but the local model readiness check is <strong>{modelReadiness.status}</strong>. The final report will flag these as missing evidence or fall back to rule-based descriptors.
+                        </p>
+                        <p style={{ margin: "4px 0 0 0", fontSize: "0.85rem", fontWeight: "bold" }}>
+                          Recommended Action: {modelReadiness.next_action}
+                        </p>
+                      </article>
+                    )}
                     <button className="primary-button" onClick={runStep7_FinalReport}>
                       Generate Final Report
                     </button>
@@ -6720,14 +6860,94 @@ export default function App() {
             </div>
           </Section>
 
+          <Section title="Model Evidence Readiness Wizard" icon={ShieldCheck} wide>
+            {modelReadiness ? (
+              <div className="readiness-wizard" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "15px", borderBottom: "1px solid #e2e8f0", paddingBottom: "15px" }}>
+                  <div>
+                    <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: "8px" }}>
+                      System Readiness: 
+                      <Badge tone={modelReadiness.status === "Ready" ? "Good" : modelReadiness.status === "Partially ready" ? "Warning" : "High"}>
+                        {modelReadiness.status}
+                      </Badge>
+                    </h3>
+                    <p style={{ margin: "4px 0 0 0", fontSize: "0.85rem", color: "#64748b" }}>
+                      Checklist representing local dataset, training status, model compatibility, external validation, and Platt calibration.
+                    </p>
+                  </div>
+                  <div style={{ padding: "10px 16px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#f8fafc", textAlign: "right" }}>
+                    <div style={{ fontSize: "0.75rem", textTransform: "uppercase", color: "#64748b", fontWeight: "bold" }}>Next Recommended Action</div>
+                    <div style={{ fontSize: "1.1rem", fontWeight: "bold", color: "#0f8b8d", marginTop: "2px" }}>{modelReadiness.next_action}</div>
+                  </div>
+                </div>
+
+                <div className="status-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px" }}>
+                  <div className="status-card" style={{ padding: "12px", border: "1px solid #e2e8f0", borderRadius: "6px", display: "flex", alignItems: "center", gap: "10px", background: modelReadiness.curated_dataset_available ? "#f0fdf4" : "#fffbeb" }}>
+                    <div style={{ fontSize: "1.5rem" }}>{modelReadiness.curated_dataset_available ? "✅" : "⏳"}</div>
+                    <div>
+                      <strong style={{ display: "block", fontSize: "0.85rem" }}>ADMET Datasets</strong>
+                      <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                        {modelReadiness.curated_dataset_available ? "Curated dataset available" : "No datasets uploaded yet"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="status-card" style={{ padding: "12px", border: "1px solid #e2e8f0", borderRadius: "6px", display: "flex", alignItems: "center", gap: "10px", background: modelReadiness.trained_model_available ? "#f0fdf4" : "#fffbeb" }}>
+                    <div style={{ fontSize: "1.5rem" }}>{modelReadiness.trained_model_available ? "✅" : "⏳"}</div>
+                    <div>
+                      <strong style={{ display: "block", fontSize: "0.85rem" }}>Trained Models</strong>
+                      <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                        {modelReadiness.trained_model_available ? "Local model trained" : "No trained models found"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="status-card" style={{ padding: "12px", border: "1px solid #e2e8f0", borderRadius: "6px", display: "flex", alignItems: "center", gap: "10px", background: modelReadiness.model_active ? "#f0fdf4" : "#fffbeb" }}>
+                    <div style={{ fontSize: "1.5rem" }}>{modelReadiness.model_active ? "✅" : "⏳"}</div>
+                    <div>
+                      <strong style={{ display: "block", fontSize: "0.85rem" }}>Model Active</strong>
+                      <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                        {modelReadiness.model_active ? "Compatible model active" : "No active model selected"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="status-card" style={{ padding: "12px", border: "1px solid #e2e8f0", borderRadius: "6px", display: "flex", alignItems: "center", gap: "10px", background: modelReadiness.external_validation_available ? "#f0fdf4" : "#fffbeb" }}>
+                    <div style={{ fontSize: "1.5rem" }}>{modelReadiness.external_validation_available ? "✅" : "⏳"}</div>
+                    <div>
+                      <strong style={{ display: "block", fontSize: "0.85rem" }}>External Validation</strong>
+                      <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                        {modelReadiness.external_validation_available ? "Validated against test set" : "Validation run required"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="status-card" style={{ padding: "12px", border: "1px solid #e2e8f0", borderRadius: "6px", display: "flex", alignItems: "center", gap: "10px", background: modelReadiness.calibration_available ? "#f0fdf4" : "#fffbeb" }}>
+                    <div style={{ fontSize: "1.5rem" }}>{modelReadiness.calibration_available ? "✅" : "⏳"}</div>
+                    <div>
+                      <strong style={{ display: "block", fontSize: "0.85rem" }}>Model Calibration</strong>
+                      <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                        {modelReadiness.calibration_available ? "Calibrated predictions" : "Calibration run required"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p>Loading model readiness data...</p>
+            )}
+          </Section>
+
           <Section title="Active Trained Model" icon={ShieldCheck} wide>
             {activeTrainedModel && activeTrainedModel.status === "available" ? (
               <div>
                 <div className="summary-grid">
                   <SummaryCard label="Active Model ID" value={activeTrainedModel.model_id} icon={Target} />
-                  <SummaryCard label="Task Name" value={activeTrainedModel.task_name || "ADMET"} icon={Target} />
+                  <SummaryCard label="Endpoint (Task)" value={activeTrainedModel.task_name || "ADMET"} icon={Target} />
                   <SummaryCard label="Task Type" value={activeTrainedModel.task_type} icon={ClipboardList} />
                   <SummaryCard label="Version" value={activeTrainedModel.version} icon={History} />
+                  <SummaryCard label="Validation Status" value={activeModelEvidenceStatus?.validation_status || "not_validated"} icon={ShieldCheck} />
+                  <SummaryCard label="Calibration Status" value={activeModelEvidenceStatus?.calibration_status || "uncalibrated"} icon={ShieldCheck} />
                 </div>
                 <div style={{ marginTop: "15px" }} className="candidate-actions left-actions">
                   <button className="secondary-button warning-button" onClick={deactivateActiveTrainedModel}>Deactivate Active Model</button>
@@ -9017,8 +9237,10 @@ export default function App() {
                   <Field label="Active Model ID" value={activeTrainedModel.model_id || "None"} />
                   <Field label="Model Name" value={activeTrainedModel.model_name || "None"} />
                   <Field label="Version" value={activeTrainedModel.version || "None"} />
-                  <Field label="Task Name" value={activeTrainedModel.task_name || "None"} />
+                  <Field label="Endpoint (Task)" value={activeTrainedModel.task_name || "None"} />
                   <Field label="Task Type" value={activeTrainedModel.task_type || "None"} />
+                  <Field label="Validation Status" value={activeModelEvidenceStatus?.validation_status || "not_validated"} />
+                  <Field label="Calibration Status" value={activeModelEvidenceStatus?.calibration_status || "uncalibrated"} />
                 </div>
                 {activeTrainedModel.warnings && activeTrainedModel.warnings.length > 0 && (
                   <div>

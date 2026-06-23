@@ -14,6 +14,8 @@ Disease Finder V1 adds Open Targets disease search and ranked therapeutic target
 
 Evidence Quality Engine V1 adds transparent ChEMBL bioactivity evidence scoring for target-linked candidate molecules. It helps flag whether a compound is supported by strong, moderate, weak, or uncertain public activity metadata.
 
+ADMET Model Evidence & Validation Engine V1 (v0.14) adds support for active compatible local trained models, Platt-scaled prediction calibration, external validation testing, applicability domain classification (inside/borderline/outside), confidence level / uncertainty score mapping, SHAP feature explanations, and a model readiness wizard checklist to guide users in preparing robust datasets and models.
+
 ## Important Disclaimer
 
 This report is computational and decision-support only. It does not prove safety, efficacy, clinical success, regulatory approval, or market readiness.
@@ -69,6 +71,7 @@ Use `System -> Guided Demo Workflow -> Run Full Demo Workflow` to create a label
 - Score target-linked candidates with Evidence Quality Engine V1.
 - Include evidence score, potency quality, and final candidate priority in Drug Finder and Disease Finder comparisons.
 - Disease-to-Lead Guided Stepper Workflow V1: A unified, step-by-step pipeline coordinating target identification, candidate discovery, similarity expansion, ADMET profiling, lead ranking, validation planning, experimental feedback, and final report generation.
+- ADMET Model Evidence & Validation Engine V1 (v0.14): Active compatible model resolution, Platt-scaled prediction calibration checks, applicability domain classification, confidence/uncertainty scoring, SHAP feature explanations, and a model readiness wizard checklist UI.
 - Visual consolidation: Grouped older standalone tools (Single Molecule Screening, Drug Finder, Similarity Finder, validation, etc.) under an "Advanced Tools" visual submenu to maintain a focused entry workspace.
 
 ## Project Structure
