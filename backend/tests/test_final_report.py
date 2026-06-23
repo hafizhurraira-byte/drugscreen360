@@ -226,7 +226,7 @@ def test_concise_disease_to_lead_report_quality(tmp_path, monkeypatch):
         "Top Candidate Table",
         "Top Candidate Interpretation",
         "ADMET & Drug-likeness Summary",
-        "Model Evidence Summary",
+        "Model Evidence & Prediction Confidence",
         "External Validation Summary",
         "Experimental Feedback Summary",
         "Validation Planner Summary",
@@ -256,7 +256,7 @@ def test_concise_disease_to_lead_report_quality(tmp_path, monkeypatch):
     # Assertions for fallbacks (since experimental results don't exist, and active model is likely unavailable)
     assert "External validation/calibration was not available for this project." in combined_text
     assert "No user-entered experimental assay results were imported. Experimental feedback comparison was not performed." in combined_text
-    assert "No active trained ADMET model was available. This report used descriptor-based and rule-based evidence only." in combined_text
+    assert "No active compatible trained ADMET model was available for this run. Ranking used descriptor-based and rule-based evidence only." in combined_text
 
 
 def test_final_report_polish_requirements(tmp_path, monkeypatch):

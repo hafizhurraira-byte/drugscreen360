@@ -25,6 +25,7 @@ from app.models.final_report_models import (
 )
 from app.models.project_workspace_models import ProjectAttachRequest
 from app.services.admet_trained_model_service import get_active_trained_model_info
+from app.routers.admet_model_evidence import get_model_evidence_readiness
 from app.services.local_admet_model import validate_local_admet_model
 from app.services.model_registry import model_status_response
 from app.services.project_workspace_service import attach_project_item, project_dashboard
@@ -868,6 +869,51 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
                     "metric_summary": _json_loads(r["metric_summary_json"], {})
                 })
 
+    model_evidence_list = []
+    has_resolved_evidence = False
+    readiness = get_model_evidence_readiness().model_dump()
+
+    for c in ranked_candidates[:5]:
+        ev = c.get("trained_model_prediction")
+        if isinstance(ev, dict) and ev.get("model_available"):
+            has_resolved_evidence = True
+            model_evidence_list.append({
+                "candidate_name": c.get("compound_name") or c.get("compound_id") or "Unnamed",
+                "model_available": True,
+                "active_model_id": ev.get("active_model_id"),
+                "model_name": ev.get("model_name"),
+                "endpoint_predicted": ev.get("endpoint_predicted"),
+                "prediction": ev.get("prediction_label") or str(ev.get("prediction_value") or "N/A"),
+                "confidence_level": ev.get("confidence_level") or "Medium",
+                "uncertainty_score": ev.get("uncertainty_score") or 0.5,
+                "applicability_domain_status": ev.get("applicability_domain_status") or "not_available",
+                "calibration_status": ev.get("calibration_status") or "uncalibrated",
+                "external_validation_status": ev.get("external_validation_status") or "not_validated",
+                "evidence_strength": ev.get("evidence_strength") or "weak_model_evidence",
+                "missing_evidence": ev.get("missing_evidence") or []
+            })
+        else:
+            status = active_model.get("status") if active_model else "unavailable"
+            reason = "no_active_model"
+            resolution_reason = "No active trained ADMET model was available."
+            if status in ("disabled", "unavailable") or not active_model or not active_model.get("model_id"):
+                reason = "no_active_model"
+                resolution_reason = "No active trained ADMET model is currently selected in the system."
+            elif status == "error":
+                reason = "model_file_missing"
+                resolution_reason = f"Active model file is missing or in error: {'; '.join(active_model.get('warnings', []))}"
+            else:
+                reason = "no_compatible_model_for_task"
+                resolution_reason = f"Active model '{active_model.get('model_name')}' task '{active_model.get('task_name')}' is not compatible with requested tasks."
+
+            model_evidence_list.append({
+                "candidate_name": c.get("compound_name") or c.get("compound_id") or "Unnamed",
+                "model_available": False,
+                "failure_reason": reason,
+                "resolution_reason": resolution_reason,
+                "missing_evidence": ["trained model prediction"]
+            })
+
     next_steps = [
         f"Confirm target relevance by verifying {user_target} binding selectivity profiles.",
         "Perform identity and structural purity verification for top priority candidates.",
@@ -992,6 +1038,10 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
             }
             for c in ranked_candidates[:5]
         ],
+        
+        "model_evidence_list": model_evidence_list,
+        "has_resolved_evidence": has_resolved_evidence,
+        "model_readiness": readiness,
         
         "has_active_model": has_active_model,
         "model_evidence": {
@@ -1343,20 +1393,72 @@ def _build_pdf(payload: dict[str, Any]) -> bytes:
             story.append(Paragraph("No ADMET evaluations available.", styles["BodyText"]))
         story.append(Spacer(1, 15))
         
-        # 7. Model Evidence Summary
-        story.append(Paragraph("<b>Model Evidence Summary</b>", styles["Heading2"]))
+        # 7. Model Evidence & Prediction Confidence
+        story.append(Paragraph("<b>Model Evidence & Prediction Confidence</b>", styles["Heading2"]))
         story.append(Spacer(1, 5))
-        if payload["has_active_model"]:
-            m = payload["model_evidence"]
-            m_rows = [
-                ["Active Model ID", m["model_id"] or "N/A"],
-                ["Model Type", m["model_type"] or "N/A"],
-                ["Task Type", m["task_type"] or "N/A"],
-                ["Status", m["status"].title() if m["status"] else "N/A"]
-            ]
-            story.append(_build_pdf_table(["Property", "Value"], m_rows, widths=[2.5*inch, 4.5*inch]))
+        
+        has_resolved = payload.get("has_resolved_evidence", False)
+        evidence_list = payload.get("model_evidence_list") or []
+        
+        if has_resolved:
+            headers = ["Candidate", "Active Model (Endpoint)", "Prediction", "Confidence (Unc)", "Domain (Validation)", "Evidence Strength"]
+            rows = []
+            for ev in evidence_list:
+                if ev.get("model_available"):
+                    domain_val = f"{ev['applicability_domain_status'].replace('_', ' ').title()} ({ev['external_validation_status'].title()})"
+                    rows.append([
+                        ev["candidate_name"],
+                        f"{ev['model_name']} ({ev['endpoint_predicted']})",
+                        ev["prediction"],
+                        f"{ev['confidence_level']} ({ev['uncertainty_score']})",
+                        domain_val,
+                        ev["evidence_strength"].replace("_", " ").title()
+                    ])
+                else:
+                    rows.append([
+                        ev["candidate_name"],
+                        "None",
+                        "N/A",
+                        "None",
+                        "N/A",
+                        "Rule-Based Only"
+                    ])
+            story.append(_build_pdf_table(headers, rows, widths=[1.2*inch, 1.8*inch, 0.8*inch, 1.0*inch, 1.2*inch, 1.0*inch]))
         else:
-            story.append(Paragraph("No active trained ADMET model was available. This report used descriptor-based and rule-based evidence only.", styles["BodyText"]))
+            story.append(Paragraph("No active compatible trained ADMET model was available for this run. Ranking used descriptor-based and rule-based evidence only.", styles["BodyText"]))
+            story.append(Spacer(1, 5))
+            for ev in evidence_list:
+                reason = ev.get("resolution_reason") or "No active trained ADMET model was available."
+                story.append(Paragraph(f"• <b>{ev['candidate_name']}</b>: {reason}", styles["BodyText"]))
+                
+        story.append(Spacer(1, 15))
+        
+        # How to Improve Evidence Quality
+        story.append(Paragraph("<b>How to Improve Evidence Quality</b>", styles["Heading2"]))
+        story.append(Spacer(1, 5))
+        
+        mr = payload.get("model_readiness") or {}
+        status_color = "red"
+        if mr.get("status") == "Ready":
+            status_color = "green"
+        elif mr.get("status") == "Partially ready":
+            status_color = "orange"
+            
+        story.append(Paragraph(f"Current System Readiness: <font color='{status_color}'><b>{mr.get('status', 'Not ready')}</b></font>", styles["BodyText"]))
+        story.append(Paragraph(f"Recommended Next Action: <b>{mr.get('next_action', 'Import dataset')}</b>", styles["BodyText"]))
+        story.append(Spacer(1, 5))
+        
+        steps = [
+            f"1. Import/curate ADMET dataset [Status: {'Completed' if mr.get('curated_dataset_available') else 'Pending'}]",
+            f"2. Train local model [Status: {'Completed' if mr.get('trained_model_available') else 'Pending'}]",
+            f"3. Activate compatible model [Status: {'Completed' if mr.get('model_active') else 'Pending'}]",
+            f"4. Run external validation & calibration [Status: {'Completed' if mr.get('external_validation_available') and mr.get('calibration_available') else 'Pending'}]",
+            "5. Rerun Disease-to-Lead workflow to utilize updated predictions",
+            "6. Import experimental feedback from in vitro assays to calibrate model limits"
+        ]
+        for step in steps:
+            story.append(Paragraph(step, styles["BodyText"]))
+            
         story.append(Spacer(1, 15))
         
         # 8. External Validation Summary
@@ -1617,18 +1719,63 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
         else:
             document.add_paragraph("No ADMET evaluations available.")
             
-        # 7. Model Evidence Summary
-        document.add_heading("Model Evidence Summary", level=1)
-        if payload["has_active_model"]:
-            m = payload["model_evidence"]
-            _build_docx_table(document, ["Property", "Value"], [
-                ["Active Model ID", m["model_id"] or "N/A"],
-                ["Model Type", m["model_type"] or "N/A"],
-                ["Task Type", m["task_type"] or "N/A"],
-                ["Status", m["status"].title() if m["status"] else "N/A"]
-            ], widths=[Inches(2.5), Inches(4.5)])
+        # 7. Model Evidence & Prediction Confidence
+        document.add_heading("Model Evidence & Prediction Confidence", level=1)
+        
+        has_resolved = payload.get("has_resolved_evidence", False)
+        evidence_list = payload.get("model_evidence_list") or []
+        
+        if has_resolved:
+            headers = ["Candidate", "Active Model (Endpoint)", "Prediction", "Confidence (Unc)", "Domain (Validation)", "Evidence Strength"]
+            rows = []
+            for ev in evidence_list:
+                if ev.get("model_available"):
+                    domain_val = f"{ev['applicability_domain_status'].replace('_', ' ').title()} ({ev['external_validation_status'].title()})"
+                    rows.append([
+                        ev["candidate_name"],
+                        f"{ev['model_name']} ({ev['endpoint_predicted']})",
+                        ev["prediction"],
+                        f"{ev['confidence_level']} ({ev['uncertainty_score']})",
+                        domain_val,
+                        ev["evidence_strength"].replace("_", " ").title()
+                    ])
+                else:
+                    rows.append([
+                        ev["candidate_name"],
+                        "None",
+                        "N/A",
+                        "None",
+                        "N/A",
+                        "Rule-Based Only"
+                    ])
+            _build_docx_table(document, headers, rows, widths=[Inches(1.2), Inches(1.8), Inches(0.8), Inches(1.0), Inches(1.2), Inches(1.0)])
         else:
-            document.add_paragraph("No active trained ADMET model was available. This report used descriptor-based and rule-based evidence only.")
+            document.add_paragraph("No active compatible trained ADMET model was available for this run. Ranking used descriptor-based and rule-based evidence only.")
+            for ev in evidence_list:
+                reason = ev.get("resolution_reason") or "No active trained ADMET model was available."
+                document.add_paragraph(f"• {ev['candidate_name']}: {reason}")
+                
+        document.add_paragraph("")
+        
+        # How to Improve Evidence Quality
+        document.add_heading("How to Improve Evidence Quality", level=1)
+        
+        mr = payload.get("model_readiness") or {}
+        document.add_paragraph(f"Current System Readiness: {mr.get('status', 'Not ready')}")
+        document.add_paragraph(f"Recommended Next Action: {mr.get('next_action', 'Import dataset')}")
+        
+        steps = [
+            f"1. Import/curate ADMET dataset [Status: {'Completed' if mr.get('curated_dataset_available') else 'Pending'}]",
+            f"2. Train local model [Status: {'Completed' if mr.get('trained_model_available') else 'Pending'}]",
+            f"3. Activate compatible model [Status: {'Completed' if mr.get('model_active') else 'Pending'}]",
+            f"4. Run external validation & calibration [Status: {'Completed' if mr.get('external_validation_available') and mr.get('calibration_available') else 'Pending'}]",
+            "5. Rerun Disease-to-Lead workflow to utilize updated predictions",
+            "6. Import experimental feedback from in vitro assays to calibrate model limits"
+        ]
+        for step in steps:
+            document.add_paragraph(step)
+            
+        document.add_paragraph("")
             
         # 8. External Validation Summary
         document.add_heading("External Validation Summary", level=1)
