@@ -1,3 +1,5 @@
+import json
+import uuid
 import zipfile
 from io import BytesIO
 
@@ -5,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services import final_report_service, research_export_service
+from app.services.disease_to_lead_context import save_disease_to_lead_run
 
 client = TestClient(app)
 
@@ -25,6 +28,40 @@ def _create_final(**extra):
     }
     payload.update(extra)
     return client.post("/api/final-report/create", json=payload)
+
+
+def _save_disease_to_lead_snapshot(project_id, disease, target, known_compound, candidates):
+    return save_disease_to_lead_run(
+        {
+            "workflow_id": f"test-{uuid.uuid4()}",
+            "project_id": project_id,
+            "report_id": None,
+            "disease_name_raw": disease,
+            "disease_name_normalized": disease,
+            "user_entered_target_raw": target,
+            "user_entered_target_normalized": target,
+            "resolved_target_name": target,
+            "resolved_target_id": target,
+            "resolved_target_gene_symbol": target,
+            "resolved_target_organism": "Homo sapiens",
+            "target_resolution_confidence": 100.0,
+            "target_resolution_status": "exact_symbol_match",
+            "known_compound_raw": known_compound,
+            "known_compound_normalized": known_compound,
+            "known_compound_id": f"KNOWN-{known_compound.upper()}",
+            "candidate_limit": 5,
+            "similarity_limit": 5,
+            "analysis_depth": "quick",
+            "scoring_profile": "balanced_admet",
+            "generated_candidate_list": candidates,
+            "deduplicated_candidate_list": candidates,
+            "duplicate_records_removed": 0,
+            "admet_results": [],
+            "prioritization_results": {"ranked_candidates": candidates, "warnings": []},
+            "validation_planner_results": {},
+            "missing_evidence_summary": [],
+        }
+    )
 
 
 def test_final_report_creation_works_with_minimal_data(tmp_path, monkeypatch):
@@ -519,3 +556,78 @@ def test_disease_to_lead_workflow_all_cases(tmp_path, monkeypatch):
     assert "breast cancer" not in dl_b["executive_summary_paragraph"].lower()
     assert "her2" not in dl_b["executive_summary_paragraph"].lower()
     assert "lapatinib" not in dl_b["executive_summary_paragraph"].lower()
+
+
+def test_disease_to_lead_report_uses_current_run_candidate_snapshot(tmp_path, monkeypatch):
+    monkeypatch.setattr(final_report_service, "REPORT_DIR", tmp_path / "final_project_reports")
+    project = client.post(
+        "/api/projects/create",
+        json={
+            "title": "Shared Disease-to-Lead Project",
+            "project_type": "disease_screening",
+            "status": "active",
+            "disease_area": "type 2 diabetes",
+            "target_name": "DPP4",
+        },
+    ).json()
+
+    _save_disease_to_lead_snapshot(
+        project["id"],
+        "type 2 diabetes",
+        "DPP4",
+        "Sitagliptin",
+        [
+            {
+                "compound_name": "TALABOSTAT",
+                "compound_id": "CHEMBL93208",
+                "smiles": "CC(C)C(N)C(=O)N1CC(O)C1",
+                "total_score": 88.0,
+                "priority_label": "high_priority_for_review",
+                "positive_factors": ["DPP4 snapshot candidate"],
+                "risk_factors": [],
+                "missing_evidence": [],
+            }
+        ],
+    )
+    egfr_run_id = _save_disease_to_lead_snapshot(
+        project["id"],
+        "breast cancer",
+        "EGFR",
+        "Erlotinib",
+        [
+            {
+                "compound_name": "Erlotinib",
+                "compound_id": "CHEMBL553",
+                "smiles": "COCCOc1cc2ncnc(Nc3cccc(Cl)c3)c2cc1OCCOC",
+                "total_score": 91.0,
+                "priority_label": "high_priority_for_review",
+                "positive_factors": ["EGFR current-run candidate"],
+                "risk_factors": [],
+                "missing_evidence": [],
+            }
+        ],
+    )
+
+    response = client.post(
+        "/api/final-report/create",
+        json={
+            "project_id": project["id"],
+            "report_title": "EGFR Current Run Report",
+            "report_mode": "concise_disease_to_lead_report",
+            "disease_to_lead_run_id": egfr_run_id,
+            "disease_name": "breast cancer",
+            "user_entered_target": "EGFR",
+            "resolved_target": "EGFR",
+            "known_compound": "Erlotinib",
+            "formats": ["json"],
+        },
+    )
+    assert response.status_code == 200
+    report = client.get(response.json()["generated_files"]["json"]).json()
+    serialized = json.dumps(report)
+    assert "Erlotinib" in serialized
+    assert "CHEMBL553" in serialized
+    assert "TALABOSTAT" not in serialized
+    assert "CHEMBL93208" not in serialized
+    assert report["workflow_input_table"]["user_entered_target"] == "EGFR"
+    assert report["top_candidate_table"][0]["compound_name"] == "Erlotinib"

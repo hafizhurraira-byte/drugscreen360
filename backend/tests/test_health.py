@@ -16,7 +16,7 @@ def test_health_endpoint_works():
 def test_health_includes_version():
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json()["version"] == "0.13.2"
+    assert response.json()["version"] == "0.14.0"
 
 
 def test_health_includes_model_registry_summary():
@@ -59,3 +59,4 @@ def test_release_health_lists_available_and_unavailable_features():
     assert "final_end_to_end_project_report" in body["enabled_features"]
     assert "research_export_package" in body["enabled_features"]
     assert "validated_clinical_prediction" in body["unavailable_features"]
+
