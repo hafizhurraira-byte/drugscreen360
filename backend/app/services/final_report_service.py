@@ -36,7 +36,6 @@ from app.services.disease_to_lead_context import (
     deduplicate_candidates,
     get_disease_to_lead_run,
     get_latest_disease_to_lead_run_for_project,
-    create_disease_to_lead_run_snapshot
 )
 
 REPORT_DIR = Path(__file__).resolve().parents[2] / "final_project_reports"
@@ -598,6 +597,51 @@ def validate_report_payload_consistency(payload: dict[str, Any]) -> None:
             if any(mismatch_msg in w for w in warnings):
                 raise ValueError("False target mismatch warning found for equivalent targets.")
 
+
+def _disease_to_lead_run_matches_request(run_snapshot: dict[str, Any] | None, request: FinalProjectReportRequest) -> bool:
+    if not run_snapshot:
+        return False
+
+    requested_disease = (request.disease_name or "").strip().lower()
+    if requested_disease:
+        snapshot_disease = (
+            run_snapshot.get("disease_name_normalized")
+            or run_snapshot.get("disease_name_raw")
+            or ""
+        ).strip().lower()
+        if snapshot_disease and snapshot_disease != requested_disease:
+            return False
+
+    requested_target = (request.user_entered_target or request.resolved_target or "").strip()
+    if requested_target:
+        snapshot_targets = [
+            run_snapshot.get("user_entered_target_normalized"),
+            run_snapshot.get("user_entered_target_raw"),
+            run_snapshot.get("resolved_target_name"),
+            run_snapshot.get("resolved_target_gene_symbol"),
+        ]
+        if not any(are_targets_equivalent(requested_target, target or "") for target in snapshot_targets):
+            return False
+
+    return True
+
+
+def _candidate_snapshot_from_disease_to_lead_run(run_snapshot: dict[str, Any] | None) -> tuple[list[dict[str, Any]], list[str]]:
+    if not run_snapshot:
+        return [], ["No current Disease-to-Lead run candidate snapshot was available for this report."]
+
+    warnings = []
+    prior_res = run_snapshot.get("prioritization_results") or {}
+    if isinstance(prior_res, str):
+        try:
+            prior_res = json.loads(prior_res)
+        except Exception:
+            prior_res = {}
+    candidates = prior_res.get("ranked_candidates") or run_snapshot.get("deduplicated_candidate_list") or []
+    if not candidates:
+        warnings.append("No ranked candidates were stored in the current Disease-to-Lead run snapshot.")
+    return candidates, prior_res.get("warnings") or warnings
+
 def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) -> dict[str, Any]:
     project_id = request.project_id
     context = _project_context(project_id)
@@ -605,17 +649,16 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
     disease_area = (context.get("project") or {}).get("disease_area") or "not available"
     target_name = (context.get("project") or {}).get("target_name") or "not available"
     
-    # 1. Fetch/Create snapshot
+    # 1. Fetch the current Disease-to-Lead snapshot. Candidate rows must come
+    # from this run only; project-wide lead runs can contain stale candidates.
     run_snapshot = None
     if request.disease_to_lead_run_id:
         run_snapshot = get_disease_to_lead_run(request.disease_to_lead_run_id)
     elif project_id:
         run_snapshot = get_latest_disease_to_lead_run_for_project(project_id)
-        
-    if not run_snapshot:
-        new_run_id = create_disease_to_lead_run_snapshot(request)
-        run_snapshot = get_disease_to_lead_run(new_run_id)
-        request.disease_to_lead_run_id = new_run_id
+
+    if run_snapshot and not _disease_to_lead_run_matches_request(run_snapshot, request):
+        run_snapshot = None
 
     # 2. Resolve source of truth values
     disease_name = request.disease_name
@@ -701,11 +744,6 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
                 "SELECT * FROM admet_lead_prioritization_runs WHERE id = ?",
                 (request.prioritization_run_id,)
             ).fetchone()
-        elif project_id:
-            run_row = connection.execute(
-                "SELECT * FROM admet_lead_prioritization_runs WHERE project_id = ? ORDER BY id DESC LIMIT 1",
-                (project_id,)
-            ).fetchone()
 
         plan_row = None
         if request.validation_plan_id:
@@ -731,22 +769,18 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
                 (project_id,)
             ).fetchone()
 
-    # Get raw candidates
+    # Get raw candidates. For Disease-to-Lead reports, candidate rows are
+    # current-run scoped and must not fall back to old active-project runs.
     raw_candidates = []
     prioritization_warnings = []
     if run_snapshot:
-        prior_res = run_snapshot.get("prioritization_results") or {}
-        if isinstance(prior_res, str):
-            try:
-                prior_res = json.loads(prior_res)
-            except Exception:
-                prior_res = {}
-        raw_candidates = prior_res.get("ranked_candidates") or run_snapshot.get("deduplicated_candidate_list") or []
-        prioritization_warnings = prior_res.get("warnings") or []
+        raw_candidates, prioritization_warnings = _candidate_snapshot_from_disease_to_lead_run(run_snapshot)
     elif run_row:
         run_summary = _json_loads(run_row["summary_json"], {})
         raw_candidates = run_summary.get("ranked_candidates", [])
         prioritization_warnings = _json_loads(run_row["warnings_json"], [])
+    else:
+        prioritization_warnings = ["No current Disease-to-Lead candidate snapshot was available; top candidates were not populated from project history."]
 
     # Deduplicate candidates
     ranked_candidates = deduplicate_candidates(raw_candidates)
@@ -929,18 +963,21 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
         "This decision support report should be reviewed by qualified scientific personnel."
     ]
 
+    lead_prioritization_available = bool(ranked_candidates)
+    validation_plan_available = bool(plan_row or recommended_assays_list)
+
     included_sections = ["screening", "admet_prediction"]
-    if run_row:
+    if lead_prioritization_available:
         included_sections.append("lead_prioritization")
-    if plan_row:
+    if validation_plan_available:
         included_sections.append("validation_planner")
     if feedback_row:
         included_sections.append("experimental_feedback")
 
     missing_sections = []
-    if not run_row:
+    if not lead_prioritization_available:
         missing_sections.append("lead_prioritization")
-    if not plan_row:
+    if not validation_plan_available:
         missing_sections.append("validation_planner")
     if not feedback_row:
         missing_sections.append("experimental_feedback")
@@ -996,8 +1033,8 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
         "workflow_completion": {
             "screening": "Completed",
             "admet_prediction": "Completed",
-            "lead_prioritization": "Completed" if run_row else "Pending",
-            "validation_planning": "Completed" if plan_row else "Skipped/Not Run",
+            "lead_prioritization": "Completed" if lead_prioritization_available else "Skipped/Not Run",
+            "validation_planning": "Completed" if validation_plan_available else "Skipped/Not Run",
             "experimental_feedback": "Completed" if feedback_row else "Skipped/Not Run"
         },
         
@@ -1075,7 +1112,7 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
         },
         
         "validation_planner": {
-            "has_plan": bool(plan_row),
+            "has_plan": validation_plan_available,
             "plan_title": plan_title,
             "recommended_assays": full_clean_assays,
             "grouped_top_assays": grouped_top_assays
