@@ -2,7 +2,7 @@
 
 [![DrugScreen360 CI](https://github.com/hafizhurraira-byte/drugscreen360/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/hafizhurraira-byte/drugscreen360/actions/workflows/ci.yml)
 
-DrugScreen360 is an MVP web platform for single-molecule drug lookup and rule-based screening report generation.
+DrugScreen360 is a local research-use platform for computational compound screening, ADMET model preparation, external validation/calibration review, Disease-to-Lead workflow organization, and final project report generation.
 
 It uses PubChem for compound identity, RDKit for molecular descriptors and 2D structure images, SQLite for screening history, ReportLab for PDF export, and python-docx for DOCX export.
 
@@ -18,7 +18,50 @@ ADMET Model Evidence & Validation Engine V1 (v0.14) adds support for active comp
 
 ## Important Disclaimer
 
-This report is computational and decision-support only. It does not prove safety, efficacy, clinical success, regulatory approval, or market readiness.
+DrugScreen360 is computational decision-support only and research-use-only. It is not a clinical, diagnostic, therapeutic, regulatory, or guaranteed drug-safety tool. Outputs do not prove safety, efficacy, clinical success, regulatory approval, or market readiness, and require qualified scientific review.
+
+## v0.20 Release Status
+
+Version `0.20.0` is a release-preparation, documentation, and demo-packaging pass. It preserves the v0.19 scientific workflow behavior and focuses on making the local MVP easier to install, demonstrate, test, and review.
+
+Useful entry points:
+
+- Frontend: `http://127.0.0.1:5173`
+- Backend API: `http://127.0.0.1:8010`
+- Backend health: `http://127.0.0.1:8010/api/health`
+- System readiness: `http://127.0.0.1:8010/api/system/readiness`
+
+Windows quick start:
+
+```powershell
+cd "D:\DRUG CONJUGATE\drugscreen360"
+.\scripts\start_all.ps1
+```
+
+Run all local checks:
+
+```powershell
+cd "D:\DRUG CONJUGATE\drugscreen360"
+.\scripts\run_tests.ps1
+```
+
+Standard demo path:
+
+1. Open the app at `http://127.0.0.1:5173`.
+2. Go to the System tab and review System Readiness.
+3. Use the NSCLC / EGFR / Erlotinib demo prefill in the Disease-to-Lead workflow.
+4. Run the workflow and generate the final report.
+5. Download JSON, PDF, or DOCX from the report area when generated.
+
+Reports and exports are generated locally and downloaded from the UI. Generated reports, exports, databases, trained model artifacts, `.env` files, `node_modules`, and frontend build output should not be committed.
+
+Release documentation:
+
+- [Windows installation guide](docs/installation_windows.md)
+- [Demo guide](docs/demo_guide.md)
+- [Troubleshooting guide](docs/troubleshooting.md)
+- [Release checklist](docs/release_checklist.md)
+- [v0.20 release preparation notes](docs/release_prep_v020.md)
 
 ## MVP Release Overview
 
@@ -1061,7 +1104,7 @@ Current tests cover:
 3. Open `http://127.0.0.1:5173`.
 4. Open `System`.
 5. Click `Refresh System Health`.
-6. Confirm backend reachable is `yes`, version is `0.1.0-local-mvp`, database status is `ok`, cache status is `ok`, and model registry counts are visible.
+6. Confirm backend reachable is `yes`, the displayed version matches `VERSION`, database status is `ok`, cache status is `ok`, and model registry counts are visible.
 7. Run Aspirin screening.
 8. Run EGFR Drug Finder.
 9. Run Batch Upload with the example CSV.
