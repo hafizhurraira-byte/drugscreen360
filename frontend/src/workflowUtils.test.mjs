@@ -103,6 +103,9 @@ assert.ok(appSource.includes("Test Active Model"));
 assert.ok(appSource.includes("Step 9 - External Validation & Calibration"));
 assert.ok(appSource.includes("Run External Validation"));
 assert.ok(appSource.includes("Now rerun Disease-to-Lead"));
+assert.ok(appSource.includes("System Readiness"));
+assert.ok(appSource.includes("Load NSCLC / EGFR / Erlotinib Demo"));
+assert.ok(appSource.includes("synthetic_model_1") === false);
 assert.ok(appSource.includes("setStudioSelectedModelId(data.artifact?.model_id"));
 assert.ok(appSource.includes("getActiveAdmetModelApi(fetch, API_BASE)"));
 

@@ -18,6 +18,7 @@ This is computational decision-support only. It does not prove safety, efficacy,
 8. Test the active model with a SMILES string.
 9. Run Disease-to-Lead and generate the final report.
 10. In v0.18, run external validation/calibration from Step 9 before rerunning Disease-to-Lead when an independent labelled validation dataset is available.
+11. In v0.19, use the System Readiness panel to confirm active model, artifact, validation, calibration, and report readiness before demos.
 
 ## ClinTox Example Fields
 

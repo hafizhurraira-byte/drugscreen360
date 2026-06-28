@@ -4,6 +4,8 @@ from fastapi import APIRouter
 
 from app.database import get_connection
 from app.services.cache_service import cache_stats
+from app.services.admet_trained_model_service import discover_trained_models, get_active_trained_model_info
+from app.services.admet_validation_service import get_latest_external_validation_by_model
 from app.services.model_registry import model_status_response
 from app.services.version import app_version
 
@@ -123,4 +125,66 @@ def release_health_check():
         "report_generation_available": True,
         "research_export_available": True,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/system/readiness")
+def system_readiness():
+    active = get_active_trained_model_info()
+    active_status = active.get("status", "unavailable")
+    latest_validation = None
+    validation_status = "not_available"
+    calibration_status = "not_available"
+    warnings = list(active.get("warnings") or [])
+    actions = []
+
+    artifact_status = "usable" if active_status == "available" else active_status
+    if active_status == "available" and active.get("model_id"):
+        latest_validation = get_latest_external_validation_by_model(active["model_id"])
+        if latest_validation:
+            validation_status = latest_validation.get("validation_evidence_status") or "externally_validated"
+            calibration_status = latest_validation.get("calibration_evidence_status") or latest_validation.get("calibration_summary", {}).get("calibration_quality") or latest_validation.get("calibration_summary", {}).get("calibration_status") or "not_available"
+            warnings.extend(latest_validation.get("warnings") or [])
+        else:
+            actions.append("Run external validation/calibration")
+    elif active_status in {"missing", "error"}:
+        actions.append("Reactivate a valid trained model")
+    else:
+        actions.append("Train and activate a compatible ADMET model")
+
+    valid_models = [model for model in discover_trained_models() if model.get("status") == "valid"]
+    if not valid_models:
+        actions.append("Upload/curate an ADMET dataset and train a local model")
+    if validation_status == "not_available":
+        actions.append("Generate a Disease-to-Lead report after validation for stronger evidence")
+
+    demo_ready = active_status == "available"
+    if demo_ready and latest_validation:
+        overall = "Ready"
+    elif active_status == "available":
+        overall = "Partially Ready"
+    elif active_status in {"missing", "error"}:
+        overall = "Action Needed"
+    else:
+        overall = "Not Ready"
+
+    return {
+        "app_version": app_version(),
+        "backend_status": "ok",
+        "overall_status": overall,
+        "active_model_status": active_status,
+        "active_model_id": active.get("model_id"),
+        "active_model_name": active.get("model_name"),
+        "task_name": active.get("task_name"),
+        "model_version": active.get("version"),
+        "artifact_status": artifact_status,
+        "latest_external_validation_status": validation_status,
+        "latest_external_validation_run": latest_validation,
+        "calibration_status": calibration_status,
+        "report_generation_ready": active_status == "available",
+        "demo_ready": demo_ready,
+        "valid_trained_model_count": len(valid_models),
+        "warnings": warnings,
+        "recommended_next_actions": list(dict.fromkeys(actions)),
+        "scientific_notice": SCIENTIFIC_NOTICE,
     }
