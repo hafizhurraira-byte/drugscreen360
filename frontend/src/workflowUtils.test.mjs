@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   activateAdmetModelApi,
+  buildExternalValidationFormData,
   buildAdmetDatasetFormData,
   getActiveAdmetModelApi,
   getAdmetDatasetSummaryApi,
+  runExternalAdmetValidationApi,
   readableApiError,
   trainAdmetModelApi,
   uploadAdmetDatasetApi,
@@ -98,6 +100,9 @@ const appSource = readFileSync(new URL("./App.jsx", import.meta.url), "utf-8");
 assert.ok(appSource.includes("ADMET Model Studio"));
 assert.ok(appSource.includes("Upload & Curate Dataset"));
 assert.ok(appSource.includes("Test Active Model"));
+assert.ok(appSource.includes("Step 9 - External Validation & Calibration"));
+assert.ok(appSource.includes("Run External Validation"));
+assert.ok(appSource.includes("Now rerun Disease-to-Lead"));
 assert.ok(appSource.includes("setStudioSelectedModelId(data.artifact?.model_id"));
 assert.ok(appSource.includes("getActiveAdmetModelApi(fetch, API_BASE)"));
 
@@ -146,5 +151,30 @@ assert.equal((await activateAdmetModelApi(fetchOk, "http://127.0.0.1:8010/api", 
 assert.equal((await getActiveAdmetModelApi(fetchOk, "http://127.0.0.1:8010/api")).status, "available");
 assert.equal((await validateAdmetModelApi(fetchOk, "http://127.0.0.1:8010/api", trained.artifact.model_id)).valid, true);
 assert.match(readableApiError({ detail: [{ loc: ["body", "dataset_name"], msg: "Field required" }] }, "failed"), /dataset_name: Field required/);
+
+const validationForm = {
+  validation_dataset_name: "External toxicity validation dataset",
+  smiles_column: "smiles",
+  label_column: "toxicity_concern",
+  positive_label: "1",
+  negative_label: "0",
+  decision_threshold: 0.5,
+};
+const validationData = buildExternalValidationFormData(validationForm, new Blob(["smiles,toxicity_concern\nCCO,0\n"]));
+assert.equal(validationData.get("validation_dataset_name"), "External toxicity validation dataset");
+assert.equal(validationData.get("label_column"), "toxicity_concern");
+
+const validationCalls = [];
+const fetchValidation = async (url, options = {}) => {
+  validationCalls.push({ url, options });
+  if (url.endsWith("/admet-validation/external/run")) {
+    assert.equal(options.headers, undefined);
+    assert.equal(options.body.get("validation_dataset_name"), "External toxicity validation dataset");
+    return { ok: true, json: async () => ({ id: 88, metric_summary: { accuracy: 0.8 }, calibration_summary: { calibration_status: "available" } }) };
+  }
+  throw new Error(`Unexpected URL ${url}`);
+};
+const validationRun = await runExternalAdmetValidationApi(fetchValidation, "http://127.0.0.1:8010/api", validationForm, new Blob(["x"]));
+assert.equal(validationRun.id, 88);
 
 console.log("workflow utils tests passed");

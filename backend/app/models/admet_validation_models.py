@@ -4,6 +4,9 @@ from typing import Any
 class ExternalValidationRunRequest(BaseModel):
     model_id: str = Field(..., min_length=1)
     external_dataset_id: int
+    positive_label: str = "1"
+    negative_label: str = "0"
+    decision_threshold: float = 0.5
     notes: str | None = None
 
 class ExternalValidationRunSummary(BaseModel):

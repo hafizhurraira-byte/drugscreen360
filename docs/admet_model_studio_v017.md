@@ -17,6 +17,7 @@ This is computational decision-support only. It does not prove safety, efficacy,
 7. Activate the valid model.
 8. Test the active model with a SMILES string.
 9. Run Disease-to-Lead and generate the final report.
+10. In v0.18, run external validation/calibration from Step 9 before rerunning Disease-to-Lead when an independent labelled validation dataset is available.
 
 ## ClinTox Example Fields
 
@@ -78,3 +79,7 @@ The active trained model appears in the final report only when compatible eviden
 - If a Disease-to-Lead report says no active compatible model is available, validate and activate the model in ADMET Model Studio, then click **Refresh Active Model Status**.
 - If the active model disappears after restart, click **Refresh Active Model Status** or select a discovered trained model, validate it, and activate it again.
 - If activation succeeds but external validation/calibration is pending, the report should show trained local model evidence plus honest missing-validation warnings.
+- If external validation upload reports a missing SMILES or label column, check the column name exactly matches the uploaded file header.
+- If no active model is selected, validate and activate a trained model before running external validation.
+- If ROC-AUC is unavailable, the validation labels may contain only one class.
+- If calibration is unavailable, the active model may not expose prediction probabilities.

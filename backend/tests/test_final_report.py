@@ -5,6 +5,7 @@ from io import BytesIO
 
 from fastapi.testclient import TestClient
 
+from app.database import get_connection, init_db
 from app.main import app
 from app.services import final_report_service, research_export_service
 from app.services.disease_to_lead_context import save_disease_to_lead_run
@@ -708,3 +709,62 @@ def test_final_report_includes_available_trained_model_evidence(tmp_path, monkey
     assert evidence["endpoint_predicted"] == "AMES"
     assert evidence["prediction"] == "inactive"
     assert evidence["applicability_domain_status"] == "inside_domain"
+
+
+def test_final_report_includes_external_validation_metrics(monkeypatch, tmp_path):
+    monkeypatch.setattr(final_report_service, "REPORT_DIR", tmp_path / "final_project_reports")
+    monkeypatch.setattr(
+        final_report_service,
+        "get_active_trained_model_info",
+        lambda: {
+            "status": "available",
+            "model_id": "tox_model_1",
+            "model_name": "Toxicity RF Model",
+            "task_name": "toxicity_concern",
+            "task_type": "binary_classification",
+            "model_type": "random_forest",
+            "version": "0.18.0-test",
+        },
+    )
+    init_db()
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO admet_external_validation_runs (
+                model_id, training_run_id, external_dataset_id, task_name, task_type, status,
+                valid_count, invalid_count, metric_summary_json, calibration_summary_json, warnings_json, notes
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "tox_model_1",
+                1,
+                999,
+                "toxicity_concern",
+                "binary_classification",
+                "completed",
+                24,
+                0,
+                json.dumps({"accuracy": 0.8, "balanced_accuracy": 0.75, "precision": 0.7, "recall": 0.6, "specificity": 0.9, "f1": 0.65, "roc_auc": 0.82}),
+                json.dumps({"calibration_status": "available", "calibration_quality": "calibration_moderate", "expected_calibration_error": 0.08, "brier_score": 0.19}),
+                json.dumps(["Calibration is dataset-dependent."]),
+                "external validation test",
+            ),
+        )
+    project = client.post("/api/projects/create", json={"title": "External Validation Report", "project_type": "disease_screening", "status": "active"}).json()
+    run_id = _save_disease_to_lead_snapshot(project["id"], "lung cancer", "EGFR", "Erlotinib", [])
+    response = client.post(
+        "/api/final-report/create",
+        json={
+            "project_id": project["id"],
+            "report_mode": "concise_disease_to_lead_report",
+            "disease_to_lead_run_id": run_id,
+            "formats": ["json"],
+        },
+    )
+    assert response.status_code == 200
+    report = client.get(response.json()["generated_files"]["json"]).json()
+    assert report["external_validation"]["has_external_validation"] is True
+    detail = report["external_validation"]["validation_details"][0]
+    assert detail["metric_summary"]["accuracy"] == 0.8
+    assert detail["calibration_summary"]["calibration_quality"] == "calibration_moderate"
