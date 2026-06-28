@@ -890,7 +890,12 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
     if has_active_model and active_model.get("model_id"):
         with get_connection() as connection:
             ext_rows = connection.execute(
-                "SELECT * FROM admet_external_validation_runs WHERE model_id = ? ORDER BY id DESC LIMIT 5",
+                """
+                SELECT * FROM admet_external_validation_runs
+                WHERE model_id = ? AND status = 'completed'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
                 (active_model["model_id"],)
             ).fetchall()
             for r in ext_rows:
@@ -900,7 +905,10 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
                     "task_name": r["task_name"],
                     "task_type": r["task_type"],
                     "status": r["status"],
-                    "metric_summary": _json_loads(r["metric_summary_json"], {})
+                    "metric_summary": _json_loads(r["metric_summary_json"], {}),
+                    "calibration_summary": _json_loads(r["calibration_summary_json"], {}),
+                    "warnings": _json_loads(r["warnings_json"], []),
+                    "notes": r["notes"],
                 })
 
     model_evidence_list = []
@@ -1509,18 +1517,21 @@ def _build_pdf(payload: dict[str, Any]) -> bytes:
         story.append(Spacer(1, 5))
         ext_val = payload["external_validation"]
         if ext_val["has_external_validation"]:
-            headers = ["Task Name", "Task Type", "Status", "Accuracy / AUC"]
+            headers = ["Task Name", "Status", "External Metrics", "Calibration", "Warnings"]
             rows = []
             for r in ext_val["validation_details"]:
                 metrics = r["metric_summary"]
-                metric_str = ", ".join(f"{k}: {v}" for k, v in metrics.items() if not isinstance(v, (dict, list)))
+                cal = r.get("calibration_summary") or {}
+                metric_str = ", ".join(f"{k}: {v}" for k, v in metrics.items() if k in {"accuracy", "balanced_accuracy", "precision", "recall", "specificity", "f1", "roc_auc", "average_precision"})
+                cal_str = ", ".join(str(x) for x in [cal.get("calibration_quality") or cal.get("calibration_status"), f"ECE: {cal.get('expected_calibration_error')}" if cal.get("expected_calibration_error") is not None else None, f"Brier: {cal.get('brier_score')}" if cal.get("brier_score") is not None else None] if x)
                 rows.append([
                     r["task_name"] or "N/A",
-                    r["task_type"],
                     r["status"].title(),
-                    metric_str or "N/A"
+                    metric_str or "N/A",
+                    cal_str or "Not available",
+                    "; ".join(r.get("warnings") or []) or "None",
                 ])
-            story.append(_build_pdf_table(headers, rows, widths=[2.0*inch, 1.5*inch, 1.2*inch, 2.3*inch]))
+            story.append(_build_pdf_table(headers, rows, widths=[1.3*inch, 0.8*inch, 2.0*inch, 1.4*inch, 1.5*inch]))
         else:
             story.append(Paragraph("External validation/calibration was not available for this project.", styles["BodyText"]))
         story.append(Spacer(1, 15))
@@ -1827,14 +1838,17 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
             rows = []
             for r in ext_val["validation_details"]:
                 metrics = r["metric_summary"]
-                metric_str = ", ".join(f"{k}: {v}" for k, v in metrics.items() if not isinstance(v, (dict, list)))
+                cal = r.get("calibration_summary") or {}
+                metric_str = ", ".join(f"{k}: {v}" for k, v in metrics.items() if k in {"accuracy", "balanced_accuracy", "precision", "recall", "specificity", "f1", "roc_auc", "average_precision"})
+                cal_str = ", ".join(str(x) for x in [cal.get("calibration_quality") or cal.get("calibration_status"), f"ECE: {cal.get('expected_calibration_error')}" if cal.get("expected_calibration_error") is not None else None, f"Brier: {cal.get('brier_score')}" if cal.get("brier_score") is not None else None] if x)
                 rows.append([
                     r["task_name"] or "N/A",
-                    r["task_type"],
                     r["status"].title(),
-                    metric_str or "N/A"
+                    metric_str or "N/A",
+                    cal_str or "Not available",
+                    "; ".join(r.get("warnings") or []) or "None",
                 ])
-            _build_docx_table(document, ["Task Name", "Task Type", "Status", "Accuracy / AUC"], rows, widths=[Inches(2.0), Inches(1.5), Inches(1.2), Inches(2.3)])
+            _build_docx_table(document, ["Task Name", "Status", "External Metrics", "Calibration", "Warnings"], rows, widths=[Inches(1.3), Inches(0.8), Inches(2.0), Inches(1.4), Inches(1.5)])
         else:
             document.add_paragraph("External validation/calibration was not available for this project.")
             

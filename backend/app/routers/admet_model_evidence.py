@@ -129,7 +129,7 @@ def get_model_evidence_readiness():
         if latest_val:
             external_validation_available = True
             cal_summary = latest_val.get("calibration_summary") or {}
-            if cal_summary.get("is_calibrated") or cal_summary.get("calibrated_model_saved"):
+            if cal_summary.get("is_calibrated") or cal_summary.get("calibrated_model_saved") or cal_summary.get("calibration_status") in {"available", "calibrated", "partially_calibrated", "uncalibrated"}:
                 calibration_available = True
                 
     # Determine readiness status

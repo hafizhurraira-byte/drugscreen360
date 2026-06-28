@@ -91,3 +91,49 @@ export async function activateAdmetModelApi(fetchImpl, apiBase, modelId, project
 export async function getActiveAdmetModelApi(fetchImpl, apiBase) {
   return requestJson(fetchImpl, `${apiBase}/admet-training/active-model`, undefined, "Could not load active trained model.");
 }
+
+export function buildExternalValidationFormData(form, file, projectId = "") {
+  const data = new FormData();
+  data.append("file", file);
+  ["validation_dataset_name", "smiles_column", "label_column", "compound_name_column", "task_name", "model_id", "positive_label", "negative_label", "decision_threshold", "notes"].forEach((key) => {
+    if (form[key] !== undefined && form[key] !== null && String(form[key]) !== "") data.append(key, form[key]);
+  });
+  if (projectId) data.append("project_id", String(projectId));
+  return data;
+}
+
+export async function runExternalAdmetValidationApi(fetchImpl, apiBase, form, file, projectId = "") {
+  if (file) {
+    return requestJson(
+      fetchImpl,
+      `${apiBase}/admet-validation/external/run`,
+      { method: "POST", body: buildExternalValidationFormData(form, file, projectId) },
+      "External validation failed."
+    );
+  }
+  return requestJson(
+    fetchImpl,
+    `${apiBase}/admet-validation/external/run${projectId ? `?project_id=${projectId}` : ""}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model_id: form.model_id,
+        external_dataset_id: Number(form.external_dataset_id),
+        positive_label: form.positive_label || "1",
+        negative_label: form.negative_label || "0",
+        decision_threshold: Number(form.decision_threshold || 0.5),
+        notes: form.notes || "",
+      }),
+    },
+    "External validation failed."
+  );
+}
+
+export async function listExternalAdmetValidationRunsApi(fetchImpl, apiBase) {
+  return requestJson(fetchImpl, `${apiBase}/admet-validation/external/runs`, undefined, "Could not load validation runs.");
+}
+
+export async function getExternalAdmetValidationRunApi(fetchImpl, apiBase, runId) {
+  return requestJson(fetchImpl, `${apiBase}/admet-validation/external/runs/${runId}`, undefined, "Could not load validation run details.");
+}

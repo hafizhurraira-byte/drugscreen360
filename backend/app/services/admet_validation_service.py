@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 from sklearn.metrics import (
     accuracy_score,
+    average_precision_score,
     balanced_accuracy_score,
     confusion_matrix,
     f1_score,
@@ -24,7 +25,8 @@ from app.database import get_connection, init_db
 from app.models.admet_validation_models import ExternalValidationRunRequest, ExternalValidationRunSummary
 from app.models.project_workspace_models import ProjectAttachRequest
 from app.services.admet_dataset_service import get_dataset_records, get_dataset_row
-from app.services.admet_trained_model_service import discover_trained_models, validate_trained_model, FEATURE_COLUMNS
+from app.services.admet_dataset_service import upload_admet_dataset
+from app.services.admet_trained_model_service import discover_trained_models, get_active_trained_model_info, validate_trained_model, FEATURE_COLUMNS
 from app.services.project_workspace_service import attach_project_item
 from app.services.admet_training_service import BINARY_LABELS
 
@@ -38,11 +40,19 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 def _run_from_row(row) -> dict[str, Any]:
+    dataset = None
+    try:
+        dataset = get_dataset_row(row["external_dataset_id"])
+    except Exception:
+        dataset = None
     return {
         "id": row["id"],
+        "validation_run_id": row["id"],
         "model_id": row["model_id"],
         "training_run_id": row["training_run_id"],
         "external_dataset_id": row["external_dataset_id"],
+        "validation_dataset_name": dataset.get("name") if dataset else None,
+        "original_filename": dataset.get("original_filename") if dataset else None,
         "task_name": row["task_name"],
         "task_type": row["task_type"],
         "status": row["status"],
@@ -54,6 +64,88 @@ def _run_from_row(row) -> dict[str, Any]:
         "notes": row["notes"],
         "created_at": row["created_at"],
     }
+
+def _parse_binary_label(value: Any, positive_label: str = "1", negative_label: str = "0") -> int | None:
+    text = str(value).strip()
+    norm = text.lower()
+    if text == str(positive_label).strip() or norm == str(positive_label).strip().lower():
+        return 1
+    if text == str(negative_label).strip() or norm == str(negative_label).strip().lower():
+        return 0
+    return BINARY_LABELS.get(norm)
+
+def _validation_status(warnings: list[str], calibration_summary: dict[str, Any]) -> dict[str, str]:
+    independence = "likely_independent"
+    if any("may overlap" in w.lower() or "same as the model training dataset" in w.lower() for w in warnings):
+        independence = "high_overlap"
+    elif any("small" in w.lower() for w in warnings):
+        independence = "unknown"
+
+    cal_status = calibration_summary.get("calibration_status", "not_available")
+    if cal_status == "available":
+        ece = calibration_summary.get("expected_calibration_error")
+        if isinstance(ece, (int, float)):
+            if ece <= 0.05:
+                cal_status = "calibration_good"
+            elif ece <= 0.15:
+                cal_status = "calibration_moderate"
+            else:
+                cal_status = "calibration_poor"
+        else:
+            cal_status = "calibration_evaluated"
+
+    validation_status = "externally_validated_with_warnings" if warnings else "externally_validated"
+    if independence == "high_overlap":
+        validation_status = "internally_validated_only"
+    return {
+        "validation_evidence_status": validation_status,
+        "calibration_evidence_status": cal_status,
+        "independence_status": independence,
+    }
+
+def run_external_validation_upload(
+    file_name: str,
+    content: bytes,
+    validation_dataset_name: str,
+    smiles_column: str,
+    label_column: str,
+    compound_name_column: str | None = None,
+    task_name: str | None = None,
+    model_id: str | None = None,
+    positive_label: str = "1",
+    negative_label: str = "0",
+    decision_threshold: float = 0.5,
+    notes: str | None = None,
+    project_id: int | None = None,
+) -> dict[str, Any]:
+    if not model_id:
+        active = get_active_trained_model_info()
+        if active.get("status") != "available":
+            raise HTTPException(status_code=400, detail="No active compatible trained ADMET model is available. Validate and activate a trained model first.")
+        model_id = active["model_id"]
+        task_name = task_name or active.get("task_name")
+    dataset = upload_admet_dataset(
+        file_name,
+        content,
+        validation_dataset_name,
+        task_name,
+        label_column,
+        smiles_column,
+        compound_name_column,
+        notes,
+        project_id,
+    )
+    return run_external_validation(
+        ExternalValidationRunRequest(
+            model_id=model_id,
+            external_dataset_id=dataset.dataset_id,
+            positive_label=positive_label,
+            negative_label=negative_label,
+            decision_threshold=decision_threshold,
+            notes=notes,
+        ),
+        project_id,
+    )
 
 def run_external_validation(payload: ExternalValidationRunRequest, project_id: int | None = None) -> dict[str, Any]:
     init_db()
@@ -87,13 +179,25 @@ def run_external_validation(payload: ExternalValidationRunRequest, project_id: i
         except:
             pass
             
+    train_smiles = set()
+    if train_dataset_id:
+        try:
+            train_dataset = get_dataset_row(int(train_dataset_id))
+            if (train_dataset.get("name") or "").strip().lower() == (dataset.get("name") or "").strip().lower():
+                warnings.append("This validation dataset may overlap with the training dataset. Treat results as internal validation, not independent external validation.")
+            for rec in get_dataset_records(int(train_dataset_id)):
+                if rec.canonical_smiles:
+                    train_smiles.add(rec.canonical_smiles)
+        except Exception:
+            pass
     if train_dataset_id == payload.external_dataset_id:
         warnings.append("External validation dataset is the same as the model training dataset. Use an independent dataset for rigorous validation.")
         
     # 3. Filter valid records & align types
     X = []
     y_true = []
-    compound_names = []
+    valid_records = []
+    skipped_records = []
     
     task_type = model_summary["task_type"]
     
@@ -101,6 +205,7 @@ def run_external_validation(payload: ExternalValidationRunRequest, project_id: i
     for record in records:
         if not record.is_valid or not record.canonical_smiles or record.label_value in (None, "") or not record.descriptors:
             invalid_count += 1
+            skipped_records.append((record, record.invalid_reason or "Invalid molecule, missing label, or missing descriptors."))
             continue
             
         features = []
@@ -114,25 +219,28 @@ def run_external_validation(payload: ExternalValidationRunRequest, project_id: i
             
         if missing:
             invalid_count += 1
+            skipped_records.append((record, "Missing required descriptor values."))
             continue
             
         # Try converting label
         lbl = str(record.label_value).strip()
         if task_type == "binary_classification":
-            norm_lbl = lbl.lower()
-            if norm_lbl in BINARY_LABELS:
-                y_true.append(BINARY_LABELS[norm_lbl])
+            parsed = _parse_binary_label(lbl, payload.positive_label, payload.negative_label)
+            if parsed is not None:
+                y_true.append(parsed)
                 X.append(features)
-                compound_names.append(record.compound_name or "unknown")
+                valid_records.append(record)
             else:
                 invalid_count += 1
+                skipped_records.append((record, f"Unparseable binary label: {lbl}"))
         else:
             try:
                 y_true.append(float(lbl))
                 X.append(features)
-                compound_names.append(record.compound_name or "unknown")
+                valid_records.append(record)
             except ValueError:
                 invalid_count += 1
+                skipped_records.append((record, f"Unparseable numeric label: {lbl}"))
                 
     valid_count = len(X)
     if valid_count < 10:
@@ -140,6 +248,13 @@ def run_external_validation(payload: ExternalValidationRunRequest, project_id: i
         
     if valid_count < 30:
         warnings.append(f"Validation dataset is small (N = {valid_count}). A minimum of 30 records is strongly recommended for stable metrics.")
+    if train_smiles:
+        overlap_count = sum(1 for record in valid_records if record.canonical_smiles in train_smiles)
+        overlap_fraction = overlap_count / valid_count if valid_count else 0.0
+        if overlap_fraction >= 0.5:
+            warnings.append(f"This validation dataset may overlap with the training dataset. Treat results as internal validation, not independent external validation. overlap_count={overlap_count}, overlap_fraction={overlap_fraction:.2f}")
+        elif overlap_count:
+            warnings.append(f"Possible training/validation overlap detected: overlap_count={overlap_count}, overlap_fraction={overlap_fraction:.2f}.")
         
     # 4. Load scikit-learn model and run predictions
     try:
@@ -150,7 +265,16 @@ def run_external_validation(payload: ExternalValidationRunRequest, project_id: i
         raise HTTPException(status_code=500, detail=f"Failed to load model file model.joblib: {exc}")
         
     # Run predictions
-    y_pred = model.predict(X)
+    y_prob = None
+    if task_type == "binary_classification" and hasattr(model, "predict_proba"):
+        try:
+            y_prob = model.predict_proba(X)[:, 1]
+            y_pred = np.array([1 if float(p) >= float(payload.decision_threshold) else 0 for p in y_prob])
+        except Exception:
+            y_pred = model.predict(X)
+            y_prob = None
+    else:
+        y_pred = model.predict(X)
     
     metric_summary = {}
     calibration_summary = {}
@@ -163,6 +287,8 @@ def run_external_validation(payload: ExternalValidationRunRequest, project_id: i
         rec = float(recall_score(y_true, y_pred, zero_division=0))
         f1 = float(f1_score(y_true, y_pred, zero_division=0))
         conf_mat = confusion_matrix(y_true, y_pred, labels=[0, 1]).tolist()
+        tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
+        specificity = float(tn / (tn + fp)) if (tn + fp) else 0.0
         
         class_dist = {"active": y_true.count(1), "inactive": y_true.count(0)}
         pred_dist = {"active": list(y_pred).count(1), "inactive": list(y_pred).count(0)}
@@ -172,23 +298,30 @@ def run_external_validation(payload: ExternalValidationRunRequest, project_id: i
             "balanced_accuracy": round(bal_acc, 4),
             "precision": round(prec, 4),
             "recall": round(rec, 4),
+            "specificity": round(specificity, 4),
             "f1": round(f1, 4),
             "confusion_matrix": conf_mat,
+            "confusion_matrix_counts": {"tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp)},
+            "false_positive_count": int(fp),
+            "false_negative_count": int(fn),
+            "positive_rate_actual": round(class_dist["active"] / valid_count, 4),
+            "positive_rate_predicted": round(pred_dist["active"] / valid_count, 4),
             "class_distribution": class_dist,
             "prediction_distribution": pred_dist
         }
         
         # Calibration curve and probabilities
-        if hasattr(model, "predict_proba"):
+        if y_prob is not None:
             try:
-                y_prob = model.predict_proba(X)[:, 1]
                 prob_list = [round(float(p), 4) for p in y_prob]
                 metric_summary["prediction_probabilities"] = prob_list
                 
                 if len(set(y_true)) == 2:
                     metric_summary["roc_auc"] = round(float(roc_auc_score(y_true, y_prob)), 4)
+                    metric_summary["average_precision"] = round(float(average_precision_score(y_true, y_prob)), 4)
                 else:
                     metric_summary["roc_auc"] = "not available: test set does not contain both classes"
+                    metric_summary["average_precision"] = "not available: test set does not contain both classes"
                     
                 # Compute calibration curve
                 cal_data = _compute_calibration_curve(y_true, y_prob)
@@ -201,6 +334,7 @@ def run_external_validation(payload: ExternalValidationRunRequest, project_id: i
                 calibration_summary = {"calibration_status": "error", "reason": str(e)}
         else:
             metric_summary["roc_auc"] = "not available: model does not support probability output"
+            metric_summary["average_precision"] = "not available: model does not support probability output"
             calibration_summary = {"calibration_status": "not available", "reason": "model does not support probability output"}
             
     else:  # regression
@@ -276,6 +410,7 @@ def run_external_validation(payload: ExternalValidationRunRequest, project_id: i
 
     # 7. Save validation run to database
     with get_connection() as connection:
+        status_info = _validation_status(warnings, calibration_summary)
         cursor = connection.execute(
             """
             INSERT INTO admet_external_validation_runs (
@@ -300,6 +435,59 @@ def run_external_validation(payload: ExternalValidationRunRequest, project_id: i
             )
         )
         run_id = int(cursor.lastrowid)
+        for index, record in enumerate(valid_records):
+            prob = float(y_prob[index]) if y_prob is not None else None
+            connection.execute(
+                """
+                INSERT INTO admet_external_validation_records (
+                    run_id, row_number, compound_name, original_smiles, canonical_smiles,
+                    actual_label, predicted_label, prediction_score, uncertainty, domain_status,
+                    is_valid, invalid_reason, warning
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    record.row_number,
+                    record.compound_name,
+                    record.original_smiles,
+                    record.canonical_smiles,
+                    str(record.label_value),
+                    str(int(y_pred[index])) if task_type == "binary_classification" else str(float(y_pred[index])),
+                    prob,
+                    None,
+                    None,
+                    1,
+                    None,
+                    None,
+                ),
+            )
+        for record, reason in skipped_records[:500]:
+            connection.execute(
+                """
+                INSERT INTO admet_external_validation_records (
+                    run_id, row_number, compound_name, original_smiles, canonical_smiles,
+                    actual_label, predicted_label, prediction_score, uncertainty, domain_status,
+                    is_valid, invalid_reason, warning
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    record.row_number,
+                    record.compound_name,
+                    record.original_smiles,
+                    record.canonical_smiles,
+                    str(record.label_value) if record.label_value is not None else None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    0,
+                    reason,
+                    reason,
+                ),
+            )
 
     # 8. Attach to active project if selected
     if project_id:
@@ -316,7 +504,8 @@ def run_external_validation(payload: ExternalValidationRunRequest, project_id: i
                         "dataset_name": dataset["name"],
                         "task_type": task_type,
                         "valid_count": valid_count,
-                        "metric_summary": {k: v for k, v in metric_summary.items() if k not in {"observed_vs_predicted", "prediction_probabilities"}}
+                        "metric_summary": {k: v for k, v in metric_summary.items() if k not in {"observed_vs_predicted", "prediction_probabilities"}},
+                        **status_info,
                     }
                 )
             )
@@ -325,10 +514,11 @@ def run_external_validation(payload: ExternalValidationRunRequest, project_id: i
             
     return get_external_validation_run_detail(run_id)
 
-def _compute_calibration_curve(y_true, y_prob, n_bins=5) -> dict[str, Any]:
+def _compute_calibration_curve(y_true, y_prob, n_bins=10) -> dict[str, Any]:
     bin_edges = np.linspace(0, 1, n_bins + 1)
     bins = []
     ece = 0.0
+    mce = 0.0
     n_samples = len(y_true)
     
     brier_score = float(np.mean((np.array(y_prob) - np.array(y_true)) ** 2)) if n_samples > 0 else 0.0
@@ -348,31 +538,44 @@ def _compute_calibration_curve(y_true, y_prob, n_bins=5) -> dict[str, Any]:
             bin_y_prob = [y_prob[idx] for idx in indices]
             
             mean_predicted = float(np.mean(bin_y_prob))
-            accuracy = float(np.mean(bin_y_true))
+            observed_positive_rate = float(np.mean(bin_y_true))
+            gap = abs(observed_positive_rate - mean_predicted)
             
             bins.append({
                 "bin_index": i,
+                "bin_start": round(bin_min, 2),
+                "bin_end": round(bin_max, 2),
                 "bin_min": round(bin_min, 2),
                 "bin_max": round(bin_max, 2),
+                "mean_predicted_probability": round(mean_predicted, 4),
                 "mean_predicted": round(mean_predicted, 4),
-                "accuracy": round(accuracy, 4),
+                "observed_positive_rate": round(observed_positive_rate, 4),
+                "accuracy": round(observed_positive_rate, 4),
                 "count": bin_count
             })
-            ece += (bin_count / n_samples) * abs(accuracy - mean_predicted)
+            ece += (bin_count / n_samples) * gap
+            mce = max(mce, gap)
         else:
             bins.append({
                 "bin_index": i,
+                "bin_start": round(bin_min, 2),
+                "bin_end": round(bin_max, 2),
                 "bin_min": round(bin_min, 2),
                 "bin_max": round(bin_max, 2),
+                "mean_predicted_probability": 0.0,
                 "mean_predicted": 0.0,
+                "observed_positive_rate": 0.0,
                 "accuracy": 0.0,
                 "count": 0
             })
+    status = "calibrated" if ece <= 0.05 else "partially_calibrated" if ece <= 0.15 else "uncalibrated"
             
     return {
         "calibration_status": "available",
+        "calibration_quality": status,
         "bins": bins,
         "expected_calibration_error": round(ece, 4),
+        "max_calibration_error": round(mce, 4),
         "brier_score": round(brier_score, 4)
     }
 
@@ -434,8 +637,21 @@ def get_external_validation_run_detail(run_id: int) -> dict[str, Any]:
                 pass
                 
     detail["comparison"] = comparison
+    detail.update(_validation_status(detail["warnings"], detail.get("calibration_summary") or {}))
+    detail["records_preview"] = get_external_validation_records(detail["id"], limit=25)
     detail["limitations"] = LIMITATIONS
     return detail
+
+def get_external_validation_records(run_id: int, limit: int | None = None) -> list[dict[str, Any]]:
+    init_db()
+    sql = "SELECT * FROM admet_external_validation_records WHERE run_id = ? ORDER BY id"
+    params: tuple[Any, ...] = (run_id,)
+    if limit:
+        sql += " LIMIT ?"
+        params = (run_id, limit)
+    with get_connection() as connection:
+        rows = connection.execute(sql, params).fetchall()
+    return [dict(row) for row in rows]
 
 def get_external_validation_metrics_csv(run_id: int) -> str:
     detail = get_external_validation_run_detail(run_id)
@@ -452,6 +668,16 @@ def get_external_validation_metrics_csv(run_id: int) -> str:
         writer.writerow(["expected_calibration_error", cal.get("expected_calibration_error")])
         writer.writerow(["brier_score", cal.get("brier_score")])
         
+    return output.getvalue()
+
+def get_external_validation_predictions_csv(run_id: int) -> str:
+    get_external_validation_run_detail(run_id)
+    records = get_external_validation_records(run_id)
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["row_number", "compound_name", "original_smiles", "canonical_smiles", "actual_label", "predicted_label", "prediction_score", "is_valid", "invalid_reason"])
+    for row in records:
+        writer.writerow([row.get("row_number"), row.get("compound_name"), row.get("original_smiles"), row.get("canonical_smiles"), row.get("actual_label"), row.get("predicted_label"), row.get("prediction_score"), row.get("is_valid"), row.get("invalid_reason")])
     return output.getvalue()
 
 def get_latest_external_validation_by_model(model_id: str) -> dict[str, Any] | None:

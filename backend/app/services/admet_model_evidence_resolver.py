@@ -149,10 +149,12 @@ def resolve_model_evidence(
     # 5. External Validation and Calibration status
     latest_val = get_latest_external_validation_by_model(model_id)
     if latest_val:
-        result["external_validation_status"] = "validated"
+        result["external_validation_status"] = latest_val.get("validation_evidence_status") or "validated"
         cal_summary = latest_val.get("calibration_summary") or {}
         if cal_summary.get("is_calibrated") or cal_summary.get("calibrated_model_saved"):
             result["calibration_status"] = "calibrated"
+        elif cal_summary.get("calibration_status") == "available":
+            result["calibration_status"] = cal_summary.get("calibration_quality") or "calibration_evaluated"
         else:
             result["calibration_status"] = "uncalibrated"
     else:
@@ -207,7 +209,7 @@ def resolve_model_evidence(
     missing = []
     if result["external_validation_status"] != "validated":
         missing.append("external validation")
-    if result["calibration_status"] != "calibrated":
+    if result["calibration_status"] not in {"calibrated", "calibration_good", "calibration_moderate", "calibration_poor", "calibration_evaluated", "partially_calibrated", "uncalibrated"}:
         missing.append("model calibration")
     if domain_status == "outside_domain":
         missing.append("inside-domain sample data")

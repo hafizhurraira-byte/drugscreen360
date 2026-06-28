@@ -33,6 +33,16 @@ def _csv(rows: int = 24, numeric: bool = False) -> bytes:
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
+def _validation_csv(rows: int = 24, missing_label: bool = False, invalid_smiles: bool = False) -> bytes:
+    lines = ["compound_name,smiles,toxicity_concern"]
+    smiles = ["CCO", "CCN", "CCC", "CCCl", "c1ccccc1", "CC(=O)O"]
+    for index in range(rows):
+        smi = "C1CC" if invalid_smiles and index == 0 else smiles[index % len(smiles)]
+        label = "" if missing_label and index == 1 else str(index % 2)
+        lines.append(f"Val {index},{smi},{label}")
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
 def _upload(name: str, task: str, rows: int = 24, numeric: bool = False):
     return client.post(
         "/api/admet-datasets/upload",
@@ -210,3 +220,69 @@ def test_research_export_includes_validation_files(tmp_path, monkeypatch):
         assert any("_metrics.csv" in name for name in names)
         assert any("_calibration_summary.json" in name for name in names)
         assert any("_internal_vs_external_comparison.json" in name for name in names)
+
+
+def test_multipart_external_validation_uses_active_model_and_stores_records():
+    ds_train = _upload("Train Toxicity", "toxicity_concern", rows=24, numeric=False)
+    res_train = client.post(
+        "/api/admet-training/train",
+        json={"dataset_id": ds_train["dataset_id"], "task_type": "binary_classification", "model_type": "random_forest"},
+    )
+    model_id = res_train.json()["artifact"]["model_id"]
+    assert client.post(f"/api/admet-training/models/{model_id}/activate", json={}).status_code == 200
+
+    res = client.post(
+        "/api/admet-validation/external/run",
+        data={
+            "validation_dataset_name": "Independent toxicity validation",
+            "smiles_column": "smiles",
+            "label_column": "toxicity_concern",
+            "compound_name_column": "compound_name",
+            "positive_label": "1",
+            "negative_label": "0",
+            "decision_threshold": "0.5",
+        },
+        files={"file": ("validation.csv", _validation_csv(24, missing_label=True, invalid_smiles=True), "text/csv")},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["model_id"] == model_id
+    assert body["valid_count"] == 22
+    assert body["invalid_count"] == 2
+    assert body["calibration_summary"]["calibration_status"] == "available"
+    assert "specificity" in body["metric_summary"]
+    assert "average_precision" in body["metric_summary"]
+    assert body["records_preview"]
+
+    records = client.get(f"/api/admet-validation/external/runs/{body['id']}/records")
+    assert records.status_code == 200
+    assert len(records.json()) >= 22
+    csv_res = client.get(f"/api/admet-validation/external/runs/{body['id']}/predictions.csv")
+    assert csv_res.status_code == 200
+    assert "predicted_label" in csv_res.text
+
+
+def test_multipart_external_validation_requires_active_model():
+    res = client.post(
+        "/api/admet-validation/external/run",
+        data={"validation_dataset_name": "No Model", "smiles_column": "smiles", "label_column": "toxicity_concern"},
+        files={"file": ("validation.csv", _validation_csv(12), "text/csv")},
+    )
+    assert res.status_code == 400
+    assert "No active compatible trained ADMET model" in res.json()["detail"]
+
+
+def test_multipart_external_validation_reports_missing_columns():
+    ds_train = _upload("Train Columns", "toxicity_concern", rows=24, numeric=False)
+    model_id = client.post(
+        "/api/admet-training/train",
+        json={"dataset_id": ds_train["dataset_id"], "task_type": "binary_classification", "model_type": "random_forest"},
+    ).json()["artifact"]["model_id"]
+    client.post(f"/api/admet-training/models/{model_id}/activate", json={})
+    res = client.post(
+        "/api/admet-validation/external/run",
+        data={"validation_dataset_name": "Bad Columns", "smiles_column": "missing_smiles", "label_column": "toxicity_concern"},
+        files={"file": ("validation.csv", _validation_csv(12), "text/csv")},
+    )
+    assert res.status_code == 422
+    assert "SMILES column 'missing_smiles'" in res.json()["detail"]

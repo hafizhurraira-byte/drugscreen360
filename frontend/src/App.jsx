@@ -23,6 +23,9 @@ import {
   activateAdmetModelApi,
   getActiveAdmetModelApi,
   getAdmetDatasetSummaryApi,
+  getExternalAdmetValidationRunApi,
+  listExternalAdmetValidationRunsApi,
+  runExternalAdmetValidationApi,
   trainAdmetModelApi,
   uploadAdmetDatasetApi,
   validateAdmetModelApi,
@@ -681,8 +684,17 @@ export default function App() {
   const [externalValidationForm, setExternalValidationForm] = useState({
     model_id: "",
     external_dataset_id: "",
+    validation_dataset_name: "External toxicity validation dataset",
+    smiles_column: "smiles",
+    label_column: "toxicity_concern",
+    compound_name_column: "",
+    task_name: "",
+    positive_label: "1",
+    negative_label: "0",
+    decision_threshold: 0.5,
     notes: ""
   });
+  const [externalValidationFile, setExternalValidationFile] = useState(null);
   const [externalValidationResult, setExternalValidationResult] = useState(null);
   const [externalValidationRuns, setExternalValidationRuns] = useState([]);
   const [selectedValidationRunId, setSelectedValidationRunId] = useState("");
@@ -1697,9 +1709,7 @@ export default function App() {
 
   async function loadExternalValidationRuns() {
     try {
-      const response = await fetch(`${API_BASE}/admet-validation/external/runs`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Could not load validation runs.");
+      const data = await listExternalAdmetValidationRunsApi(fetch, API_BASE);
       setExternalValidationRuns(data);
     } catch (err) {
       console.error(err);
@@ -1714,9 +1724,7 @@ export default function App() {
     }
     setValidationLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/admet-validation/external/runs/${runId}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Could not load validation run details.");
+      const data = await getExternalAdmetValidationRunApi(fetch, API_BASE, runId);
       setSelectedValidationRunDetail(data);
     } catch (err) {
       setError(err.message);
@@ -1726,25 +1734,15 @@ export default function App() {
   }
 
   async function startExternalValidation() {
-    if (!externalValidationForm.model_id || !externalValidationForm.external_dataset_id) {
-      setError("Please select both a model and an external validation dataset.");
+    if (!externalValidationFile && (!externalValidationForm.model_id || !externalValidationForm.external_dataset_id)) {
+      setError("Select a model and curated dataset, or upload a labelled validation file.");
       return;
     }
     setValidationLoading(true);
     setExternalValidationResult(null);
     setWorkflowStatus("Running external validation and calibration...");
     try {
-      const response = await fetch(`${API_BASE}/admet-validation/external/run?project_id=${activeProjectId || ""}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model_id: externalValidationForm.model_id,
-          external_dataset_id: Number(externalValidationForm.external_dataset_id),
-          notes: externalValidationForm.notes || ""
-        })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Validation run failed.");
+      const data = await runExternalAdmetValidationApi(fetch, API_BASE, externalValidationForm, externalValidationFile, activeProjectId);
       setExternalValidationResult(data);
       setSelectedValidationRunDetail(data);
       setSelectedValidationRunId(data.id);
@@ -2613,9 +2611,118 @@ export default function App() {
           )}
         </Section>
 
-        <Section title="Step 9 - Report Guidance" icon={FileText} wide>
+        <Section title="Step 9 - External Validation & Calibration" icon={ShieldCheck} wide>
           <p className="limitation-label">
-            Now run Disease-to-Lead and generate a final report. The active trained model will be included in the Model Evidence & Prediction Confidence section when compatible.
+            Validate the active experimental baseline model on an independent labelled dataset. Metrics and calibration apply only to the uploaded validation dataset.
+          </p>
+          <div className="metric-grid compact-metrics">
+            <Field label="Active model" value={activeTrainedModel?.model_id || "No active trained ADMET model selected"} />
+            <Field label="Task" value={activeTrainedModel?.task_name || "Not available"} />
+            <Field label="Version" value={activeTrainedModel?.version || "Not available"} />
+          </div>
+          {!activeTrainedModel?.model_id && (
+            <p className="warning-text">Activate a trained model before running external validation.</p>
+          )}
+          <div className="finder-search">
+            <label>
+              Validation CSV/TSV/TXT
+              <input type="file" accept=".csv,.tsv,.txt" onChange={(event) => setExternalValidationFile(event.target.files?.[0] || null)} />
+            </label>
+            <label>
+              Validation dataset name
+              <input value={externalValidationForm.validation_dataset_name} onChange={(event) => setExternalValidationForm((current) => ({ ...current, validation_dataset_name: event.target.value }))} />
+            </label>
+            <label>
+              SMILES column
+              <input value={externalValidationForm.smiles_column} onChange={(event) => setExternalValidationForm((current) => ({ ...current, smiles_column: event.target.value }))} />
+            </label>
+            <label>
+              Label column
+              <input value={externalValidationForm.label_column} onChange={(event) => setExternalValidationForm((current) => ({ ...current, label_column: event.target.value }))} />
+            </label>
+            <label>
+              Compound name column
+              <input value={externalValidationForm.compound_name_column} onChange={(event) => setExternalValidationForm((current) => ({ ...current, compound_name_column: event.target.value }))} />
+            </label>
+            <label>
+              Positive label
+              <input value={externalValidationForm.positive_label} onChange={(event) => setExternalValidationForm((current) => ({ ...current, positive_label: event.target.value }))} />
+            </label>
+            <label>
+              Negative label
+              <input value={externalValidationForm.negative_label} onChange={(event) => setExternalValidationForm((current) => ({ ...current, negative_label: event.target.value }))} />
+            </label>
+            <label>
+              Decision threshold
+              <input type="number" step="0.01" min="0" max="1" value={externalValidationForm.decision_threshold} onChange={(event) => setExternalValidationForm((current) => ({ ...current, decision_threshold: event.target.value }))} />
+            </label>
+            <label>
+              Notes
+              <input value={externalValidationForm.notes || ""} onChange={(event) => setExternalValidationForm((current) => ({ ...current, notes: event.target.value }))} />
+            </label>
+            <button type="button" disabled={validationLoading || (!externalValidationFile && !externalValidationForm.external_dataset_id)} onClick={startExternalValidation}>
+              {validationLoading ? "Evaluating..." : "Run External Validation"}
+            </button>
+            <button type="button" className="secondary-button" onClick={loadExternalValidationRuns}>Refresh Validation Runs</button>
+          </div>
+          {selectedValidationRunDetail && (
+            <div className="metric-grid compact-metrics">
+              <Field label="Validation run" value={selectedValidationRunDetail.id} />
+              <Field label="Dataset" value={selectedValidationRunDetail.validation_dataset_name || selectedValidationRunDetail.external_dataset_id} />
+              <Field label="Status" value={selectedValidationRunDetail.status} />
+              <Field label="Evaluated rows" value={selectedValidationRunDetail.valid_count} />
+              <Field label="Skipped rows" value={selectedValidationRunDetail.invalid_count} />
+              <Field label="Accuracy" value={selectedValidationRunDetail.metric_summary?.accuracy ?? "Not available"} />
+              <Field label="Balanced accuracy" value={selectedValidationRunDetail.metric_summary?.balanced_accuracy ?? "Not available"} />
+              <Field label="Precision" value={selectedValidationRunDetail.metric_summary?.precision ?? "Not available"} />
+              <Field label="Recall" value={selectedValidationRunDetail.metric_summary?.recall ?? "Not available"} />
+              <Field label="Specificity" value={selectedValidationRunDetail.metric_summary?.specificity ?? "Not available"} />
+              <Field label="F1" value={selectedValidationRunDetail.metric_summary?.f1 ?? "Not available"} />
+              <Field label="ROC-AUC" value={selectedValidationRunDetail.metric_summary?.roc_auc ?? "Not available"} />
+              <Field label="Calibration" value={selectedValidationRunDetail.calibration_summary?.calibration_quality || selectedValidationRunDetail.calibration_summary?.calibration_status || "Not available"} />
+              <Field label="Brier score" value={selectedValidationRunDetail.calibration_summary?.brier_score ?? "Not available"} />
+              <Field label="ECE" value={selectedValidationRunDetail.calibration_summary?.expected_calibration_error ?? "Not available"} />
+              <Field label="Independence" value={selectedValidationRunDetail.independence_status || "unknown"} />
+            </div>
+          )}
+          {selectedValidationRunDetail?.calibration_summary?.bins && (
+            <div className="responsive-table">
+              <table>
+                <thead><tr><th>Bin</th><th>Count</th><th>Mean probability</th><th>Observed positive rate</th></tr></thead>
+                <tbody>
+                  {selectedValidationRunDetail.calibration_summary.bins.map((bin) => (
+                    <tr key={bin.bin_index}>
+                      <td>{bin.bin_start} - {bin.bin_end}</td>
+                      <td>{bin.count}</td>
+                      <td>{bin.mean_predicted_probability}</td>
+                      <td>{bin.observed_positive_rate}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {(selectedValidationRunDetail?.warnings || []).map((warning) => <p className="warning-text" key={warning}>{warning}</p>)}
+          {externalValidationRuns.length > 0 && (
+            <label>
+              Validation runs history
+              <select value={selectedValidationRunId} onChange={(event) => handleValidationRunSelect(event.target.value)}>
+                <option value="">Select a validation run</option>
+                {externalValidationRuns.map((run) => <option key={run.id} value={run.id}>Run #{run.id} - {run.model_id} - {run.created_at}</option>)}
+              </select>
+            </label>
+          )}
+          {selectedValidationRunDetail?.id && (
+            <div className="candidate-actions left-actions">
+              <a className="small-button" href={`${API_BASE}/admet-validation/external/runs/${selectedValidationRunDetail.id}/metrics.csv`}>Download Metrics CSV</a>
+              <a className="small-button" href={`${API_BASE}/admet-validation/external/runs/${selectedValidationRunDetail.id}/predictions.csv`}>Download Predictions CSV</a>
+            </div>
+          )}
+        </Section>
+
+        <Section title="Step 10 - Report Guidance" icon={FileText} wide>
+          <p className="limitation-label">
+            Now rerun Disease-to-Lead and generate a final report. The report will include external validation/calibration evidence for the active model when available.
           </p>
           <div className="metric-grid compact-metrics">
             <Field label="Disease" value="non-small cell lung cancer" />

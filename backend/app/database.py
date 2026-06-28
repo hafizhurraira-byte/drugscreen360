@@ -464,6 +464,28 @@ def init_db() -> None:
         )
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS admet_external_validation_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL,
+                row_number INTEGER,
+                compound_name TEXT,
+                original_smiles TEXT,
+                canonical_smiles TEXT,
+                actual_label TEXT,
+                predicted_label TEXT,
+                prediction_score REAL,
+                uncertainty TEXT,
+                domain_status TEXT,
+                is_valid INTEGER NOT NULL,
+                invalid_reason TEXT,
+                warning TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(run_id) REFERENCES admet_external_validation_runs(id)
+            )
+            """
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS admet_domain_evaluations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 model_id TEXT NOT NULL,
