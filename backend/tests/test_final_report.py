@@ -181,8 +181,9 @@ def test_report_list_endpoint_works(tmp_path, monkeypatch):
 
 def test_concise_disease_to_lead_report_quality(tmp_path, monkeypatch):
     from docx import Document
-    
+
     monkeypatch.setattr(final_report_service, "REPORT_DIR", tmp_path / "final_project_reports")
+    monkeypatch.setattr(final_report_service, "get_active_trained_model_info", lambda: {"status": "unavailable"})
     
     # 1. Create a project
     project = client.post("/api/projects/create", json={"title": "EGFR Lead Optimization Project", "project_type": "general_research", "status": "active"}).json()
@@ -728,6 +729,30 @@ def test_final_report_includes_external_validation_metrics(monkeypatch, tmp_path
     )
     init_db()
     with get_connection() as connection:
+        # Older validation history should remain available elsewhere, but not duplicate the final report summary.
+        connection.execute(
+            """
+            INSERT INTO admet_external_validation_runs (
+                model_id, training_run_id, external_dataset_id, task_name, task_type, status,
+                valid_count, invalid_count, metric_summary_json, calibration_summary_json, warnings_json, notes
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "tox_model_1",
+                1,
+                999,
+                "toxicity_concern",
+                "binary_classification",
+                "completed",
+                24,
+                0,
+                json.dumps({"accuracy": 0.6, "balanced_accuracy": 0.55, "precision": 0.5, "recall": 0.4, "specificity": 0.7, "f1": 0.45, "roc_auc": 0.62}),
+                json.dumps({"calibration_status": "available", "calibration_quality": "calibration_poor", "expected_calibration_error": 0.22, "brier_score": 0.31}),
+                json.dumps(["Older validation run."]),
+                "older external validation test",
+            ),
+        )
         connection.execute(
             """
             INSERT INTO admet_external_validation_runs (
@@ -748,7 +773,7 @@ def test_final_report_includes_external_validation_metrics(monkeypatch, tmp_path
                 json.dumps({"accuracy": 0.8, "balanced_accuracy": 0.75, "precision": 0.7, "recall": 0.6, "specificity": 0.9, "f1": 0.65, "roc_auc": 0.82}),
                 json.dumps({"calibration_status": "available", "calibration_quality": "calibration_moderate", "expected_calibration_error": 0.08, "brier_score": 0.19}),
                 json.dumps(["Calibration is dataset-dependent."]),
-                "external validation test",
+                "latest external validation test",
             ),
         )
     project = client.post("/api/projects/create", json={"title": "External Validation Report", "project_type": "disease_screening", "status": "active"}).json()
@@ -765,6 +790,8 @@ def test_final_report_includes_external_validation_metrics(monkeypatch, tmp_path
     assert response.status_code == 200
     report = client.get(response.json()["generated_files"]["json"]).json()
     assert report["external_validation"]["has_external_validation"] is True
+    assert len(report["external_validation"]["validation_details"]) == 1
     detail = report["external_validation"]["validation_details"][0]
     assert detail["metric_summary"]["accuracy"] == 0.8
+    assert detail["notes"] == "latest external validation test"
     assert detail["calibration_summary"]["calibration_quality"] == "calibration_moderate"

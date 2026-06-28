@@ -890,7 +890,12 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
     if has_active_model and active_model.get("model_id"):
         with get_connection() as connection:
             ext_rows = connection.execute(
-                "SELECT * FROM admet_external_validation_runs WHERE model_id = ? ORDER BY id DESC LIMIT 5",
+                """
+                SELECT * FROM admet_external_validation_runs
+                WHERE model_id = ? AND status = 'completed'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
                 (active_model["model_id"],)
             ).fetchall()
             for r in ext_rows:
@@ -903,6 +908,7 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
                     "metric_summary": _json_loads(r["metric_summary_json"], {}),
                     "calibration_summary": _json_loads(r["calibration_summary_json"], {}),
                     "warnings": _json_loads(r["warnings_json"], []),
+                    "notes": r["notes"],
                 })
 
     model_evidence_list = []
