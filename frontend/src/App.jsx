@@ -568,6 +568,7 @@ export default function App() {
   const [localModelValidationLoading, setLocalModelValidationLoading] = useState(false);
   const [systemHealth, setSystemHealth] = useState(null);
   const [releaseHealth, setReleaseHealth] = useState(null);
+  const [systemReadiness, setSystemReadiness] = useState(null);
   const [systemHealthLoading, setSystemHealthLoading] = useState(false);
   const [researchExportTitle, setResearchExportTitle] = useState("");
   const [researchExportNotes, setResearchExportNotes] = useState("");
@@ -966,16 +967,20 @@ export default function App() {
   async function loadSystemHealth() {
     setSystemHealthLoading(true);
     try {
-      const [healthResponse, releaseResponse] = await Promise.all([
+      const [healthResponse, releaseResponse, readinessResponse] = await Promise.all([
         fetch(`${API_BASE}/health`),
         fetch(`${API_BASE}/system/release-health`),
+        fetch(`${API_BASE}/system/readiness`),
       ]);
       const data = await healthResponse.json();
       const releaseData = await releaseResponse.json();
+      const readinessData = await readinessResponse.json();
       if (!healthResponse.ok) throw new Error(data.detail || "Could not load backend health.");
       if (!releaseResponse.ok) throw new Error(releaseData.detail || "Could not load release health.");
+      if (!readinessResponse.ok) throw new Error(readinessData.detail || "Could not load system readiness.");
       setSystemHealth({ reachable: true, ...data });
       setReleaseHealth(releaseData);
+      setSystemReadiness(readinessData);
     } catch (err) {
       setSystemHealth({
         reachable: false,
@@ -984,6 +989,7 @@ export default function App() {
         timestamp: new Date().toISOString(),
       });
       setReleaseHealth(null);
+      setSystemReadiness(null);
     } finally {
       setSystemHealthLoading(false);
     }
@@ -3561,9 +3567,9 @@ export default function App() {
 
   const loadWorkflowDemo = async () => {
     setWorkflowInput({
-      disease_name: "breast cancer (demo)",
-      target_name: "EGFR (demo)",
-      known_compound: "Aspirin",
+      disease_name: "non-small cell lung cancer",
+      target_name: "EGFR",
+      known_compound: "Erlotinib",
       candidate_limit: 5,
       similarity_limit: 5,
       analysis_depth: "quick"
@@ -3593,7 +3599,7 @@ export default function App() {
       { step_id: 7, label: "Final Report", status: "not_started", desc: "Generate, preview, and download comprehensive workspace reports" }
     ]);
 
-    setWorkflowStatus("Demo workflow settings loaded. Click Run Complete Disease-to-Lead Analysis to start.");
+    setWorkflowStatus("Professor demo loaded: NSCLC / EGFR / Erlotinib. Click Run Complete Disease-to-Lead Analysis to start.");
   };
 
   async function runScreening(event) {
@@ -4354,7 +4360,7 @@ export default function App() {
                   onClick={loadWorkflowDemo}
                   disabled={workflowLoading}
                 >
-                  Run Guided Demo
+                  Load NSCLC / EGFR / Erlotinib Demo
                 </button>
                 <button
                   className="secondary-button"
@@ -4396,7 +4402,7 @@ export default function App() {
                 </button>
               </div>
               <div className="disclaimer-scientific" role="note">
-                <p>Computational decision-support tool. Demo data is for software demonstration only and is not experimental or clinical evidence.</p>
+                <p>Computational decision-support tool. The demo is a research-use-only walkthrough and is not experimental, clinical, regulatory, safety, or efficacy evidence.</p>
               </div>
             </div>
           </Section>
@@ -9475,6 +9481,28 @@ export default function App() {
               </div>
               <p className="limitation-label">
                 {releaseHealth?.scientific_notice || "Refresh System Health to load the release readiness summary."}
+              </p>
+            </article>
+            <article className="evidence-panel">
+              <div className="status-row">
+                <h3>System Readiness</h3>
+                <Badge tone={systemReadiness?.overall_status === "Ready" ? "good" : systemReadiness?.overall_status === "Partially Ready" ? "warn" : "bad"}>
+                  {systemReadiness?.overall_status || "Not checked"}
+                </Badge>
+              </div>
+              <div className="metric-grid compact-metrics">
+                <Field label="App version" value={systemReadiness?.app_version || "Not checked"} />
+                <Field label="Active model" value={systemReadiness?.active_model_id || "None"} />
+                <Field label="Model name" value={systemReadiness?.active_model_name || "Not available"} />
+                <Field label="Task" value={systemReadiness?.task_name || "Not available"} />
+                <Field label="Artifact status" value={systemReadiness?.artifact_status || "Not checked"} />
+                <Field label="External validation" value={systemReadiness?.latest_external_validation_status || "Not checked"} />
+                <Field label="Calibration" value={systemReadiness?.calibration_status || "Not checked"} />
+                <Field label="Demo ready" value={systemReadiness?.demo_ready ? "yes" : "no"} />
+              </div>
+              {(systemReadiness?.warnings || []).map((warning) => <p className="warning-text" key={warning}>{warning}</p>)}
+              <p className="limitation-label">
+                Next actions: {(systemReadiness?.recommended_next_actions || ["Refresh System Health"]).join("; ")}
               </p>
             </article>
             {cacheStats ? (
