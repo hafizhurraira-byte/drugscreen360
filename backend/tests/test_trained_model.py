@@ -150,6 +150,8 @@ def test_activation_succeeds_for_valid_synthetic_model(tmp_path, monkeypatch):
     active_info = client.get("/api/admet-training/active-model").json()
     assert active_info["status"] == "available"
     assert active_info["model_id"] == "synthetic_model_1"
+    assert active_info["artifact_dir"]
+    assert active_info["task_name"] in {"AMES", "hERG"}
 
 
 def test_missing_active_model_artifact_is_marked_missing(tmp_path, monkeypatch):
@@ -207,6 +209,7 @@ def test_prediction_works_for_valid_synthetic_model(tmp_path, monkeypatch):
     body = response.json()
     assert body["model_id"] == "synthetic_model_1"
     assert body["prediction_label"] in {"active", "inactive"}
+    assert body["model_evidence_source"] == "trained local model"
     assert body["experimental_model_notice"] == "Experimental local model prediction. Requires external validation."
 
 

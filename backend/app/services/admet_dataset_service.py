@@ -21,6 +21,16 @@ LIMITATIONS = [
     "Labels are imported from the uploaded file only; DrugScreen360 does not invent missing ADMET values.",
     "Curated datasets still require scientific review, assay provenance checks, and licensing review before model training.",
 ]
+ENDPOINT_TASK_ALIASES = {
+    "overall_admet_concern": "overall_admet_concern",
+    "ames_mutagenicity": "Ames mutagenicity",
+    "ames": "Ames mutagenicity",
+    "herg_cardiotoxicity": "hERG cardiotoxicity",
+    "herg": "hERG cardiotoxicity",
+    "hepatotoxicity": "hepatotoxicity",
+    "liver_toxicity": "hepatotoxicity",
+    "toxicity_concern": "toxicity_concern",
+}
 
 
 def _descriptor_dict(smiles: str) -> dict[str, Any]:
@@ -80,6 +90,13 @@ def _read_sdf(content: bytes, label_column: str, smiles_column: str, compound_na
 def _require_column(columns: list[str], column_name: str, label: str) -> None:
     if column_name not in columns:
         raise HTTPException(status_code=422, detail=f"{label} column '{column_name}' was not found in the uploaded dataset.")
+
+
+def _normalize_task_name(task_name: str | None, label_column: str) -> str | None:
+    explicit = (task_name or "").strip()
+    if explicit:
+        return ENDPOINT_TASK_ALIASES.get(explicit.lower(), explicit)
+    return ENDPOINT_TASK_ALIASES.get(label_column.strip().lower(), label_column.strip() or None)
 
 
 def _build_summary(records: list[DatasetRecord]) -> DatasetValidationSummary:
@@ -150,6 +167,7 @@ def upload_admet_dataset(
         _require_column(columns, compound_name_column, "Compound name")
     if len(raw_rows) > MAX_DATASET_ROWS:
         raise HTTPException(status_code=422, detail=f"Too many rows. Maximum ADMET curation limit is {MAX_DATASET_ROWS}.")
+    normalized_task_name = _normalize_task_name(task_name, label_column)
 
     seen: dict[str, int] = {}
     records = []
@@ -194,7 +212,7 @@ def upload_admet_dataset(
 
     summary = _build_summary(records)
     status = "ready_for_review" if summary.valid_molecules else "needs_curation"
-    dataset_id = _save_dataset(dataset_name, task_name, label_column, file_name, status, notes, records, summary)
+    dataset_id = _save_dataset(dataset_name, normalized_task_name, label_column, file_name, status, notes, records, summary)
     if project_id:
         attach_project_item(
             project_id,
@@ -204,7 +222,7 @@ def upload_admet_dataset(
                 item_title=dataset_name,
                 metadata={
                     "workflow_type": "admet_dataset_curation",
-                    "task_name": task_name,
+                    "task_name": normalized_task_name,
                     "label_column": label_column,
                     "record_count": summary.total_rows,
                     "valid_count": summary.valid_molecules,
@@ -217,7 +235,7 @@ def upload_admet_dataset(
     return DatasetUploadResponse(
         dataset_id=dataset_id,
         name=dataset_name,
-        task_name=task_name,
+        task_name=normalized_task_name,
         label_column=label_column,
         original_filename=file_name,
         record_count=summary.total_rows,

@@ -916,6 +916,7 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
                 "model_available": True,
                 "active_model_id": ev.get("active_model_id"),
                 "model_name": ev.get("model_name"),
+                "model_evidence_source": "trained local model",
                 "endpoint_predicted": ev.get("endpoint_predicted"),
                 "prediction": ev.get("prediction_label") or str(ev.get("prediction_value") or "N/A"),
                 "confidence_level": ev.get("confidence_level") or "Medium",
@@ -1083,8 +1084,13 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
         "has_active_model": has_active_model,
         "model_evidence": {
             "model_id": active_model.get("model_id") if has_active_model else None,
+            "model_name": active_model.get("model_name") if has_active_model else None,
+            "task_name": active_model.get("task_name") if has_active_model else None,
             "model_type": active_model.get("model_type") if has_active_model else None,
             "task_type": active_model.get("task_type") if has_active_model else None,
+            "version": active_model.get("version") if has_active_model else None,
+            "artifact_dir": active_model.get("artifact_dir") if has_active_model else None,
+            "evidence_source": "trained local model" if has_active_model else "unavailable",
             "status": active_model.get("status") if has_active_model else "unavailable"
         },
         

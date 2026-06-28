@@ -50,6 +50,27 @@ def test_binary_classification_training_creates_artifacts(tmp_path, monkeypatch)
     assert "prediction" not in body["metrics"]
 
 
+def test_endpoint_label_column_maps_to_real_admet_task(tmp_path, monkeypatch):
+    monkeypatch.setattr(admet_training_service, "TRAINED_DIR", tmp_path / "trained")
+    response = client.post(
+        "/api/admet-datasets/upload",
+        data={
+            "dataset_name": "Ames endpoint dataset",
+            "label_column": "ames_mutagenicity",
+            "smiles_column": "smiles",
+            "compound_name_column": "compound_name",
+        },
+        files={"file": ("ames.csv", _csv(rows=28).replace(b",label", b",ames_mutagenicity"), "text/csv")},
+    )
+    assert response.status_code == 200
+    dataset = response.json()
+    assert dataset["task_name"] == "Ames mutagenicity"
+
+    trained = client.post("/api/admet-training/train", json={"dataset_id": dataset["dataset_id"]})
+    assert trained.status_code == 200
+    assert trained.json()["artifact"]["task_name"] == "Ames mutagenicity"
+
+
 def test_regression_training_works(tmp_path, monkeypatch):
     monkeypatch.setattr(admet_training_service, "TRAINED_DIR", tmp_path / "trained")
     dataset_id = _upload(rows=24, numeric=True)["dataset_id"]

@@ -8,6 +8,7 @@ from app.models.schemas import (
     ScreeningReport,
 )
 from app.services.admet_toxicity_engine import evaluate_admet_toxicity
+from app.services.admet_lead_service import _toxicity_evidence_summary
 from app.services.descriptors import calculate_descriptors
 from app.services.reports import build_docx_report, build_pdf_report
 from app.services.rules import build_decision, evaluate_rules, plan_experimental_tests
@@ -73,6 +74,22 @@ def test_toxicity_evidence_summary_reports_endpoint_concerns_without_fake_predic
     assert summary.toxicity_concern_level in {"Low", "Medium", "High"}
     assert summary.recommended_followup_assay
     assert "no trained toxicity model prediction is inferred" in summary.evidence_note
+
+
+def test_toxicity_evidence_summary_labels_real_trained_model_source_only_when_present():
+    assessment = evaluate_admet_toxicity("O=[N+]([O-])c1ccccc1")
+    summary = _toxicity_evidence_summary(
+        assessment,
+        {
+            "model_available": True,
+            "endpoint_predicted": "Ames mutagenicity",
+            "prediction_label": "positive",
+            "confidence_level": "Medium",
+        },
+    )
+    assert summary["toxicity_evidence_source"] == "trained local model"
+    assert summary["trained_model_endpoint"] == "Ames mutagenicity"
+    assert summary["trained_model_prediction"] == "positive"
 
 
 def test_admet_endpoint_invalid_smiles_returns_clean_error():
