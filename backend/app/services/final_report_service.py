@@ -884,7 +884,7 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
         findings_str += " No candidates were prioritized."
 
     active_model = get_active_trained_model_info()
-    has_active_model = active_model and active_model.get("status") not in ("unavailable", "disabled", "error")
+    has_active_model = active_model and active_model.get("status") == "available"
 
     ext_runs = []
     if has_active_model and active_model.get("model_id"):
@@ -933,7 +933,7 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
             if status in ("disabled", "unavailable") or not active_model or not active_model.get("model_id"):
                 reason = "no_active_model"
                 resolution_reason = "No active trained ADMET model is currently selected in the system."
-            elif status == "error":
+            elif status in ("error", "missing"):
                 reason = "model_file_missing"
                 resolution_reason = f"Active model file is missing or in error: {'; '.join(active_model.get('warnings', []))}"
             else:

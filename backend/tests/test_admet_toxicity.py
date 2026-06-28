@@ -64,6 +64,17 @@ def test_nitro_aromatic_structural_alert():
     assert assessment.structural_alerts.structural_alert_risk == "Medium"
 
 
+def test_toxicity_evidence_summary_reports_endpoint_concerns_without_fake_predictions():
+    assessment = evaluate_admet_toxicity("O=[N+]([O-])c1ccccc1")
+    summary = assessment.toxicity_evidence_summary
+    assert summary.toxicity_evidence_source == "rule-based"
+    assert summary.ames_mutagenicity_concern == "Medium"
+    assert summary.structural_toxicophore_concern == "Medium"
+    assert summary.toxicity_concern_level in {"Low", "Medium", "High"}
+    assert summary.recommended_followup_assay
+    assert "no trained toxicity model prediction is inferred" in summary.evidence_note
+
+
 def test_admet_endpoint_invalid_smiles_returns_clean_error():
     response = client.post("/api/admet/evaluate", json={"smiles": "not-a-valid-smiles"})
     assert response.status_code == 422

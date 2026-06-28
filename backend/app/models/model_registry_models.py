@@ -3,7 +3,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-ModelStatus = Literal["available", "unavailable", "disabled", "error", "mock"]
+ModelStatus = Literal["available", "unavailable", "disabled", "error", "missing", "mock"]
 
 
 class ModelInfo(BaseModel):

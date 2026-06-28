@@ -65,6 +65,17 @@ class OverallAdmetToxScore(BaseModel):
     explanation: str
 
 
+class ToxicityEvidenceSummary(BaseModel):
+    ames_mutagenicity_concern: RiskLevel
+    herg_cardiotoxicity_concern: RiskLevel
+    hepatotoxicity_concern: RiskLevel
+    structural_toxicophore_concern: RiskLevel
+    toxicity_concern_level: RiskLevel
+    toxicity_evidence_source: str
+    recommended_followup_assay: str
+    evidence_note: str
+
+
 class AdmetToxicityAssessment(BaseModel):
     label: str = "Rule-based early screen. Not a validated ADMET/toxicity prediction model."
     absorption: AbsorptionAssessment
@@ -76,5 +87,6 @@ class AdmetToxicityAssessment(BaseModel):
     ames_genotoxicity_status: NotImplementedToxicityAssessment
     hepatotoxicity_status: NotImplementedToxicityAssessment
     overall: OverallAdmetToxScore
+    toxicity_evidence_summary: ToxicityEvidenceSummary
     recommended_followup_tests: list[str]
     limitations: list[str]
