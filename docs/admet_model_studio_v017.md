@@ -70,3 +70,11 @@ The active trained model appears in the final report only when compatible eviden
 - External validation and calibration remain required before scientific use.
 - Applicability-domain and uncertainty checks must be reviewed.
 - Reports are computational decision-support and require qualified scientific review.
+
+## Troubleshooting
+
+- If upload fails, confirm the browser form is sending multipart field `dataset_name`; the backend does not accept `name` for dataset upload.
+- If upload reports a missing column, check the SMILES and label column names exactly match the CSV header.
+- If a Disease-to-Lead report says no active compatible model is available, validate and activate the model in ADMET Model Studio, then click **Refresh Active Model Status**.
+- If the active model disappears after restart, click **Refresh Active Model Status** or select a discovered trained model, validate it, and activate it again.
+- If activation succeeds but external validation/calibration is pending, the report should show trained local model evidence plus honest missing-validation warnings.

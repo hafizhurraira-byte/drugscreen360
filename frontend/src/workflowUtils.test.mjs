@@ -1,5 +1,15 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import {
+  activateAdmetModelApi,
+  buildAdmetDatasetFormData,
+  getActiveAdmetModelApi,
+  getAdmetDatasetSummaryApi,
+  readableApiError,
+  trainAdmetModelApi,
+  uploadAdmetDatasetApi,
+  validateAdmetModelApi,
+} from "./admetStudioApi.js";
 
 import {
   candidateKey,
@@ -88,5 +98,53 @@ const appSource = readFileSync(new URL("./App.jsx", import.meta.url), "utf-8");
 assert.ok(appSource.includes("ADMET Model Studio"));
 assert.ok(appSource.includes("Upload & Curate Dataset"));
 assert.ok(appSource.includes("Test Active Model"));
+assert.ok(appSource.includes("setStudioSelectedModelId(data.artifact?.model_id"));
+assert.ok(appSource.includes("getActiveAdmetModelApi(fetch, API_BASE)"));
+
+const uploadForm = {
+  dataset_name: "ClinTox toxicity concern full dataset",
+  task_name: "toxicity_concern",
+  smiles_column: "smiles",
+  label_column: "toxicity_concern",
+  compound_name_column: "",
+  notes: "real uploaded dataset",
+};
+const uploadData = buildAdmetDatasetFormData(uploadForm, new Blob(["smiles,toxicity_concern\nCCO,0\n"]));
+assert.equal(uploadData.get("dataset_name"), "ClinTox toxicity concern full dataset");
+assert.equal(uploadData.get("name"), null);
+assert.equal(uploadData.get("label_column"), "toxicity_concern");
+
+const calls = [];
+const fetchOk = async (url, options = {}) => {
+  calls.push({ url, options });
+  if (url.endsWith("/admet-datasets/upload")) {
+    assert.equal(options.headers, undefined);
+    assert.equal(options.body.get("dataset_name"), "ClinTox toxicity concern full dataset");
+    return { ok: true, json: async () => ({ dataset_id: 1365, summary: { total_rows: 1 } }) };
+  }
+  if (url.endsWith("/admet-datasets/1365/summary")) return { ok: true, json: async () => ({ valid_molecules: 1 }) };
+  if (url.endsWith("/admet-training/train")) {
+    const body = JSON.parse(options.body);
+    assert.equal(body.dataset_id, 1365);
+    assert.equal(typeof body.dataset_id, "number");
+    assert.equal(body.task_type, "binary_classification");
+    assert.equal(body.model_type, "random_forest");
+    return { ok: true, json: async () => ({ artifact: { model_id: "trained_admet_dataset_1365_run_635" } }) };
+  }
+  if (url.endsWith("/validate")) return { ok: true, json: async () => ({ valid: true }) };
+  if (url.endsWith("/activate")) return { ok: true, json: async () => ({ status: "active" }) };
+  if (url.endsWith("/active-model")) return { ok: true, json: async () => ({ status: "available", model_id: "trained_admet_dataset_1365_run_635" }) };
+  throw new Error(`Unexpected URL ${url}`);
+};
+
+const uploaded = await uploadAdmetDatasetApi(fetchOk, "http://127.0.0.1:8010/api", uploadForm, new Blob(["x"]));
+assert.equal(uploaded.dataset_id, 1365);
+assert.equal((await getAdmetDatasetSummaryApi(fetchOk, "http://127.0.0.1:8010/api", uploaded.dataset_id)).valid_molecules, 1);
+const trained = await trainAdmetModelApi(fetchOk, "http://127.0.0.1:8010/api", { dataset_id: "1365", task_type: "binary_classification", model_type: "random_forest", test_size: 0.2, random_state: 42 });
+assert.equal(trained.artifact.model_id, "trained_admet_dataset_1365_run_635");
+assert.equal((await activateAdmetModelApi(fetchOk, "http://127.0.0.1:8010/api", trained.artifact.model_id)).status, "active");
+assert.equal((await getActiveAdmetModelApi(fetchOk, "http://127.0.0.1:8010/api")).status, "available");
+assert.equal((await validateAdmetModelApi(fetchOk, "http://127.0.0.1:8010/api", trained.artifact.model_id)).valid, true);
+assert.match(readableApiError({ detail: [{ loc: ["body", "dataset_name"], msg: "Field required" }] }, "failed"), /dataset_name: Field required/);
 
 console.log("workflow utils tests passed");

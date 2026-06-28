@@ -20,6 +20,14 @@ import {
 } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  activateAdmetModelApi,
+  getActiveAdmetModelApi,
+  getAdmetDatasetSummaryApi,
+  trainAdmetModelApi,
+  uploadAdmetDatasetApi,
+  validateAdmetModelApi,
+} from "./admetStudioApi";
+import {
   buildProjectReportPayload,
   cacheLabel,
   candidateKey,
@@ -640,7 +648,7 @@ export default function App() {
   const [admetDatasetLoading, setAdmetDatasetLoading] = useState(false);
   const [admetTrainingForm, setAdmetTrainingForm] = useState({
     dataset_id: "",
-    task_type: "auto",
+    task_type: "binary_classification",
     model_type: "random_forest",
     test_size: 0.2,
     random_state: 42,
@@ -660,6 +668,8 @@ export default function App() {
   const [testError, setTestError] = useState("");
   const [trainedModelDetail, setTrainedModelDetail] = useState(null);
   const [studioModelValidation, setStudioModelValidation] = useState(null);
+  const [studioSelectedModelId, setStudioSelectedModelId] = useState("");
+  const [studioError, setStudioError] = useState(null);
 
   const [dashboardSummary, setDashboardSummary] = useState(null);
   const [modelComparison, setModelComparison] = useState([]);
@@ -1548,12 +1558,11 @@ export default function App() {
     setAdmetDatasetSummary(null);
     if (!datasetId) return;
     try {
-      const response = await fetch(`${API_BASE}/admet-datasets/${datasetId}/summary`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Could not load ADMET dataset summary.");
+      const data = await getAdmetDatasetSummaryApi(fetch, API_BASE, datasetId);
       setAdmetDatasetSummary(data);
     } catch (err) {
       setError(err.message);
+      setStudioError(err);
     }
   }
 
@@ -2147,10 +2156,9 @@ export default function App() {
   async function validateTrainedModel(modelId) {
     try {
       setWorkflowStatus(`Validating trained model ${modelId}...`);
-      const response = await fetch(`${API_BASE}/admet-training/models/${modelId}/validate`, { method: "POST" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Validation failed.");
+      const data = await validateAdmetModelApi(fetch, API_BASE, modelId);
       setStudioModelValidation(data);
+      setStudioSelectedModelId(modelId);
       setActiveProjectNotice(`Model validation ${data.valid ? "succeeded" : "failed"} for ${modelId}.`);
       await loadTrainedModels();
       if (activeTrainedModel && activeTrainedModel.model_id === modelId) {
@@ -2158,6 +2166,7 @@ export default function App() {
       }
     } catch (err) {
       setStudioModelValidation({ model_id: modelId, valid: false, errors: [err.message], warnings: [] });
+      setStudioError(err);
     } finally {
       setWorkflowStatus("");
     }
@@ -2180,16 +2189,13 @@ export default function App() {
 
     try {
       setWorkflowStatus(`Activating trained model ${modelId}...`);
-      const response = await fetch(`${API_BASE}/admet-training/models/${modelId}/activate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_id: activeProjectId ? Number(activeProjectId) : null })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Activation failed.");
+      await activateAdmetModelApi(fetch, API_BASE, modelId, activeProjectId);
       setActiveProjectNotice(`Activated model ${modelId} successfully.`);
-      await loadActiveTrainedModel();
+      const active = await getActiveAdmetModelApi(fetch, API_BASE);
+      setActiveTrainedModel(active);
       await loadTrainedModels();
+      await loadActiveModelEvidenceStatus();
+      await loadModelReadiness();
       await loadModelStatus();
       await loadDashboardSummary();
       await loadModelComparison();
@@ -2197,7 +2203,8 @@ export default function App() {
         await loadProjectDetail(selectedProject.id);
       }
     } catch (err) {
-      alert(`Activation error: ${err.message}`);
+      setStudioError(err);
+      setError(err.message);
     } finally {
       setWorkflowStatus("");
     }
@@ -2277,19 +2284,11 @@ export default function App() {
     setAdmetDatasetLoading(true);
     setError("");
     setWorkflowStatus("Curating ADMET dataset...");
-    const formData = new FormData();
-    formData.append("file", admetDatasetFile);
-    Object.entries(admetDatasetForm).forEach(([key, value]) => {
-      if (value !== "") formData.append(key, value);
-    });
-    if (activeProjectId) formData.append("project_id", activeProjectId);
     try {
-      const response = await fetch(`${API_BASE}/admet-datasets/upload`, { method: "POST", body: formData });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "ADMET dataset upload failed.");
+      const data = await uploadAdmetDatasetApi(fetch, API_BASE, admetDatasetForm, admetDatasetFile, activeProjectId);
       setAdmetDatasetResult(data);
-      setAdmetDatasetSummary(data.summary);
       setAdmetTrainingForm((current) => ({ ...current, dataset_id: String(data.dataset_id) }));
+      setAdmetDatasetSummary(await getAdmetDatasetSummaryApi(fetch, API_BASE, data.dataset_id));
       await loadAdmetDatasets();
       if (activeProjectId) {
         setActiveProjectNotice(`Saved ADMET dataset to active project: ${activeProject?.title || `Project #${activeProjectId}`}.`);
@@ -2298,6 +2297,7 @@ export default function App() {
       setWorkflowStatus("ADMET dataset curated. Export ready.");
     } catch (err) {
       setError(err.message);
+      setStudioError(err);
       setWorkflowStatus("");
     } finally {
       setAdmetDatasetLoading(false);
@@ -2320,22 +2320,10 @@ export default function App() {
     setError("");
     setWorkflowStatus("Training experimental baseline ADMET model...");
     try {
-      const response = await fetch(`${API_BASE}/admet-training/train`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          dataset_id: Number(admetTrainingForm.dataset_id),
-          task_type: admetTrainingForm.task_type,
-          model_type: admetTrainingForm.model_type,
-          test_size: Number(admetTrainingForm.test_size),
-          random_state: Number(admetTrainingForm.random_state),
-          notes: admetTrainingForm.notes || null,
-          project_id: activeProjectId ? Number(activeProjectId) : null,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "ADMET model training failed.");
+      const data = await trainAdmetModelApi(fetch, API_BASE, admetTrainingForm, activeProjectId);
       setAdmetTrainingResult(data);
+      setStudioSelectedModelId(data.artifact?.model_id || "");
+      setStudioModelValidation(null);
       await loadAdmetTrainingRuns();
       await loadTrainedModels();
       await loadDashboardSummary();
@@ -2347,6 +2335,7 @@ export default function App() {
       setWorkflowStatus("Experimental ADMET model training complete. Review metrics and model card.");
     } catch (err) {
       setError(err.message);
+      setStudioError(err);
       setWorkflowStatus("");
     } finally {
       setAdmetTrainingLoading(false);
@@ -2356,7 +2345,7 @@ export default function App() {
   function renderAdmetModelStudio() {
     const selectedDataset = admetDatasets.find((dataset) => String(dataset.id) === String(admetTrainingForm.dataset_id));
     const summary = admetDatasetSummary || admetDatasetResult?.summary || null;
-    const modelId = admetTrainingResult?.artifact?.model_id || activeTrainedModel?.model_id || "";
+    const modelId = studioSelectedModelId || admetTrainingResult?.artifact?.model_id || activeTrainedModel?.model_id || "";
     const metrics = admetTrainingResult?.metrics || {};
     const modelCard = admetTrainingResult?.model_card || null;
     const matrix = metrics.confusion_matrix;
@@ -2377,6 +2366,12 @@ export default function App() {
             <SummaryCard label="Validation" value={studioModelValidation?.valid ? "Valid" : studioModelValidation ? "Invalid" : "Pending"} icon={CheckCircle2} />
             <SummaryCard label="Active model" value={activeTrainedModel?.status === "available" ? "Available" : "Not active"} icon={Target} />
           </div>
+          {studioError && (
+            <details className="empty-state-card" open>
+              <summary><strong>Studio error:</strong> {studioError.message}</summary>
+              <pre className="smiles-cell">{JSON.stringify(studioError.raw || { message: studioError.message }, null, 2)}</pre>
+            </details>
+          )}
         </Section>
 
         <Section title="Step 1 - Dataset Upload / Selection" icon={FileJson} wide>
@@ -2538,6 +2533,17 @@ export default function App() {
         </Section>
 
         <Section title="Step 5 - Validate Model" icon={CheckCircle2} wide>
+          <label>
+            Use existing trained model
+            <select value={studioSelectedModelId} onChange={(event) => setStudioSelectedModelId(event.target.value)}>
+              <option value="">Use latest trained or active model</option>
+              {trainedModels.map((model) => (
+                <option key={model.model_id} value={model.model_id}>
+                  {model.model_id} - {model.task_name || "task not set"} - {model.status}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="candidate-actions left-actions">
             <button disabled={!modelId} onClick={() => validateTrainedModel(modelId)}>Validate Current Model</button>
             <button type="button" className="secondary-button" onClick={loadTrainedModels}>Refresh Discovered Models</button>
@@ -2574,11 +2580,12 @@ export default function App() {
               <Field label="artifact_dir" value={activeTrainedModel.artifact_dir} />
               <Field label="External validation" value={activeModelEvidenceStatus?.validation_status || "not_validated"} />
               <Field label="Calibration" value={activeModelEvidenceStatus?.calibration_status || "uncalibrated"} />
+              <Field label="Warnings" value={(activeTrainedModel.warnings || []).join("; ") || "None"} />
             </div>
           ) : (
             <div className="empty-state-card">
-              <h3>No active compatible trained model is available.</h3>
-              <p>Upload/curate a dataset, train a model, validate it, then activate it.</p>
+              <h3>No active trained ADMET model is selected.</h3>
+              <p>Validate and activate a trained model before running Disease-to-Lead.</p>
               {(activeTrainedModel?.warnings || []).map((item) => <p className="warning-text" key={item}>{item}</p>)}
             </div>
           )}
