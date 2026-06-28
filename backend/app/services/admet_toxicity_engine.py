@@ -1,4 +1,4 @@
-from app.models.admet_models import AdmetToxicityAssessment, OverallAdmetToxScore
+from app.models.admet_models import AdmetToxicityAssessment, OverallAdmetToxScore, ToxicityEvidenceSummary
 from app.models.schemas import DescriptorSet
 from app.services.admet_rules import assess_absorption, assess_bbb_cns, assess_metabolism, assess_solubility
 from app.services.descriptors import calculate_descriptors, parse_smiles
@@ -48,6 +48,7 @@ def evaluate_admet_toxicity(smiles: str, descriptors: DescriptorSet | None = Non
     total = min(100, admet_points + tox_points + missing_uncertainty)
     concern = "High" if total >= 65 else "Medium" if total >= 35 else "Low"
     confidence = "Medium" if total < 65 and structural.structural_alert_risk == "Low" else "Low"
+    endpoint_concern = "High" if structural.structural_alert_risk == "High" else "Medium" if structural.structural_alert_risk == "Medium" else "Low"
 
     followups = _unique(
         absorption.recommended_followups
@@ -77,6 +78,19 @@ def evaluate_admet_toxicity(smiles: str, descriptors: DescriptorSet | None = Non
             explanation=(
                 "Transparent score from descriptor ADMET flags, broad structural alerts, and uncertainty "
                 "because CYP, hERG, Ames/genotoxicity, and hepatotoxicity models are not implemented."
+            ),
+        ),
+        toxicity_evidence_summary=ToxicityEvidenceSummary(
+            ames_mutagenicity_concern=endpoint_concern,
+            herg_cardiotoxicity_concern="Low" if d.molecular_weight < 450 and d.logp < 4 else "Medium",
+            hepatotoxicity_concern="Medium" if d.logp >= 4 or structural.structural_alert_risk != "Low" else "Low",
+            structural_toxicophore_concern=structural.structural_alert_risk,
+            toxicity_concern_level=concern,
+            toxicity_evidence_source="rule-based",
+            recommended_followup_assay=followups[0] if followups else "Qualified toxicity assay panel",
+            evidence_note=(
+                "Ames, hERG, and hepatotoxicity concerns are rule-based triage or unavailable-model status only; "
+                "no trained toxicity model prediction is inferred."
             ),
         ),
         recommended_followup_tests=followups,

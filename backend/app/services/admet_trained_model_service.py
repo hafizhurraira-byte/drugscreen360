@@ -272,9 +272,12 @@ def get_active_trained_model_info() -> dict[str, Any]:
     model_summary = next((m for m in models if m["model_id"] == model_id), None)
     if not model_summary:
         return {
-            "status": "error",
+            "status": "missing",
             "model_id": model_id,
-            "warnings": [f"Active model directory not found for model ID '{model_id}'."]
+            "warnings": [
+                f"Active model directory not found for model ID '{model_id}'.",
+                "Clear or reactivate a valid trained model.",
+            ],
         }
         
     validation = validate_trained_model(model_id)
@@ -283,6 +286,7 @@ def get_active_trained_model_info() -> dict[str, Any]:
             "status": "error",
             "model_id": model_id,
             "model_name": model_summary["model_name"],
+            "artifact_dir": model_summary.get("artifact_dir"),
             "warnings": validation["errors"]
         }
         
@@ -290,6 +294,7 @@ def get_active_trained_model_info() -> dict[str, Any]:
         "status": "available",
         "model_id": model_id,
         "model_name": model_summary["model_name"],
+        "artifact_dir": model_summary.get("artifact_dir"),
         "version": model_summary.get("version") or "unknown",
         "task_name": model_summary.get("task_name"),
         "task_type": model_summary.get("task_type"),

@@ -108,14 +108,16 @@ def get_model_evidence_readiness():
     
     # 3. Active model check
     active_info = get_active_trained_model_info()
-    model_active = active_info.get("status") in ("available", "error")
+    model_active = active_info.get("status") == "available"
     
     model_artifact_exists = False
     model_compatible = False
     external_validation_available = False
     calibration_available = False
     
-    if model_active and active_info.get("model_id"):
+    if active_info.get("status") == "missing":
+        model_id = active_info.get("model_id")
+    elif model_active and active_info.get("model_id"):
         model_id = active_info["model_id"]
         # Find this model summary
         summary = next((m for m in trained_models if m["model_id"] == model_id), None)
@@ -131,7 +133,10 @@ def get_model_evidence_readiness():
                 calibration_available = True
                 
     # Determine readiness status
-    if model_active and model_compatible and external_validation_available and calibration_available:
+    if active_info.get("status") == "missing":
+        status = "Not ready"
+        next_action = "Clear or reactivate a valid trained model"
+    elif model_active and model_compatible and external_validation_available and calibration_available:
         status = "Ready"
         next_action = "Rerun prediction"
     elif model_active and model_compatible:

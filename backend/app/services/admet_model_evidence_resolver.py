@@ -79,7 +79,7 @@ def resolve_model_evidence(
         result["failure_reason"] = "no_active_model"
         return result
 
-    if status == "error":
+    if status in {"error", "missing"}:
         result["resolution_reason"] = f"Active model is in error state: {'; '.join(active_info.get('warnings', []))}"
         result["failure_reason"] = "model_file_missing"
         return result

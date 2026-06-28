@@ -206,3 +206,19 @@ def test_readiness_wizard(monkeypatch):
     body = response.json()
     assert "status" in body
     assert "next_action" in body
+
+
+def test_readiness_recommends_clear_or_reactivate_when_active_model_missing(monkeypatch):
+    monkeypatch.setattr(
+        "app.routers.admet_model_evidence.get_active_trained_model_info",
+        lambda: {"status": "missing", "model_id": "synthetic_model_1", "warnings": ["missing artifact"]},
+    )
+    monkeypatch.setattr("app.routers.admet_model_evidence.discover_trained_models", lambda: [])
+
+    response = client.get("/api/admet-model-evidence/readiness")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "Not ready"
+    assert body["model_active"] is False
+    assert body["model_artifact_exists"] is False
+    assert body["next_action"] == "Clear or reactivate a valid trained model"

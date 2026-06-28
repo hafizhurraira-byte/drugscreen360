@@ -152,6 +152,20 @@ def test_activation_succeeds_for_valid_synthetic_model(tmp_path, monkeypatch):
     assert active_info["model_id"] == "synthetic_model_1"
 
 
+def test_missing_active_model_artifact_is_marked_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(admet_trained_model_service, "TRAINED_DIR", tmp_path / "trained")
+    create_synthetic_model_files(tmp_path / "trained" / "synthetic_model_1")
+    client.post("/api/admet-training/models/synthetic_model_1/activate")
+    for child in (tmp_path / "trained" / "synthetic_model_1").iterdir():
+        child.unlink()
+    (tmp_path / "trained" / "synthetic_model_1").rmdir()
+
+    active_info = client.get("/api/admet-training/active-model").json()
+    assert active_info["status"] == "missing"
+    assert active_info["model_id"] == "synthetic_model_1"
+    assert any("Clear or reactivate a valid trained model" in warning for warning in active_info["warnings"])
+
+
 def test_deactivate_works(tmp_path, monkeypatch):
     monkeypatch.setattr(admet_trained_model_service, "TRAINED_DIR", tmp_path / "trained")
     create_synthetic_model_files(tmp_path / "trained" / "synthetic_model_1")

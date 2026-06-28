@@ -631,3 +631,76 @@ def test_disease_to_lead_report_uses_current_run_candidate_snapshot(tmp_path, mo
     assert "CHEMBL93208" not in serialized
     assert report["workflow_input_table"]["user_entered_target"] == "EGFR"
     assert report["top_candidate_table"][0]["compound_name"] == "Erlotinib"
+
+
+def test_final_report_includes_available_trained_model_evidence(tmp_path, monkeypatch):
+    monkeypatch.setattr(final_report_service, "REPORT_DIR", tmp_path / "final_project_reports")
+    monkeypatch.setattr(
+        final_report_service,
+        "get_active_trained_model_info",
+        lambda: {
+            "status": "available",
+            "model_id": "ames_model_1",
+            "model_name": "Ames RF Model",
+            "task_name": "AMES",
+            "task_type": "binary_classification",
+        },
+    )
+    project = client.post(
+        "/api/projects/create",
+        json={"title": "Model Evidence Project", "project_type": "disease_screening", "status": "active"},
+    ).json()
+    run_id = _save_disease_to_lead_snapshot(
+        project["id"],
+        "breast cancer",
+        "EGFR",
+        "Erlotinib",
+        [
+            {
+                "compound_name": "Erlotinib",
+                "compound_id": "CHEMBL553",
+                "smiles": "COCCOc1cc2ncnc(Nc3cccc(Cl)c3)c2cc1OCCOC",
+                "total_score": 91.0,
+                "priority_label": "high_priority_for_review",
+                "trained_model_prediction": {
+                    "model_available": True,
+                    "active_model_id": "ames_model_1",
+                    "model_name": "Ames RF Model",
+                    "endpoint_predicted": "AMES",
+                    "prediction_label": "inactive",
+                    "confidence_level": "High",
+                    "uncertainty_score": 0.1,
+                    "applicability_domain_status": "inside_domain",
+                    "external_validation_status": "not_validated",
+                    "evidence_strength": "strong_model_evidence",
+                    "missing_evidence": ["external validation"],
+                },
+                "positive_factors": ["Active trained-model prediction was available."],
+                "risk_factors": [],
+                "missing_evidence": ["external validation"],
+            }
+        ],
+    )
+
+    response = client.post(
+        "/api/final-report/create",
+        json={
+            "project_id": project["id"],
+            "report_mode": "concise_disease_to_lead_report",
+            "disease_to_lead_run_id": run_id,
+            "disease_name": "breast cancer",
+            "user_entered_target": "EGFR",
+            "resolved_target": "EGFR",
+            "known_compound": "Erlotinib",
+            "formats": ["json"],
+        },
+    )
+    assert response.status_code == 200
+    report = client.get(response.json()["generated_files"]["json"]).json()
+    assert report["has_active_model"] is True
+    assert report["model_evidence"]["model_id"] == "ames_model_1"
+    evidence = report["model_evidence_list"][0]
+    assert evidence["active_model_id"] == "ames_model_1"
+    assert evidence["endpoint_predicted"] == "AMES"
+    assert evidence["prediction"] == "inactive"
+    assert evidence["applicability_domain_status"] == "inside_domain"
