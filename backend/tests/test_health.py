@@ -16,7 +16,7 @@ def test_health_endpoint_works():
 def test_health_includes_version():
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json()["version"] == "0.16.0"
+    assert response.json()["version"] == "0.17.1"
 
 
 def test_health_includes_model_registry_summary():
