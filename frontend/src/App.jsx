@@ -627,14 +627,15 @@ export default function App() {
   const [selectedUploadDetail, setSelectedUploadDetail] = useState(null);
   const [admetDatasetFile, setAdmetDatasetFile] = useState(null);
   const [admetDatasetForm, setAdmetDatasetForm] = useState({
-    dataset_name: "Example ADMET dataset",
-    task_name: "hERG",
+    dataset_name: "ClinTox toxicity concern full dataset",
+    task_name: "toxicity_concern",
     smiles_column: "smiles",
-    label_column: "label",
-    compound_name_column: "compound_name",
-    notes: "",
+    label_column: "toxicity_concern",
+    compound_name_column: "",
+    notes: "Authentic ClinTox CT_TOX mapped to toxicity_concern for trained local ADMET/toxicity model.",
   });
   const [admetDatasetResult, setAdmetDatasetResult] = useState(null);
+  const [admetDatasetSummary, setAdmetDatasetSummary] = useState(null);
   const [admetDatasets, setAdmetDatasets] = useState([]);
   const [admetDatasetLoading, setAdmetDatasetLoading] = useState(false);
   const [admetTrainingForm, setAdmetTrainingForm] = useState({
@@ -653,11 +654,12 @@ export default function App() {
   const [activeTrainedModel, setActiveTrainedModel] = useState(null);
   const [activeModelEvidenceStatus, setActiveModelEvidenceStatus] = useState(null);
   const [modelReadiness, setModelReadiness] = useState(null);
-  const [testSmiles, setTestSmiles] = useState("");
+  const [testSmiles, setTestSmiles] = useState("C#Cc1cccc(Nc2ncnc3cc(OCCOC)c(OCCOC)cc23)c1");
   const [testPrediction, setTestPrediction] = useState(null);
   const [testLoading, setTestLoading] = useState(false);
   const [testError, setTestError] = useState("");
   const [trainedModelDetail, setTrainedModelDetail] = useState(null);
+  const [studioModelValidation, setStudioModelValidation] = useState(null);
 
   const [dashboardSummary, setDashboardSummary] = useState(null);
   const [modelComparison, setModelComparison] = useState([]);
@@ -1534,6 +1536,22 @@ export default function App() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Could not load ADMET datasets.");
       setAdmetDatasets(data);
+      return data;
+    } catch (err) {
+      setError(err.message);
+      return [];
+    }
+  }
+
+  async function selectAdmetDataset(datasetId) {
+    setAdmetTrainingForm((current) => ({ ...current, dataset_id: String(datasetId || "") }));
+    setAdmetDatasetSummary(null);
+    if (!datasetId) return;
+    try {
+      const response = await fetch(`${API_BASE}/admet-datasets/${datasetId}/summary`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not load ADMET dataset summary.");
+      setAdmetDatasetSummary(data);
     } catch (err) {
       setError(err.message);
     }
@@ -2132,13 +2150,14 @@ export default function App() {
       const response = await fetch(`${API_BASE}/admet-training/models/${modelId}/validate`, { method: "POST" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Validation failed.");
-      alert(`Model validation: ${data.valid ? "SUCCESS" : "FAILED"}\nErrors: ${data.errors.join(", ") || "None"}`);
+      setStudioModelValidation(data);
+      setActiveProjectNotice(`Model validation ${data.valid ? "succeeded" : "failed"} for ${modelId}.`);
       await loadTrainedModels();
       if (activeTrainedModel && activeTrainedModel.model_id === modelId) {
         await loadActiveTrainedModel();
       }
     } catch (err) {
-      alert(`Validation error: ${err.message}`);
+      setStudioModelValidation({ model_id: modelId, valid: false, errors: [err.message], warnings: [] });
     } finally {
       setWorkflowStatus("");
     }
@@ -2269,6 +2288,7 @@ export default function App() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "ADMET dataset upload failed.");
       setAdmetDatasetResult(data);
+      setAdmetDatasetSummary(data.summary);
       setAdmetTrainingForm((current) => ({ ...current, dataset_id: String(data.dataset_id) }));
       await loadAdmetDatasets();
       if (activeProjectId) {
@@ -2331,6 +2351,279 @@ export default function App() {
     } finally {
       setAdmetTrainingLoading(false);
     }
+  }
+
+  function renderAdmetModelStudio() {
+    const selectedDataset = admetDatasets.find((dataset) => String(dataset.id) === String(admetTrainingForm.dataset_id));
+    const summary = admetDatasetSummary || admetDatasetResult?.summary || null;
+    const modelId = admetTrainingResult?.artifact?.model_id || activeTrainedModel?.model_id || "";
+    const metrics = admetTrainingResult?.metrics || {};
+    const modelCard = admetTrainingResult?.model_card || null;
+    const matrix = metrics.confusion_matrix;
+
+    return (
+      <div className="finder-dashboard">
+        <Section title="ADMET Model Studio" icon={ShieldCheck} wide>
+          <div className="disclaimer compact-disclaimer">
+            <AlertTriangle size={18} aria-hidden="true" />
+            <p>
+              Guided local model workflow for computational decision-support only. Models are experimental baseline models,
+              dataset-dependent, and require external validation/calibration before scientific use.
+            </p>
+          </div>
+          <div className="summary-grid">
+            <SummaryCard label="Dataset" value={admetTrainingForm.dataset_id ? `#${admetTrainingForm.dataset_id}` : "Select or upload"} icon={FileJson} />
+            <SummaryCard label="Training" value={admetTrainingResult ? "Completed" : "Pending"} icon={History} />
+            <SummaryCard label="Validation" value={studioModelValidation?.valid ? "Valid" : studioModelValidation ? "Invalid" : "Pending"} icon={CheckCircle2} />
+            <SummaryCard label="Active model" value={activeTrainedModel?.status === "available" ? "Available" : "Not active"} icon={Target} />
+          </div>
+        </Section>
+
+        <Section title="Step 1 - Dataset Upload / Selection" icon={FileJson} wide>
+          <form className="finder-search" onSubmit={uploadAdmetDataset}>
+            <label>
+              CSV/TSV/TXT/SDF dataset
+              <input type="file" accept=".csv,.tsv,.txt,.sdf" onChange={(event) => setAdmetDatasetFile(event.target.files?.[0] || null)} />
+            </label>
+            <label>
+              Dataset name
+              <input value={admetDatasetForm.dataset_name} onChange={(event) => setAdmetDatasetForm((current) => ({ ...current, dataset_name: event.target.value }))} required />
+            </label>
+            <label>
+              Task name
+              <input value={admetDatasetForm.task_name} onChange={(event) => setAdmetDatasetForm((current) => ({ ...current, task_name: event.target.value }))} placeholder="toxicity_concern" />
+            </label>
+            <label>
+              SMILES column
+              <input value={admetDatasetForm.smiles_column} onChange={(event) => setAdmetDatasetForm((current) => ({ ...current, smiles_column: event.target.value }))} required />
+            </label>
+            <label>
+              Label column
+              <input value={admetDatasetForm.label_column} onChange={(event) => setAdmetDatasetForm((current) => ({ ...current, label_column: event.target.value }))} required />
+            </label>
+            <label>
+              Compound name column (optional)
+              <input value={admetDatasetForm.compound_name_column} onChange={(event) => setAdmetDatasetForm((current) => ({ ...current, compound_name_column: event.target.value }))} placeholder="Leave empty if absent" />
+            </label>
+            <label>
+              Notes
+              <textarea rows={3} value={admetDatasetForm.notes} onChange={(event) => setAdmetDatasetForm((current) => ({ ...current, notes: event.target.value }))} />
+            </label>
+            <button type="submit" disabled={admetDatasetLoading || !admetDatasetFile}>{admetDatasetLoading ? "Uploading..." : "Upload & Curate Dataset"}</button>
+            <button type="button" className="secondary-button" onClick={loadAdmetDatasets}>Refresh Existing Datasets</button>
+          </form>
+
+          <div className="finder-search" style={{ marginTop: 12 }}>
+            <label>
+              Or select existing dataset
+              <select value={admetTrainingForm.dataset_id} onChange={(event) => selectAdmetDataset(event.target.value)}>
+                <option value="">Select existing dataset</option>
+                {admetDatasets.map((dataset) => (
+                  <option key={dataset.id} value={dataset.id}>
+                    #{dataset.id} {dataset.name} - {dataset.task_name || "task not set"} - {dataset.valid_count} valid
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Field label="Selected dataset_id" value={admetTrainingForm.dataset_id || "Not selected"} />
+          </div>
+        </Section>
+
+        <Section title="Step 2 - Dataset Validation Summary" icon={CheckCircle2} wide>
+          {summary ? (
+            <>
+              <div className="summary-grid">
+                <SummaryCard label="Status" value={summary.valid_molecules >= 20 && summary.invalid_smiles === 0 ? "Ready" : summary.valid_molecules >= 20 ? "Warning" : "Needs review"} icon={CheckCircle2} />
+                <SummaryCard label="Total rows" value={summary.total_rows} icon={ClipboardList} />
+                <SummaryCard label="Valid molecules" value={summary.valid_molecules} icon={CheckCircle2} />
+                <SummaryCard label="Invalid SMILES" value={summary.invalid_smiles} icon={AlertTriangle} />
+              </div>
+              <div className="metric-grid compact-metrics">
+                <Field label="Missing labels" value={summary.missing_labels} />
+                <Field label="Duplicate molecules" value={summary.duplicate_molecules} />
+                <Field label="Descriptor success" value={summary.descriptor_success_count} />
+                <Field label="Descriptor failures" value={summary.descriptor_failure_count} />
+                <Field label="Label distribution" value={Object.entries(summary.label_distribution || {}).map(([label, count]) => `${label}: ${count}`).join(", ") || "Not available"} />
+              </div>
+              {(summary.warnings || []).map((warning) => <p className="warning-text" key={warning}>{warning}</p>)}
+              {(summary.recommended_next_steps || []).map((step) => <p className="limitation-label" key={step}>{step}</p>)}
+            </>
+          ) : (
+            <div className="empty-state-card">
+              <h3>No dataset selected yet.</h3>
+              <p>Upload a labelled dataset or select an existing curated dataset to review readiness before training.</p>
+            </div>
+          )}
+        </Section>
+
+        <Section title="Step 3 - Train Local Model" icon={ShieldCheck} wide>
+          <form className="finder-search" onSubmit={trainAdmetModel}>
+            <label>
+              Task type
+              <select value={admetTrainingForm.task_type} onChange={(event) => setAdmetTrainingForm((current) => ({ ...current, task_type: event.target.value }))}>
+                <option value="auto">auto</option>
+                <option value="binary_classification">binary classification</option>
+                <option value="regression">regression</option>
+              </select>
+            </label>
+            <label>
+              Model type
+              <select value={admetTrainingForm.model_type} onChange={(event) => setAdmetTrainingForm((current) => ({ ...current, model_type: event.target.value }))}>
+                <option value="random_forest">random forest</option>
+                <option value="logistic_regression">logistic regression</option>
+                <option value="random_forest_regressor">random forest regressor</option>
+              </select>
+            </label>
+            <label>
+              Test size
+              <input type="number" min="0.1" max="0.5" step="0.05" value={admetTrainingForm.test_size} onChange={(event) => setAdmetTrainingForm((current) => ({ ...current, test_size: event.target.value }))} />
+            </label>
+            <label>
+              Random state
+              <input type="number" value={admetTrainingForm.random_state} onChange={(event) => setAdmetTrainingForm((current) => ({ ...current, random_state: event.target.value }))} />
+            </label>
+            <label>
+              Training notes
+              <textarea rows={3} value={admetTrainingForm.notes} onChange={(event) => setAdmetTrainingForm((current) => ({ ...current, notes: event.target.value }))} placeholder="ClinTox CT_TOX mapped to toxicity_concern..." />
+            </label>
+            <button type="submit" disabled={admetTrainingLoading || !admetTrainingForm.dataset_id}>
+              {admetTrainingLoading ? "Training..." : "Train Local Model"}
+            </button>
+          </form>
+          {selectedDataset && <p className="limitation-label">Training from dataset #{selectedDataset.id}: {selectedDataset.name}. Invalid rows are skipped by the backend; labels are not invented.</p>}
+          {admetTrainingResult && (
+            <div className="metric-grid compact-metrics">
+              <Field label="training_run_id" value={admetTrainingResult.training_run_id} />
+              <Field label="Status" value={admetTrainingResult.status} />
+              <Field label="Train / test count" value={`${admetTrainingResult.train_count} / ${admetTrainingResult.test_count}`} />
+              <Field label="Model ID" value={admetTrainingResult.artifact?.model_id} />
+              <Field label="Model name" value={admetTrainingResult.artifact?.model_name} />
+              <Field label="Version" value={admetTrainingResult.artifact?.version} />
+              <Field label="Artifact path" value={admetTrainingResult.artifact?.artifact_path} />
+            </div>
+          )}
+        </Section>
+
+        <Section title="Step 4 - Metrics and Model Card" icon={ClipboardList} wide>
+          {admetTrainingResult ? (
+            <>
+              <div className="metric-grid compact-metrics">
+                {["accuracy", "balanced_accuracy", "precision", "recall", "f1", "roc_auc", "mae", "rmse", "r2"].map((key) => (
+                  metrics[key] !== undefined ? <Field key={key} label={key} value={Array.isArray(metrics[key]) ? JSON.stringify(metrics[key]) : metrics[key]} /> : null
+                ))}
+              </div>
+              {matrix && <Field label="Confusion matrix" value={JSON.stringify(matrix)} />}
+              {typeof metrics.recall === "number" && metrics.recall < 0.6 && <p className="warning-text">Recall is low; review class imbalance and external validation before relying on this model.</p>}
+              {modelCard && (
+                <article className="evidence-panel">
+                  <h3>Model card</h3>
+                  <div className="metric-grid compact-metrics">
+                    <Field label="Dataset" value={modelCard.dataset_name} />
+                    <Field label="Task" value={modelCard.task_name} />
+                    <Field label="Task type" value={modelCard.task_type} />
+                    <Field label="Model type" value={modelCard.model_type} />
+                    <Field label="Features" value={(modelCard.features_used || []).join(", ")} />
+                    <Field label="Split method" value={modelCard.split_method} />
+                    <Field label="Intended use" value={modelCard.intended_use} />
+                    <Field label="Not intended for" value={(modelCard.not_intended_for || []).join(", ")} />
+                    <Field label="External validation required" value={String(modelCard.external_validation_required)} />
+                  </div>
+                  {(modelCard.limitations || []).map((item) => <p className="limitation-label" key={item}>{item}</p>)}
+                </article>
+              )}
+            </>
+          ) : (
+            <p className="limitation-label">Train a model to review metrics and model card details.</p>
+          )}
+        </Section>
+
+        <Section title="Step 5 - Validate Model" icon={CheckCircle2} wide>
+          <div className="candidate-actions left-actions">
+            <button disabled={!modelId} onClick={() => validateTrainedModel(modelId)}>Validate Current Model</button>
+            <button type="button" className="secondary-button" onClick={loadTrainedModels}>Refresh Discovered Models</button>
+          </div>
+          {studioModelValidation && (
+            <article className="evidence-panel">
+              <Field label="Model ID" value={studioModelValidation.model_id} />
+              <Field label="Valid" value={String(studioModelValidation.valid)} />
+              {(studioModelValidation.errors || []).map((item) => <p className="warning-text" key={item}>{item}</p>)}
+              {(studioModelValidation.warnings || []).map((item) => <p className="limitation-label" key={item}>{item}</p>)}
+            </article>
+          )}
+        </Section>
+
+        <Section title="Step 6 - Activate Model" icon={Target} wide>
+          <div className="candidate-actions left-actions">
+            <button disabled={!modelId || studioModelValidation?.valid === false} onClick={() => activateTrainedModel(modelId)}>Activate Current Model</button>
+            <button className="secondary-button" onClick={deactivateActiveTrainedModel}>Deactivate Active Model</button>
+          </div>
+          <p className="limitation-label">Activation does not validate clinical usefulness. It only selects a local trained artifact for computational prediction.</p>
+        </Section>
+
+        <Section title="Step 7 - Active Model Status" icon={ShieldCheck} wide>
+          <button className="secondary-button" onClick={loadActiveTrainedModel}>Refresh Active Model Status</button>
+          {activeTrainedModel?.status === "available" ? (
+            <div className="metric-grid compact-metrics">
+              <Field label="Status" value={activeTrainedModel.status} />
+              <Field label="model_id" value={activeTrainedModel.model_id} />
+              <Field label="model_name" value={activeTrainedModel.model_name} />
+              <Field label="version" value={activeTrainedModel.version} />
+              <Field label="task_name" value={activeTrainedModel.task_name} />
+              <Field label="task_type" value={activeTrainedModel.task_type} />
+              <Field label="model_type" value={activeTrainedModel.model_type} />
+              <Field label="artifact_dir" value={activeTrainedModel.artifact_dir} />
+              <Field label="External validation" value={activeModelEvidenceStatus?.validation_status || "not_validated"} />
+              <Field label="Calibration" value={activeModelEvidenceStatus?.calibration_status || "uncalibrated"} />
+            </div>
+          ) : (
+            <div className="empty-state-card">
+              <h3>No active compatible trained model is available.</h3>
+              <p>Upload/curate a dataset, train a model, validate it, then activate it.</p>
+              {(activeTrainedModel?.warnings || []).map((item) => <p className="warning-text" key={item}>{item}</p>)}
+            </div>
+          )}
+        </Section>
+
+        <Section title="Step 8 - Test Active Model" icon={Beaker} wide>
+          <form className="finder-search" onSubmit={testTrainedModelPrediction}>
+            <label>
+              Example: Erlotinib SMILES
+              <input value={testSmiles} onChange={(event) => setTestSmiles(event.target.value)} placeholder="C#Cc1cccc(Nc2ncnc3cc(OCCOC)c(OCCOC)cc23)c1" />
+            </label>
+            <button type="submit" disabled={testLoading || !testSmiles.trim()}>{testLoading ? "Predicting..." : "Test Active Model"}</button>
+          </form>
+          {testError && <p className="warning-text">{testError}</p>}
+          {testPrediction && (
+            <div className="metric-grid compact-metrics">
+              <Field label="Model" value={testPrediction.model_name} />
+              <Field label="Task" value={testPrediction.task_name} />
+              <Field label="Prediction" value={testPrediction.prediction_label ?? testPrediction.prediction_value} />
+              <Field label="Probability / score" value={testPrediction.prediction_score ?? "Not available"} />
+              <Field label="Domain status" value={testPrediction.domain_status || "Not available"} />
+              <Field label="Uncertainty" value={testPrediction.uncertainty_level || "Not available"} />
+              <Field label="Evidence source" value={testPrediction.model_evidence_source || "trained local model"} />
+            </div>
+          )}
+        </Section>
+
+        <Section title="Step 9 - Report Guidance" icon={FileText} wide>
+          <p className="limitation-label">
+            Now run Disease-to-Lead and generate a final report. The active trained model will be included in the Model Evidence & Prediction Confidence section when compatible.
+          </p>
+          <div className="metric-grid compact-metrics">
+            <Field label="Disease" value="non-small cell lung cancer" />
+            <Field label="Target" value="EGFR" />
+            <Field label="Known compound" value="Erlotinib" />
+          </div>
+          <button onClick={() => {
+            setWorkflowInput((current) => ({ ...current, disease_name: "non-small cell lung cancer", target_name: "EGFR", known_compound: "Erlotinib" }));
+            setActiveView("disease-to-lead");
+          }}>
+            Open Disease-to-Lead Workflow
+          </button>
+        </Section>
+      </div>
+    );
   }
 
   // Helper to update stepper step status
@@ -4942,9 +5235,9 @@ export default function App() {
           Projects
         </button>
         <button
-          className={["examples", "screening", "finder", "similarity", "validation", "batch-upload", "admet-data", "disease", "system"].includes(activeView) ? "tab-active" : ""}
+          className={["examples", "screening", "finder", "similarity", "validation", "batch-upload", "admet-studio", "admet-data", "disease", "system"].includes(activeView) ? "tab-active" : ""}
           onClick={() => {
-            if (!["examples", "screening", "finder", "similarity", "validation", "batch-upload", "admet-data", "disease", "system"].includes(activeView)) {
+            if (!["examples", "screening", "finder", "similarity", "validation", "batch-upload", "admet-studio", "admet-data", "disease", "system"].includes(activeView)) {
               setActiveView("examples");
             }
           }}
@@ -4955,7 +5248,7 @@ export default function App() {
       </nav>
 
       {/* Sub tabs for Advanced Tools if any of those views are active */}
-      {["examples", "screening", "finder", "similarity", "validation", "batch-upload", "admet-data", "disease", "system"].includes(activeView) && (
+      {["examples", "screening", "finder", "similarity", "validation", "batch-upload", "admet-studio", "admet-data", "disease", "system"].includes(activeView) && (
         <div className="sub-tabs" role="navigation" aria-label="Advanced Tools">
           <button className={activeView === "screening" ? "tab-active" : ""} onClick={() => setActiveView("screening")}>
             <FlaskConical size={14} aria-hidden="true" />
@@ -4976,6 +5269,10 @@ export default function App() {
           <button className={activeView === "batch-upload" ? "tab-active" : ""} onClick={() => setActiveView("batch-upload")}>
             <Download size={14} aria-hidden="true" />
             Batch Upload
+          </button>
+          <button className={activeView === "admet-studio" ? "tab-active" : ""} onClick={() => setActiveView("admet-studio")}>
+            <ShieldCheck size={14} aria-hidden="true" />
+            ADMET Model Studio
           </button>
           <button className={activeView === "admet-data" ? "tab-active" : ""} onClick={() => setActiveView("admet-data")}>
             <FileJson size={14} aria-hidden="true" />
@@ -5098,6 +5395,8 @@ export default function App() {
           </Section>
         </div>
       )}
+
+      {activeView === "admet-studio" && renderAdmetModelStudio()}
 
       {activeView === "screening" && (
         <>

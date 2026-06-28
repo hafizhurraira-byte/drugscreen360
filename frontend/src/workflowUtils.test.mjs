@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   candidateKey,
@@ -82,5 +83,10 @@ const similarityPayload = buildProjectReportPayload({
 assert.equal(similarityPayload.workflow_type, "similarity_to_candidate");
 assert.equal(similarityPayload.similarity.reference_compound_name, "Aspirin");
 assert.ok(similarityPayload.limitations.some((item) => item.includes("Chemical similarity")));
+
+const appSource = readFileSync(new URL("./App.jsx", import.meta.url), "utf-8");
+assert.ok(appSource.includes("ADMET Model Studio"));
+assert.ok(appSource.includes("Upload & Curate Dataset"));
+assert.ok(appSource.includes("Test Active Model"));
 
 console.log("workflow utils tests passed");
