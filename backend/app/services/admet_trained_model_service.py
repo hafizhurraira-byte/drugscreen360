@@ -55,6 +55,7 @@ def discover_trained_models() -> list[dict[str, Any]]:
                 
         model_id = manifest_data.get("model_id") or folder.name
         model_name = manifest_data.get("model_name") or folder.name
+        version = manifest_data.get("version") or "unknown"
         training_run_id = manifest_data.get("training_run_id")
         
         task_name = None
@@ -95,6 +96,7 @@ def discover_trained_models() -> list[dict[str, Any]]:
             "task_type": task_type,
             "model_name": model_name,
             "model_type": model_type,
+            "version": version,
             "created_at": created_at,
             "artifact_dir": str(folder),
             "manifest_valid": manifest_valid,
@@ -291,14 +293,15 @@ def get_active_trained_model_info() -> dict[str, Any]:
         }
         
     return {
-        "status": "available",
-        "model_id": model_id,
-        "model_name": model_summary["model_name"],
-        "artifact_dir": model_summary.get("artifact_dir"),
-        "version": model_summary.get("version") or "unknown",
-        "task_name": model_summary.get("task_name"),
-        "task_type": model_summary.get("task_type"),
-        "warnings": validation["warnings"]
+            "status": "available",
+            "model_id": model_id,
+            "model_name": model_summary["model_name"],
+            "artifact_dir": model_summary.get("artifact_dir"),
+            "version": model_summary.get("version") or "unknown",
+            "task_name": model_summary.get("task_name"),
+            "task_type": model_summary.get("task_type"),
+            "model_type": model_summary.get("model_type"),
+            "warnings": validation["warnings"]
     }
 
 def predict_trained_model(smiles: str, model_id: str | None = None, project_id: int | None = None) -> dict[str, Any]:
@@ -425,6 +428,7 @@ def predict_trained_model(smiles: str, model_id: str | None = None, project_id: 
         "model_id": model_id,
         "model_name": model_name,
         "version": version,
+        "model_evidence_source": "trained local model",
         "features_used": feature_columns,
         "warnings": warnings,
         "limitations": limitations,

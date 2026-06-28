@@ -699,8 +699,12 @@ def test_final_report_includes_available_trained_model_evidence(tmp_path, monkey
     report = client.get(response.json()["generated_files"]["json"]).json()
     assert report["has_active_model"] is True
     assert report["model_evidence"]["model_id"] == "ames_model_1"
+    assert report["model_evidence"]["model_name"] == "Ames RF Model"
+    assert report["model_evidence"]["task_name"] == "AMES"
+    assert report["model_evidence"]["evidence_source"] == "trained local model"
     evidence = report["model_evidence_list"][0]
     assert evidence["active_model_id"] == "ames_model_1"
+    assert evidence["model_evidence_source"] == "trained local model"
     assert evidence["endpoint_predicted"] == "AMES"
     assert evidence["prediction"] == "inactive"
     assert evidence["applicability_domain_status"] == "inside_domain"

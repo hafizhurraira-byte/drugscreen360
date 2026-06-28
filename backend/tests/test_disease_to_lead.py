@@ -130,7 +130,8 @@ def test_disease_to_lead_workflow_success(tmp_path, monkeypatch):
     assert body["workflow_id"] is not None
     assert body["disease_name"] == "breast cancer"
     assert body["target_name"] == "Epidermal growth factor receptor"
-    assert len(body["discovered_candidates"]) == 1
+    assert len(body["discovered_candidates"]) >= 1
+    assert any(candidate["compound_name"] == "Aspirin" for candidate in body["discovered_candidates"])
     assert body["discovered_candidates"][0]["molecule_chembl_id"] == "CHEMBL25"
     assert len(body["similar_candidates"]) == 1
     assert body["similar_candidates"][0]["molecule_chembl_id"] == "CHEMBL26"

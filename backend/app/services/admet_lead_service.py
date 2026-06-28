@@ -40,6 +40,18 @@ PROFILE_WEIGHTS = {
     "solubility_focused": {"developability": 1.0, "admet": 1.3, "domain": 0.9, "evidence": 0.8},
     "model_confidence_focused": {"developability": 0.8, "admet": 0.9, "domain": 1.4, "evidence": 1.4},
 }
+TOXICITY_MODEL_ENDPOINTS = {
+    "overall_admet_concern",
+    "ames",
+    "ames mutagenicity",
+    "ames_mutagenicity",
+    "herg",
+    "herg cardiotoxicity",
+    "herg_cardiotoxicity",
+    "hepatotoxicity",
+    "liver_toxicity",
+    "toxicity_concern",
+}
 
 
 def _status_from_bool(value: bool) -> str:
@@ -128,6 +140,25 @@ def _load_candidates(payload: LeadPrioritizationRequest) -> list[LeadCandidateIn
     if payload.source_type == "batch_upload" and payload.source_run_id:
         candidates.extend(_batch_run_candidates(payload.source_run_id))
     return candidates
+
+
+def _toxicity_evidence_summary(admet, trained_prediction: dict[str, Any] | None) -> dict[str, Any]:
+    summary = admet.toxicity_evidence_summary.model_dump() if getattr(admet, "toxicity_evidence_summary", None) else {}
+    endpoint = str((trained_prediction or {}).get("endpoint_predicted") or "").strip().lower()
+    if trained_prediction and trained_prediction.get("model_available") and endpoint in TOXICITY_MODEL_ENDPOINTS:
+        prediction = trained_prediction.get("prediction_label")
+        if prediction is None:
+            prediction = trained_prediction.get("prediction_value")
+        summary.update(
+            {
+                "toxicity_evidence_source": "trained local model",
+                "trained_model_endpoint": trained_prediction.get("endpoint_predicted"),
+                "trained_model_prediction": prediction,
+                "trained_model_confidence": trained_prediction.get("confidence_level"),
+                "evidence_note": "Trained local model toxicity evidence was included from an activated real artifact. This remains computational decision-support only.",
+            }
+        )
+    return summary
 
 
 def _score_candidate(
@@ -346,6 +377,7 @@ def _score_candidate(
             "absorption_risk": admet.absorption.absorption_risk,
             "solubility_risk": admet.solubility.solubility_risk,
             "structural_alert_risk": admet.structural_alerts.structural_alert_risk,
+            "toxicity_evidence_summary": _toxicity_evidence_summary(admet, trained_prediction),
         },
         trained_model_prediction=trained_prediction,
         domain_status=domain_status,

@@ -86,6 +86,7 @@ class DiscoveredModelSummary(BaseModel):
     task_type: str | None = None
     model_name: str | None = None
     model_type: str | None = None
+    version: str | None = None
     created_at: str | None = None
     artifact_dir: str
     manifest_valid: bool
@@ -134,6 +135,8 @@ class ActiveModelResponse(BaseModel):
     version: str | None = None
     task_name: str | None = None
     task_type: str | None = None
+    model_type: str | None = None
+    artifact_dir: str | None = None
     warnings: list[str] = []
 
 
@@ -152,6 +155,7 @@ class TrainedModelPredictionResponse(BaseModel):
     model_id: str
     model_name: str
     version: str
+    model_evidence_source: str | None = None
     features_used: list[str]
     warnings: list[str]
     limitations: list[str]
