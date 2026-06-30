@@ -5148,8 +5148,10 @@ export default function App() {
 
                       <div className="evidence-panel" style={{ marginTop: "14px" }}>
                         <h4>Report Availability Summary</h4>
+                        <p className="limitation-label">Computational Evidence Suite: target validation, applicability domain, model explainability, evidence quality grading, and next computational actions are included when data is available.</p>
                         <ul className="checkmark-list" style={{ listStyleType: "none", paddingLeft: 0 }}>
                           <li>Target matching status: <strong>{workflowTarget ? "Included" : "Missing"}</strong></li>
+                          <li>Computational Evidence Suite: <strong>{workflowFinalReport ? "Included" : "Pending"}</strong></li>
                           <li>Candidate discovery/fallback: <strong>{(workflowCandidates || []).length > 0 ? "Included" : "Missing"}</strong></li>
                           <li>Similarity expanded analogs: <strong>{(workflowSimilars || []).length > 0 ? "Included" : "Skipped or unavailable"}</strong></li>
                           <li>Full screening + ADMET profiling: <strong>{workflowScreeningResults ? "Included" : "Missing"}</strong></li>

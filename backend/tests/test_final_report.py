@@ -266,9 +266,10 @@ def test_concise_disease_to_lead_report_quality(tmp_path, monkeypatch):
         "Top Candidate Interpretation",
         "ADMET & Drug-likeness Summary",
         "Model Evidence & Prediction Confidence",
+        "Computational Evidence Suite",
         "External Validation Summary",
         "Experimental Feedback Summary",
-        "Validation Planner Summary",
+        "Optional Assay Planner Summary",
         "Limitations",
         "Recommended Next Steps",
         "Reproducibility"
@@ -296,6 +297,8 @@ def test_concise_disease_to_lead_report_quality(tmp_path, monkeypatch):
     assert "External validation/calibration was not available for this project." in combined_text
     assert "No user-entered experimental assay results were imported. Experimental feedback comparison was not performed." in combined_text
     assert "No active compatible trained ADMET model was available for this run. Ranking used descriptor-based and rule-based evidence only." in combined_text
+    assert "Recommended Next Computational Actions" in combined_text
+    assert "Import experimental feedback from in vitro assays to calibrate model limits" not in combined_text
 
 
 def test_final_report_polish_requirements(tmp_path, monkeypatch):
@@ -407,6 +410,32 @@ def test_final_report_polish_requirements(tmp_path, monkeypatch):
     ]
     for forbidden in forbidden_strings:
         assert forbidden not in combined_text
+
+
+def test_final_report_json_includes_computational_evidence_suite(tmp_path, monkeypatch):
+    monkeypatch.setattr(final_report_service, "REPORT_DIR", tmp_path / "final_project_reports")
+    response = client.post(
+        "/api/final-report/create",
+        json={
+            "report_title": "Computational Evidence Suite Report",
+            "report_mode": "concise_disease_to_lead_report",
+            "disease_name": "non-small cell lung cancer",
+            "user_entered_target": "EGFR",
+            "resolved_target": "Epidermal growth factor receptor",
+            "known_compound": "Erlotinib",
+            "formats": ["json"],
+        },
+    )
+    assert response.status_code == 200
+    report = client.get(f"/api/final-report/reports/{response.json()['report_id']}/json").json()
+    suite = report["computational_evidence_suite"]
+    assert "computational_evidence_suite" in report["included_sections"]
+    assert suite["target_validation_summary"]["user_entered_target"] == "EGFR"
+    assert "applicability_domain_assessment" in suite
+    assert "model_explainability" in suite
+    assert "evidence_quality_grading" in suite
+    assert suite["computational_validation_planner"]
+    assert all("in vitro" not in step.lower() for step in report["recommended_next_steps"])
 
 
 def test_disease_to_lead_workflow_all_cases(tmp_path, monkeypatch):

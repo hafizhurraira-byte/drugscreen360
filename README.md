@@ -20,9 +20,9 @@ ADMET Model Evidence & Validation Engine V1 (v0.14) adds support for active comp
 
 DrugScreen360 is computational decision-support only and research-use-only. It is not a clinical, diagnostic, therapeutic, regulatory, or guaranteed drug-safety tool. Outputs do not prove safety, efficacy, clinical success, regulatory approval, or market readiness, and require qualified scientific review.
 
-## v0.20 Release Status
+## v1.0 Release Status
 
-Version `0.20.0` is a release-preparation, documentation, and demo-packaging pass. It preserves the v0.19 scientific workflow behavior and focuses on making the local MVP easier to install, demonstrate, test, and review.
+Version `1.0.0` is the Computational Evidence Suite release. It keeps DrugScreen360 research-use-only and focuses the final Disease-to-Lead report on five computational evidence areas: target validation summary, applicability-domain assessment, model explainability, evidence quality grading, and next computational validation actions.
 
 Useful entry points:
 
@@ -62,6 +62,7 @@ Release documentation:
 - [Troubleshooting guide](docs/troubleshooting.md)
 - [Release checklist](docs/release_checklist.md)
 - [v0.20 release preparation notes](docs/release_prep_v020.md)
+- [v1.0 Computational Evidence Suite](docs/computational_evidence_suite_v100.md)
 
 ## MVP Release Overview
 

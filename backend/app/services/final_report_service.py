@@ -958,24 +958,24 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
             })
 
     next_steps = [
-        f"Confirm target relevance by verifying {user_target} binding selectivity profiles.",
-        "Perform identity and structural purity verification for top priority candidates.",
-        "Design and execute basic in vitro ADMET assays to validate computational predictions.",
-        f"Run specific bioassays targeting {user_target} in the context of {disease_name} to establish cellular efficacy metrics.",
-        "Integrate experimental results back into the DrugScreen360 active learning loop."
+        f"Review target relevance and public target evidence for {user_target} in {disease_name}.",
+        "Inspect candidate-level missing evidence before interpreting rankings.",
+        "Run applicability-domain, uncertainty, explainability, and external-validation checks for any active local ADMET model.",
+        "Use independent labelled datasets for additional computational validation before claiming stronger model evidence.",
+        "Regenerate the Disease-to-Lead report after computational evidence gaps are reduced."
     ]
 
     limitations = [
         "Computational predictions are statistical in nature and do not guarantee safety or efficacy.",
-        "Missing experimental assay data reduces confidence in overall project outcomes.",
-        "ADMET and developability risks should be validated experimentally using recommended assays.",
+        "Missing model, applicability-domain, explainability, or external-validation evidence reduces confidence in computational prioritization.",
+        "ADMET and developability risks are computational estimates and are not wet-lab results.",
         "This decision support report should be reviewed by qualified scientific personnel."
     ]
 
     lead_prioritization_available = bool(ranked_candidates)
     validation_plan_available = bool(plan_row or recommended_assays_list)
 
-    included_sections = ["screening", "admet_prediction"]
+    included_sections = ["screening", "admet_prediction", "computational_evidence_suite"]
     if lead_prioritization_available:
         included_sections.append("lead_prioritization")
     if validation_plan_available:
@@ -1042,6 +1042,7 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
         "workflow_completion": {
             "screening": "Completed",
             "admet_prediction": "Completed",
+            "computational_evidence_suite": "Completed",
             "lead_prioritization": "Completed" if lead_prioritization_available else "Skipped/Not Run",
             "validation_planning": "Completed" if validation_plan_available else "Skipped/Not Run",
             "experimental_feedback": "Completed" if feedback_row else "Skipped/Not Run"
@@ -1142,6 +1143,7 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
             "generated_at": created_at
         }
     }
+    payload["computational_evidence_suite"] = _computational_evidence_suite(payload)
     
     if metadata_override_warning:
         payload["metadata_override_warning"] = metadata_override_warning
@@ -1217,6 +1219,68 @@ def _build_payload(request: FinalProjectReportRequest, created_at: str) -> dict[
             "generated_at": created_at,
         },
         "warnings": list(dict.fromkeys(warnings)),
+    }
+
+
+def _computational_evidence_suite(payload: dict[str, Any]) -> dict[str, Any]:
+    inputs = payload.get("workflow_input_table") or {}
+    candidates = payload.get("top_candidate_interpretation") or []
+    model_rows = payload.get("model_evidence_list") or []
+    admet_rows = payload.get("admet_drug_likeness") or []
+    external = payload.get("external_validation") or {}
+
+    missing = sorted({
+        str(item)
+        for row in [*candidates, *model_rows, *admet_rows]
+        for item in (row.get("missing_evidence") or [])
+        if item
+    })
+    domain_counts: dict[str, int] = {}
+    evidence_counts: dict[str, int] = {}
+    confidence_warnings = []
+    for row in model_rows:
+        domain = row.get("applicability_domain_status") or "not_available"
+        strength = row.get("evidence_strength") or ("rule_based_only" if not row.get("model_available") else "not_available")
+        domain_counts[domain] = domain_counts.get(domain, 0) + 1
+        evidence_counts[strength] = evidence_counts.get(strength, 0) + 1
+        if not row.get("model_available"):
+            confidence_warnings.append(f"{row.get('candidate_name', 'Candidate')}: trained model evidence unavailable.")
+        elif domain in {"outside_domain", "not_available", "unknown"}:
+            confidence_warnings.append(f"{row.get('candidate_name', 'Candidate')}: applicability domain is {domain}.")
+
+    actions = [
+        "Review target resolution and candidate-source provenance before interpreting rankings.",
+        "Fill missing descriptor, evidence-quality, model, applicability-domain, and external-validation fields.",
+        "Run or refresh external validation/calibration for the active local ADMET model using an independent labelled dataset.",
+        "Use model explainability and domain warnings to decide which candidates need more computational review.",
+        "Rerun Disease-to-Lead after improving computational evidence; wet-lab planning remains optional and requires qualified review.",
+    ]
+    return {
+        "target_validation_summary": {
+            "user_entered_target": inputs.get("user_entered_target") or "not available",
+            "resolved_target": inputs.get("resolved_target") or "not available",
+            "target_resolution_status": inputs.get("target_resolution_status") or "not available",
+        },
+        "applicability_domain_assessment": domain_counts or {"not_available": len(candidates)},
+        "model_explainability": {
+            "available_candidate_count": sum(1 for row in model_rows if row.get("model_available")),
+            "unavailable_candidate_count": sum(1 for row in model_rows if not row.get("model_available")),
+            "note": "Feature importance and local explanations are shown only when real model artifacts provide them.",
+        },
+        "evidence_quality_grading": evidence_counts or {"rule_based_or_not_available": len(candidates)},
+        "candidate_evidence_quality": [
+            {
+                "candidate_name": row.get("candidate_name") or row.get("compound_name") or "Candidate",
+                "evidence_strength": row.get("evidence_strength") or "rule_based_or_not_available",
+                "confidence_warning": next((w for w in confidence_warnings if w.startswith(str(row.get("candidate_name") or row.get("compound_name") or ""))), "none"),
+                "missing_evidence": row.get("missing_evidence") or [],
+            }
+            for row in (model_rows or candidates)[:5]
+        ],
+        "confidence_warnings": list(dict.fromkeys(confidence_warnings)),
+        "missing_evidence": missing,
+        "external_validation_status": "available" if external.get("has_external_validation") else "not_available",
+        "computational_validation_planner": actions,
     }
 
 
@@ -1346,9 +1410,10 @@ def _build_pdf(payload: dict[str, Any]) -> bytes:
         completion_rows = [
             ["Step 1: Candidate Discovery", completion["screening"]],
             ["Step 2: ADMET Prediction", completion["admet_prediction"]],
-            ["Step 3: Lead Prioritization & Scoring", completion["lead_prioritization"]],
-            ["Step 4: Validation Planning", completion["validation_planning"]],
-            ["Step 5: Experimental Feedback Analysis", completion["experimental_feedback"]]
+            ["Step 3: Computational Evidence Suite", completion.get("computational_evidence_suite", "Completed")],
+            ["Step 4: Lead Prioritization & Scoring", completion["lead_prioritization"]],
+            ["Step 5: Optional Assay Planning", completion["validation_planning"]],
+            ["Step 6: Experimental Feedback Analysis", completion["experimental_feedback"]]
         ]
         story.append(_build_pdf_table(["Workflow Step", "Status"], completion_rows, widths=[3.5*inch, 3.5*inch]))
         story.append(Spacer(1, 15))
@@ -1483,6 +1548,39 @@ def _build_pdf(payload: dict[str, Any]) -> bytes:
                 story.append(Paragraph(f"• <b>{ev['candidate_name']}</b>: {reason}", styles["BodyText"]))
                 
         story.append(Spacer(1, 15))
+
+        story.append(Paragraph("<b>Computational Evidence Suite</b>", styles["Heading2"]))
+        story.append(Spacer(1, 5))
+        suite = payload.get("computational_evidence_suite") or {}
+        target_summary = suite.get("target_validation_summary") or {}
+        story.append(_build_pdf_table(
+            ["Area", "Summary"],
+            [
+                ["Target Validation Summary", f"{target_summary.get('user_entered_target')} -> {target_summary.get('resolved_target')} ({target_summary.get('target_resolution_status')})"],
+                ["Applicability Domain Assessment", _safe(suite.get("applicability_domain_assessment"))],
+                ["Model Explainability", _safe(suite.get("model_explainability"))],
+                ["Evidence Quality Grading", _safe(suite.get("evidence_quality_grading"))],
+                ["External Validation Status", suite.get("external_validation_status", "not_available")],
+            ],
+            widths=[2.2*inch, 4.8*inch],
+        ))
+        rows = [
+            [
+                item.get("candidate_name", "Candidate"),
+                item.get("evidence_strength", "not available").replace("_", " ").title(),
+                item.get("confidence_warning", "none"),
+                ", ".join(item.get("missing_evidence") or []) or "None",
+            ]
+            for item in suite.get("candidate_evidence_quality") or []
+        ]
+        if rows:
+            story.append(Spacer(1, 6))
+            story.append(_build_pdf_table(["Candidate", "Evidence Grade", "Confidence Warning", "Missing Evidence"], rows, widths=[1.4*inch, 1.3*inch, 2.1*inch, 2.2*inch]))
+        story.append(Spacer(1, 6))
+        story.append(Paragraph("<b>Recommended Next Computational Actions</b>", styles["Normal"]))
+        for action in suite.get("computational_validation_planner") or []:
+            story.append(Paragraph(f"- {action}", styles["BodyText"]))
+        story.append(Spacer(1, 15))
         
         # How to Improve Evidence Quality
         story.append(Paragraph("<b>How to Improve Evidence Quality</b>", styles["Heading2"]))
@@ -1505,7 +1603,7 @@ def _build_pdf(payload: dict[str, Any]) -> bytes:
             f"3. Activate compatible model [Status: {'Completed' if mr.get('model_active') else 'Pending'}]",
             f"4. Run external validation & calibration [Status: {'Completed' if mr.get('external_validation_available') and mr.get('calibration_available') else 'Pending'}]",
             "5. Rerun Disease-to-Lead workflow to utilize updated predictions",
-            "6. Import experimental feedback from in vitro assays to calibrate model limits"
+            "6. Document missing computational evidence before using rankings for research planning"
         ]
         for step in steps:
             story.append(Paragraph(step, styles["BodyText"]))
@@ -1566,8 +1664,8 @@ def _build_pdf(payload: dict[str, Any]) -> bytes:
             story.append(Paragraph("No user-entered experimental assay results were imported. Experimental feedback comparison was not performed.", styles["BodyText"]))
         story.append(Spacer(1, 15))
         
-        # 10. Validation Planner Summary
-        story.append(Paragraph("<b>Validation Planner Summary</b>", styles["Heading2"]))
+        # 10. Optional Assay Planner Summary
+        story.append(Paragraph("<b>Optional Assay Planner Summary</b>", styles["Heading2"]))
         story.append(Spacer(1, 5))
         vp = payload["validation_planner"]
         if vp["has_plan"]:
@@ -1694,9 +1792,10 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
         _build_docx_table(document, ["Workflow Step", "Status"], [
             ["Step 1: Candidate Discovery", completion["screening"]],
             ["Step 2: ADMET Prediction", completion["admet_prediction"]],
-            ["Step 3: Lead Prioritization & Scoring", completion["lead_prioritization"]],
-            ["Step 4: Validation Planning", completion["validation_planning"]],
-            ["Step 5: Experimental Feedback Analysis", completion["experimental_feedback"]]
+            ["Step 3: Computational Evidence Suite", completion.get("computational_evidence_suite", "Completed")],
+            ["Step 4: Lead Prioritization & Scoring", completion["lead_prioritization"]],
+            ["Step 5: Optional Assay Planning", completion["validation_planning"]],
+            ["Step 6: Experimental Feedback Analysis", completion["experimental_feedback"]]
         ], widths=[Inches(3.5), Inches(3.5)])
         
         # 4. Top Candidate Table
@@ -1811,6 +1910,32 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
                 
         document.add_paragraph("")
         
+        document.add_heading("Computational Evidence Suite", level=1)
+        suite = payload.get("computational_evidence_suite") or {}
+        target_summary = suite.get("target_validation_summary") or {}
+        _build_docx_table(document, ["Area", "Summary"], [
+            ["Target Validation Summary", f"{target_summary.get('user_entered_target')} -> {target_summary.get('resolved_target')} ({target_summary.get('target_resolution_status')})"],
+            ["Applicability Domain Assessment", _safe(suite.get("applicability_domain_assessment"))],
+            ["Model Explainability", _safe(suite.get("model_explainability"))],
+            ["Evidence Quality Grading", _safe(suite.get("evidence_quality_grading"))],
+            ["External Validation Status", suite.get("external_validation_status", "not_available")],
+        ], widths=[Inches(2.2), Inches(4.8)])
+        rows = [
+            [
+                item.get("candidate_name", "Candidate"),
+                item.get("evidence_strength", "not available").replace("_", " ").title(),
+                item.get("confidence_warning", "none"),
+                ", ".join(item.get("missing_evidence") or []) or "None",
+            ]
+            for item in suite.get("candidate_evidence_quality") or []
+        ]
+        if rows:
+            _build_docx_table(document, ["Candidate", "Evidence Grade", "Confidence Warning", "Missing Evidence"], rows, widths=[Inches(1.4), Inches(1.3), Inches(2.1), Inches(2.2)])
+        document.add_heading("Recommended Next Computational Actions", level=2)
+        for action in suite.get("computational_validation_planner") or []:
+            document.add_paragraph(action, style="List Bullet")
+        document.add_paragraph("")
+
         # How to Improve Evidence Quality
         document.add_heading("How to Improve Evidence Quality", level=1)
         
@@ -1824,7 +1949,7 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
             f"3. Activate compatible model [Status: {'Completed' if mr.get('model_active') else 'Pending'}]",
             f"4. Run external validation & calibration [Status: {'Completed' if mr.get('external_validation_available') and mr.get('calibration_available') else 'Pending'}]",
             "5. Rerun Disease-to-Lead workflow to utilize updated predictions",
-            "6. Import experimental feedback from in vitro assays to calibrate model limits"
+            "6. Document missing computational evidence before using rankings for research planning"
         ]
         for step in steps:
             document.add_paragraph(step)
@@ -1877,8 +2002,8 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
         else:
             document.add_paragraph("No user-entered experimental assay results were imported. Experimental feedback comparison was not performed.")
             
-        # 10. Validation Planner Summary
-        document.add_heading("Validation Planner Summary", level=1)
+        # 10. Optional Assay Planner Summary
+        document.add_heading("Optional Assay Planner Summary", level=1)
         vp = payload["validation_planner"]
         if vp["has_plan"]:
             document.add_paragraph(f"Plan Title: {vp['plan_title'] or 'N/A'}")
