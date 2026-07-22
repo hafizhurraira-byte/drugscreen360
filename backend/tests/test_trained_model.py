@@ -38,6 +38,15 @@ def create_synthetic_model_files(folder: Path, task_type="binary_classification"
             "label_mapping": None
         }, folder / "model.joblib")
         
+    metrics = {"accuracy": 0.95, "balanced_accuracy": 0.9, "precision": 0.9, "recall": 0.9, "f1": 0.9} if task_type == "binary_classification" else {"mae": 0.1}
+    split_manifest = {
+        "dataset_id": 1,
+        "training_run_id": 999,
+        "train_record_ids": list(range(16)),
+        "test_record_ids": list(range(16, 20)),
+        "dataset_version_hash": f"{folder.name}-dataset-hash",
+        "split_hash": f"{folder.name}-split-hash",
+    }
     manifest = {
         "model_id": folder.name,
         "model_name": f"Synthetic {task_type} Model",
@@ -45,9 +54,11 @@ def create_synthetic_model_files(folder: Path, task_type="binary_classification"
         "tasks": ["AMES" if task_type == "binary_classification" else "Solubility"],
         "input_type": "rdkit_descriptors",
         "limitations": "Synthetic testing model only.",
-        "artifact_files": ["model.joblib", "feature_schema.json"],
+        "artifact_files": ["model.joblib", "feature_schema.json", "split_manifest.json"],
         "training_run_id": 999,
-        "metrics": {"accuracy": 0.95} if task_type == "binary_classification" else {"mae": 0.1},
+        "metrics": metrics,
+        "dataset_version_hash": split_manifest["dataset_version_hash"],
+        "split_hash": split_manifest["split_hash"],
         "feature_schema": {
             "input_type": "rdkit_descriptors",
             "feature_columns": admet_trained_model_service.FEATURE_COLUMNS,
@@ -55,6 +66,7 @@ def create_synthetic_model_files(folder: Path, task_type="binary_classification"
         }
     }
     (folder / "model_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (folder / "split_manifest.json").write_text(json.dumps(split_manifest), encoding="utf-8")
     
     feature_schema = {
         "input_type": "rdkit_descriptors",
@@ -73,7 +85,7 @@ def create_synthetic_model_files(folder: Path, task_type="binary_classification"
         "record_counts": {"train_count": 16, "test_count": 4},
         "features_used": admet_trained_model_service.FEATURE_COLUMNS,
         "split_method": "stratified",
-        "metrics": {"accuracy": 0.95} if task_type == "binary_classification" else {"mae": 0.1},
+        "metrics": metrics,
         "limitations": ["limit1"],
         "warnings": ["warning1"],
         "intended_use": "testing",
@@ -88,7 +100,7 @@ def create_synthetic_model_files(folder: Path, task_type="binary_classification"
         "created_at": "2026-06-21T00:00:00Z",
         "task_type": task_type,
         "model_type": "random_forest" if task_type == "binary_classification" else "random_forest_regressor",
-        "metrics": {"accuracy": 0.95} if task_type == "binary_classification" else {"mae": 0.1},
+        "metrics": metrics,
         "warnings": [],
         "limitations": []
     }
@@ -139,6 +151,21 @@ def test_activation_refuses_invalid_model(tmp_path, monkeypatch):
     assert "Cannot activate invalid model" in response.json()["detail"]
 
 
+def test_activation_refuses_missing_split_lineage(tmp_path, monkeypatch):
+    monkeypatch.setattr(admet_trained_model_service, "TRAINED_DIR", tmp_path / "trained")
+    create_synthetic_model_files(tmp_path / "trained" / "synthetic_model_1")
+    (tmp_path / "trained" / "synthetic_model_1" / "split_manifest.json").unlink()
+    manifest_path = tmp_path / "trained" / "synthetic_model_1" / "model_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("split_hash", None)
+    manifest.pop("dataset_version_hash", None)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    response = client.post("/api/admet-training/models/synthetic_model_1/activate")
+    assert response.status_code == 400
+    assert "activation gate failed" in response.json()["detail"]
+
+
 def test_activation_succeeds_for_valid_synthetic_model(tmp_path, monkeypatch):
     monkeypatch.setattr(admet_trained_model_service, "TRAINED_DIR", tmp_path / "trained")
     create_synthetic_model_files(tmp_path / "trained" / "synthetic_model_1")
@@ -146,12 +173,27 @@ def test_activation_succeeds_for_valid_synthetic_model(tmp_path, monkeypatch):
     response = client.post("/api/admet-training/models/synthetic_model_1/activate")
     assert response.status_code == 200
     assert response.json()["status"] == "active"
+    assert response.json()["activation_state"] == "ACTIVE"
     
     active_info = client.get("/api/admet-training/active-model").json()
     assert active_info["status"] == "available"
     assert active_info["model_id"] == "synthetic_model_1"
     assert active_info["artifact_dir"]
+    assert active_info["dataset_version_hash"]
+    assert active_info["split_hash"]
     assert active_info["task_name"] in {"AMES", "hERG"}
+
+
+def test_activation_rollback_restores_previous_model(tmp_path, monkeypatch):
+    monkeypatch.setattr(admet_trained_model_service, "TRAINED_DIR", tmp_path / "trained")
+    create_synthetic_model_files(tmp_path / "trained" / "synthetic_model_1")
+    create_synthetic_model_files(tmp_path / "trained" / "synthetic_model_2")
+    client.post("/api/admet-training/models/synthetic_model_1/activate")
+    client.post("/api/admet-training/models/synthetic_model_2/activate")
+
+    rollback = client.post("/api/admet-training/models/rollback")
+    assert rollback.status_code == 200
+    assert rollback.json()["model_id"] == "synthetic_model_1"
 
 
 def test_missing_active_model_artifact_is_marked_missing(tmp_path, monkeypatch):
@@ -211,6 +253,9 @@ def test_prediction_works_for_valid_synthetic_model(tmp_path, monkeypatch):
     assert body["prediction_label"] in {"active", "inactive"}
     assert body["model_evidence_source"] == "trained local model"
     assert body["experimental_model_notice"] == "Experimental local model prediction. Requires external validation."
+    assert body["evidence_type"] == "MODEL_PREDICTION"
+    assert body["dataset_version_hash"]
+    assert body["confidence_type"] == "model_probability"
 
 
 def test_prediction_does_not_invent_probability_when_unavailable(tmp_path, monkeypatch):

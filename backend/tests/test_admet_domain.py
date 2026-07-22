@@ -66,6 +66,15 @@ def create_synthetic_model_files_with_dataset(folder: Path, dataset_id: int, tas
         "label_mapping": {"inactive": 0, "active": 1}
     }, folder / "model.joblib")
     
+    metrics = {"accuracy": 0.95, "balanced_accuracy": 0.9, "precision": 0.9, "recall": 0.9, "f1": 0.9}
+    split_manifest = {
+        "dataset_id": dataset_id,
+        "training_run_id": 999,
+        "train_record_ids": list(range(10)),
+        "test_record_ids": [10, 11],
+        "dataset_version_hash": f"{folder.name}-dataset-hash",
+        "split_hash": f"{folder.name}-split-hash",
+    }
     manifest = {
         "model_id": folder.name,
         "model_name": "Domain Test Model",
@@ -73,9 +82,11 @@ def create_synthetic_model_files_with_dataset(folder: Path, dataset_id: int, tas
         "tasks": ["hERG"],
         "input_type": "rdkit_descriptors",
         "limitations": "Synthetic testing model only.",
-        "artifact_files": ["model.joblib", "feature_schema.json"],
+        "artifact_files": ["model.joblib", "feature_schema.json", "split_manifest.json"],
         "training_run_id": 999,
-        "metrics": {"accuracy": 0.95},
+        "metrics": metrics,
+        "dataset_version_hash": split_manifest["dataset_version_hash"],
+        "split_hash": split_manifest["split_hash"],
         "feature_schema": {
             "input_type": "rdkit_descriptors",
             "feature_columns": admet_trained_model_service.FEATURE_COLUMNS,
@@ -83,6 +94,7 @@ def create_synthetic_model_files_with_dataset(folder: Path, dataset_id: int, tas
         }
     }
     (folder / "model_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (folder / "split_manifest.json").write_text(json.dumps(split_manifest), encoding="utf-8")
     
     feature_schema = {
         "input_type": "rdkit_descriptors",
@@ -101,7 +113,7 @@ def create_synthetic_model_files_with_dataset(folder: Path, dataset_id: int, tas
         "record_counts": {"train_count": 10, "test_count": 2},
         "features_used": admet_trained_model_service.FEATURE_COLUMNS,
         "split_method": "stratified",
-        "metrics": {"accuracy": 0.95},
+        "metrics": metrics,
         "limitations": ["limit1"],
         "warnings": ["warning1"],
         "intended_use": "testing",
@@ -116,7 +128,7 @@ def create_synthetic_model_files_with_dataset(folder: Path, dataset_id: int, tas
         "created_at": "2026-06-21T00:00:00Z",
         "task_type": task_type,
         "model_type": "random_forest",
-        "metrics": {"accuracy": 0.95},
+        "metrics": metrics,
         "warnings": [],
         "limitations": []
     }
