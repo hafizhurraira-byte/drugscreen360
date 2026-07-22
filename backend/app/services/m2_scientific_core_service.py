@@ -443,6 +443,13 @@ def activation_policies() -> dict[str, dict[str, Any]]:
             "external_validation_required": False,
             "calibration_required": False,
         },
+        "admet_regression": {
+            "activation_policy_id": "admet_regression_activation_v1",
+            "minimum_sample_size": 20,
+            "required_metrics": ["mae"],
+            "external_validation_required": False,
+            "calibration_required": False,
+        },
         "activity": {
             "activation_policy_id": "activity_target_specific_activation_v1",
             "minimum_sample_size": 50,

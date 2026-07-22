@@ -41,7 +41,9 @@ from app.services.admet_trained_model_service import (
     deactivate_trained_model,
     get_active_trained_model_info,
     predict_trained_model,
+    rollback_active_model,
 )
+from app.services.scientific_job_service import cancel_job, create_job, get_job, list_jobs
 
 router = APIRouter(prefix="/admet-training", tags=["admet-training"])
 
@@ -49,6 +51,31 @@ router = APIRouter(prefix="/admet-training", tags=["admet-training"])
 @router.post("/train", response_model=AdmetTrainingResponse)
 def train_model(payload: AdmetTrainingRequest):
     return train_admet_model(payload)
+
+
+@router.post("/train/job")
+def train_model_job(payload: AdmetTrainingRequest):
+    return create_job(
+        "admet_model_training",
+        payload.model_dump(),
+        lambda: train_admet_model(payload).model_dump(),
+        {"model_family": "admet", "dataset_id": payload.dataset_id},
+    )
+
+
+@router.get("/jobs")
+def admet_training_jobs():
+    return [job for job in list_jobs() if job["job_type"] in {"admet_model_training", "admet_external_validation"}]
+
+
+@router.get("/jobs/{job_id}")
+def admet_training_job(job_id: int):
+    return get_job(job_id)
+
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel_admet_training_job(job_id: int):
+    return cancel_job(job_id)
 
 
 @router.get("/runs", response_model=list[AdmetTrainingRunSummary])
@@ -113,6 +140,13 @@ def get_model_detail(model_id: str):
             feature_schema = json.loads((folder / "feature_schema.json").read_text(encoding="utf-8"))
         except:
             pass
+
+    split_manifest = {}
+    if (folder / "split_manifest.json").exists():
+        try:
+            split_manifest = json.loads((folder / "split_manifest.json").read_text(encoding="utf-8"))
+        except:
+            pass
             
     summary = {}
     if (folder / "training_summary.json").exists():
@@ -133,6 +167,7 @@ def get_model_detail(model_id: str):
         model_card=card,
         metrics=metrics,
         feature_schema=feature_schema,
+        split_manifest=split_manifest,
         limitations=limitations,
         warnings=warnings
     )
@@ -153,6 +188,11 @@ def activate_model_endpoint(model_id: str, payload: ModelActivateRequest = None)
 def deactivate_model_endpoint(payload: ModelActivateRequest = None):
     project_id = payload.project_id if payload else None
     return deactivate_trained_model(project_id)
+
+
+@router.post("/models/rollback", response_model=ModelActivateResponse)
+def rollback_model_endpoint():
+    return rollback_active_model()
 
 
 @router.get("/active-model", response_model=ActiveModelResponse)

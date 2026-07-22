@@ -93,6 +93,9 @@ class DiscoveredModelSummary(BaseModel):
     artifact_found: bool
     model_card_found: bool
     feature_schema_found: bool
+    split_manifest_found: bool | None = None
+    dataset_version_hash: str | None = None
+    split_hash: str | None = None
     status: str
     warnings: list[str]
 
@@ -102,6 +105,7 @@ class DiscoveredModelDetail(BaseModel):
     model_card: dict[str, Any] | None = None
     metrics: dict[str, Any] | None = None
     feature_schema: dict[str, Any] | None = None
+    split_manifest: dict[str, Any] | None = None
     limitations: list[str] = []
     warnings: list[str] = []
 
@@ -121,6 +125,9 @@ class ModelActivateResponse(BaseModel):
     model_id: str
     status: str
     warnings: list[str]
+    activation_state: str | None = None
+    previous_model_id: str | None = None
+    rollback_target_model_id: str | None = None
 
 
 class ModelDeactivateResponse(BaseModel):
@@ -138,6 +145,9 @@ class ActiveModelResponse(BaseModel):
     model_type: str | None = None
     artifact_dir: str | None = None
     warnings: list[str] = []
+    dataset_version_hash: str | None = None
+    split_hash: str | None = None
+    activation_state: str | None = None
 
 
 class TrainedModelPredictRequest(BaseModel):
@@ -164,6 +174,18 @@ class TrainedModelPredictionResponse(BaseModel):
     uncertainty_level: str | None = None
     nearest_training_distance: float | None = None
     out_of_range_features: list[str] | None = None
+    evidence_type: str | None = None
+    model_version: str | None = None
+    dataset_version: str | None = None
+    dataset_version_hash: str | None = None
+    validation_status: str | None = None
+    calibration_status: str | None = None
+    confidence_type: str | None = None
+    confidence_value: float | str | None = None
+    uncertainty_type: str | None = None
+    uncertainty_value: str | None = None
+    nearest_similarity: float | None = None
+    domain_method: str | None = None
 
 
 class AdmetDashboardSummaryResponse(BaseModel):

@@ -2378,6 +2378,11 @@ export default function App() {
               research-use-only evidence boundaries. Missing trained endpoints remain unavailable instead of
               being replaced by heuristic or fake model outputs.
             </p>
+            <p>
+              M2B predictive activation adds split lineage, activation eligibility, rollback audit trail, and
+              lightweight local training/validation job status. Existing models without split manifests can be
+              discovered, but must be regenerated or revalidated before stricter activation.
+            </p>
           </div>
           {studioError && (
             <details className="empty-state-card" open>

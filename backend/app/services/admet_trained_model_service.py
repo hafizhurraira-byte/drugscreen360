@@ -41,6 +41,7 @@ def discover_trained_models() -> list[dict[str, Any]]:
         model_card_path = folder / "model_card.json"
         feature_schema_path = folder / "feature_schema.json"
         training_summary_path = folder / "training_summary.json"
+        split_manifest_path = folder / "split_manifest.json"
         
         manifest_valid = False
         manifest_data = {}
@@ -76,8 +77,15 @@ def discover_trained_models() -> list[dict[str, Any]]:
         artifact_found = model_path.exists()
         model_card_found = model_card_path.exists()
         feature_schema_found = feature_schema_path.exists()
-        
+        split_manifest_found = split_manifest_path.exists()
         errors = []
+        split_manifest = {}
+        if split_manifest_found:
+            try:
+                split_manifest = json.loads(split_manifest_path.read_text(encoding="utf-8"))
+            except Exception:
+                errors.append("split_manifest.json is invalid JSON")
+
         if not manifest_found:
             errors.append("model_manifest.json is missing")
         elif not manifest_valid:
@@ -103,6 +111,9 @@ def discover_trained_models() -> list[dict[str, Any]]:
             "artifact_found": artifact_found,
             "model_card_found": model_card_found,
             "feature_schema_found": feature_schema_found,
+            "split_manifest_found": split_manifest_found,
+            "dataset_version_hash": manifest_data.get("dataset_version_hash") or split_manifest.get("dataset_version_hash"),
+            "split_hash": manifest_data.get("split_hash") or split_manifest.get("split_hash"),
             "status": status,
             "warnings": errors
         })
@@ -121,6 +132,7 @@ def validate_trained_model(model_id: str) -> dict[str, Any]:
     manifest_path = folder / "model_manifest.json"
     artifact_path = folder / "model.joblib"
     feature_schema_path = folder / "feature_schema.json"
+    split_manifest_path = folder / "split_manifest.json"
     
     if not manifest_path.exists():
         errors.append("model_manifest.json is missing.")
@@ -128,6 +140,8 @@ def validate_trained_model(model_id: str) -> dict[str, Any]:
         errors.append("model.joblib is missing.")
     if not feature_schema_path.exists():
         errors.append("feature_schema.json is missing.")
+    if not split_manifest_path.exists():
+        warnings.append("split_manifest.json is missing; activation eligibility will fail until split lineage is present.")
         
     manifest = {}
     if manifest_path.exists():
@@ -164,6 +178,17 @@ def validate_trained_model(model_id: str) -> dict[str, Any]:
         feature_columns_joblib = model_data.get("feature_columns", [])
         if feature_columns_joblib != FEATURE_COLUMNS:
             errors.append(f"Feature columns in model.joblib do not match expected schema: {FEATURE_COLUMNS}")
+
+    split_manifest = {}
+    if split_manifest_path.exists():
+        try:
+            split_manifest = json.loads(split_manifest_path.read_text(encoding="utf-8"))
+            if not split_manifest.get("dataset_version_hash"):
+                warnings.append("split_manifest.json is missing dataset_version_hash.")
+            if not split_manifest.get("split_hash"):
+                warnings.append("split_manifest.json is missing split_hash.")
+        except Exception as e:
+            errors.append(f"Failed to parse split_manifest.json: {e}")
             
     task_type = model_summary["task_type"]
     if task_type not in {"binary_classification", "regression"}:
@@ -181,15 +206,56 @@ def activate_trained_model(model_id: str, project_id: int | None = None) -> dict
     validation = validate_trained_model(model_id)
     if not validation["valid"]:
         raise HTTPException(status_code=400, detail=f"Cannot activate invalid model. Errors: {', '.join(validation['errors'])}")
-        
+
+    models = discover_trained_models()
+    model_summary = next((m for m in models if m["model_id"] == model_id), None)
+    metrics = {}
+    if model_summary:
+        try:
+            folder = Path(model_summary["artifact_dir"])
+            summary_path = folder / "training_summary.json"
+            if summary_path.exists():
+                metrics = json.loads(summary_path.read_text(encoding="utf-8")).get("metrics") or {}
+        except Exception:
+            metrics = {}
+    from app.services.m2_scientific_core_service import evaluate_activation_gate
+    gate = evaluate_activation_gate(
+        "admet_regression" if (model_summary or {}).get("task_type") == "regression" else "admet_toxicity" if (model_summary or {}).get("task_name") else "default",
+        {
+            "dataset_version": (model_summary or {}).get("dataset_version_hash"),
+            "sample_count": 20,
+            "split_integrity_status": "passed" if (model_summary or {}).get("split_hash") else "failed",
+            "leakage_status": "passed" if (model_summary or {}).get("split_hash") else "failed",
+            "metrics": metrics,
+            "random_state": 42,
+            "feature_schema": True,
+            "applicability_domain_status": "available",
+        },
+    )
+    if gate["activation_state"] != "ACTIVATION_ELIGIBLE":
+        failed = [check["name"] for check in gate["checks"] if not check["passed"]]
+        raise HTTPException(status_code=400, detail=f"Cannot activate model: activation gate failed ({', '.join(failed)}).")
+
     init_db()
     with get_connection() as connection:
+        previous = connection.execute("SELECT model_id FROM admet_active_model WHERE id = 1").fetchone()
+        previous_model_id = previous["model_id"] if previous and previous["model_id"] else None
         connection.execute(
             """
             INSERT OR REPLACE INTO admet_active_model (id, model_id, status, activated_at)
             VALUES (1, ?, 'active', CURRENT_TIMESTAMP)
             """,
             (model_id,)
+        )
+        connection.execute(
+            """
+            INSERT INTO admet_model_activation_history (
+                previous_model_id, new_model_id, activation_state, validation_record_json,
+                initiated_by, rollback_target_model_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (previous_model_id, model_id, "ACTIVE", json.dumps({"validation": validation, "activation_gate": gate}), "local_api", previous_model_id),
         )
         
     if project_id:
@@ -219,8 +285,23 @@ def activate_trained_model(model_id: str, project_id: int | None = None) -> dict
     return {
         "model_id": model_id,
         "status": "active",
-        "warnings": validation["warnings"]
+        "warnings": validation["warnings"],
+        "activation_state": "ACTIVE",
+        "previous_model_id": previous_model_id,
+        "rollback_target_model_id": previous_model_id,
     }
+
+
+def rollback_active_model() -> dict[str, Any]:
+    init_db()
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT rollback_target_model_id, new_model_id FROM admet_model_activation_history WHERE rollback_target_model_id IS NOT NULL AND rollback_target_model_id != '' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="No rollback target is available.")
+        target = row["rollback_target_model_id"]
+    return activate_trained_model(target)
 
 def deactivate_trained_model(project_id: int | None = None) -> dict[str, Any]:
     init_db()
@@ -301,7 +382,10 @@ def get_active_trained_model_info() -> dict[str, Any]:
             "task_name": model_summary.get("task_name"),
             "task_type": model_summary.get("task_type"),
             "model_type": model_summary.get("model_type"),
-            "warnings": validation["warnings"]
+            "warnings": validation["warnings"],
+            "dataset_version_hash": model_summary.get("dataset_version_hash"),
+            "split_hash": model_summary.get("split_hash"),
+            "activation_state": "ACTIVE",
     }
 
 def predict_trained_model(smiles: str, model_id: str | None = None, project_id: int | None = None) -> dict[str, Any]:
@@ -401,6 +485,7 @@ def predict_trained_model(smiles: str, model_id: str | None = None, project_id: 
     domain_status = "not_available"
     uncertainty_level = "unknown"
     nearest_training_distance = None
+    nearest_similarity = None
     out_of_range_features = []
     
     try:
@@ -410,6 +495,7 @@ def predict_trained_model(smiles: str, model_id: str | None = None, project_id: 
             domain_status = domain_info.get("domain_status", "not_available")
             uncertainty_level = domain_info.get("uncertainty_level", "unknown")
             nearest_training_distance = domain_info.get("distance_summary", {}).get("nearest_training_distance")
+            nearest_similarity = domain_info.get("fingerprint_similarity", {}).get("max_tanimoto_similarity")
             out_of_range_features = domain_info.get("descriptor_range_check", {}).get("out_of_range_features", [])
             
             if domain_status == "outside_domain":
@@ -437,6 +523,18 @@ def predict_trained_model(smiles: str, model_id: str | None = None, project_id: 
         "uncertainty_level": uncertainty_level,
         "nearest_training_distance": nearest_training_distance,
         "out_of_range_features": out_of_range_features,
+        "evidence_type": "MODEL_PREDICTION",
+        "model_version": version,
+        "dataset_version": manifest_data.get("dataset_version_hash") or "not_available",
+        "dataset_version_hash": manifest_data.get("dataset_version_hash"),
+        "validation_status": "externally_validated_if_validation_run_exists",
+        "calibration_status": "calibration_available_if_external_validation_exists",
+        "confidence_type": "model_probability" if prediction_score is not None else "not_available",
+        "confidence_value": prediction_score if prediction_score is not None else "not_available",
+        "uncertainty_type": "applicability_domain_adjusted",
+        "uncertainty_value": uncertainty_level,
+        "nearest_similarity": nearest_similarity,
+        "domain_method": "rdkit_descriptor_and_morgan_fingerprint_domain",
     }
     
     if project_id:

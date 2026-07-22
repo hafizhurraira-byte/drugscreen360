@@ -11,6 +11,7 @@ from app.services.admet_validation_service import (
     get_external_validation_metrics_csv,
     get_external_validation_predictions_csv,
 )
+from app.services.scientific_job_service import cancel_job, create_job, get_job, list_jobs
 
 router = APIRouter(prefix="/admet-validation", tags=["admet-validation"])
 
@@ -38,6 +39,67 @@ async def start_external_validation(request: Request, project_id: int | None = N
             int(form.get("project_id")) if form.get("project_id") else project_id,
         )
     return run_external_validation(ExternalValidationRunRequest(**(await request.json())), project_id)
+
+
+@router.post("/external/run/job")
+async def start_external_validation_job(request: Request, project_id: int | None = None):
+    content_type = request.headers.get("content-type", "")
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form()
+        upload = form.get("file")
+        if not upload:
+            raise HTTPException(status_code=422, detail="file is required.")
+        file_name = getattr(upload, "filename", None) or "external_validation.csv"
+        content = await upload.read()
+        snapshot = {
+            "file_name": file_name,
+            "validation_dataset_name": str(form.get("validation_dataset_name") or ""),
+            "smiles_column": str(form.get("smiles_column") or "smiles"),
+            "label_column": str(form.get("label_column") or ""),
+            "model_id": str(form.get("model_id") or "") or None,
+        }
+        return create_job(
+            "admet_external_validation",
+            snapshot,
+            lambda: run_external_validation_upload(
+                file_name,
+                content,
+                snapshot["validation_dataset_name"],
+                snapshot["smiles_column"],
+                snapshot["label_column"],
+                str(form.get("compound_name_column") or "") or None,
+                str(form.get("task_name") or "") or None,
+                snapshot["model_id"],
+                str(form.get("positive_label") or "1"),
+                str(form.get("negative_label") or "0"),
+                float(form.get("decision_threshold") or 0.5),
+                str(form.get("notes") or "") or None,
+                int(form.get("project_id")) if form.get("project_id") else project_id,
+            ),
+            {"model_family": "admet", "validation_dataset_name": snapshot["validation_dataset_name"]},
+        )
+    payload = ExternalValidationRunRequest(**(await request.json()))
+    return create_job(
+        "admet_external_validation",
+        payload.model_dump(),
+        lambda: run_external_validation(payload, project_id),
+        {"model_family": "admet", "model_id": payload.model_id, "external_dataset_id": payload.external_dataset_id},
+    )
+
+
+@router.get("/external/jobs")
+def external_validation_jobs():
+    return [job for job in list_jobs() if job["job_type"] == "admet_external_validation"]
+
+
+@router.get("/external/jobs/{job_id}")
+def external_validation_job(job_id: int):
+    return get_job(job_id)
+
+
+@router.post("/external/jobs/{job_id}/cancel")
+def cancel_external_validation_job(job_id: int):
+    return cancel_job(job_id)
 
 @router.post("/external/run-upload")
 async def start_external_validation_upload(

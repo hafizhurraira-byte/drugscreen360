@@ -443,6 +443,38 @@ def init_db() -> None:
         )
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS admet_model_activation_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                previous_model_id TEXT,
+                new_model_id TEXT,
+                activation_state TEXT NOT NULL,
+                validation_record_json TEXT NOT NULL,
+                initiated_by TEXT NOT NULL,
+                rollback_target_model_id TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scientific_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                progress REAL NOT NULL DEFAULT 0,
+                input_snapshot_json TEXT NOT NULL,
+                output_references_json TEXT NOT NULL DEFAULT '{}',
+                error TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                started_at TEXT,
+                ended_at TEXT,
+                logs_json TEXT NOT NULL DEFAULT '[]',
+                provenance_json TEXT NOT NULL DEFAULT '{}'
+            )
+            """
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS admet_external_validation_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 model_id TEXT NOT NULL,

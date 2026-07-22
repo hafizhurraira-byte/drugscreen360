@@ -106,6 +106,8 @@ assert.ok(appSource.includes("Now rerun Disease-to-Lead"));
 assert.ok(appSource.includes("M2 Scientific Core"));
 assert.ok(appSource.includes("Endpoint-aware ADMET model status"));
 assert.ok(appSource.includes("unsupported docking/MD/generative capability states"));
+assert.ok(appSource.includes("M2B predictive activation adds split lineage"));
+assert.ok(appSource.includes("lightweight local training/validation job status"));
 assert.ok(appSource.includes("System Readiness"));
 assert.ok(appSource.includes("Load NSCLC / EGFR / Erlotinib Demo"));
 assert.ok(appSource.includes("synthetic_model_1") === false);
