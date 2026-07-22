@@ -924,6 +924,10 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
                 "model_available": True,
                 "active_model_id": ev.get("active_model_id"),
                 "model_name": ev.get("model_name"),
+                "evidence_type": "MODEL PREDICTION",
+                "source": "DrugScreen360 trained local ADMET model",
+                "model_version": ev.get("model_version") or ev.get("version") or active_model.get("version"),
+                "dataset_version": ev.get("dataset_version") or ev.get("training_dataset_version") or "not_available",
                 "model_evidence_source": "trained local model",
                 "endpoint_predicted": ev.get("endpoint_predicted"),
                 "prediction": ev.get("prediction_label") or str(ev.get("prediction_value") or "N/A"),
@@ -952,6 +956,10 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
             model_evidence_list.append({
                 "candidate_name": c.get("compound_name") or c.get("compound_id") or "Unnamed",
                 "model_available": False,
+                "evidence_type": "RULE-BASED HEURISTIC",
+                "source": "DrugScreen360 descriptor and rule-based workflow",
+                "model_version": "not_available",
+                "dataset_version": "not_available",
                 "failure_reason": reason,
                 "resolution_reason": resolution_reason,
                 "missing_evidence": ["trained model prediction"]
@@ -1086,6 +1094,30 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
         ],
         
         "model_evidence_list": model_evidence_list,
+        "evidence_package": {
+            "candidate_level_fields": [
+                "evidence_type",
+                "source",
+                "model_name",
+                "model_version",
+                "dataset_version",
+                "prediction",
+                "confidence_level",
+                "uncertainty_score",
+                "applicability_domain_status",
+                "external_validation_status",
+                "limitations",
+            ],
+            "evidence_type_definitions": {
+                "FACT": "Established external fact.",
+                "DATABASE EVIDENCE": "Database-derived evidence from sources such as PubChem, ChEMBL, or Open Targets.",
+                "MODEL PREDICTION": "Prediction from a versioned model with available provenance.",
+                "RULE-BASED HEURISTIC": "Descriptor/rule-based computational triage, not a trained prediction.",
+                "SIMULATION": "Simulation output; no docking or MD simulation is currently implemented.",
+                "EXPERIMENTAL OBSERVATION": "User-imported experimental observation only.",
+            },
+            "scientific_notice": SCIENTIFIC_NOTICE,
+        },
         "has_resolved_evidence": has_resolved_evidence,
         "model_readiness": readiness,
         
@@ -1207,6 +1239,17 @@ def _build_payload(request: FinalProjectReportRequest, created_at: str) -> dict[
         "sections": [section.model_dump() for section in sections],
         "included_sections": included,
         "missing_sections": missing,
+        "evidence_package": {
+            "evidence_type_definitions": {
+                "FACT": "Established external fact.",
+                "DATABASE EVIDENCE": "Database-derived evidence from sources such as PubChem, ChEMBL, or Open Targets.",
+                "MODEL PREDICTION": "Prediction from a versioned model with available provenance.",
+                "RULE-BASED HEURISTIC": "Descriptor/rule-based computational triage, not a trained prediction.",
+                "SIMULATION": "Simulation output; no docking or MD simulation is currently implemented.",
+                "EXPERIMENTAL OBSERVATION": "User-imported experimental observation only.",
+            },
+            "scientific_notice": SCIENTIFIC_NOTICE,
+        },
         "final_limitations": FINAL_LIMITATIONS,
         "reproducibility": {
             "app_version": app_version(),
@@ -1484,6 +1527,26 @@ def _build_pdf(payload: dict[str, Any]) -> bytes:
                 
         story.append(Spacer(1, 15))
         
+        # Evidence Package Provenance
+        story.append(Paragraph("<b>Evidence Package Provenance</b>", styles["Heading2"]))
+        story.append(Spacer(1, 5))
+        if evidence_list:
+            headers = ["Candidate", "Evidence Type", "Source", "Model Version", "Dataset Version"]
+            rows = [
+                [
+                    ev.get("candidate_name") or "Unnamed",
+                    ev.get("evidence_type") or "not_available",
+                    ev.get("source") or ev.get("model_evidence_source") or "not_available",
+                    ev.get("model_version") or "not_available",
+                    ev.get("dataset_version") or "not_available",
+                ]
+                for ev in evidence_list
+            ]
+            story.append(_build_pdf_table(headers, rows, widths=[1.2*inch, 1.2*inch, 1.8*inch, 1.2*inch, 1.2*inch]))
+        else:
+            story.append(Paragraph("No candidate-level evidence provenance was available.", styles["BodyText"]))
+        story.append(Spacer(1, 15))
+
         # How to Improve Evidence Quality
         story.append(Paragraph("<b>How to Improve Evidence Quality</b>", styles["Heading2"]))
         story.append(Spacer(1, 5))
@@ -1811,6 +1874,25 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
                 
         document.add_paragraph("")
         
+        document.add_heading("Evidence Package Provenance", level=1)
+        if evidence_list:
+            headers = ["Candidate", "Evidence Type", "Source", "Model Version", "Dataset Version"]
+            rows = [
+                [
+                    ev.get("candidate_name") or "Unnamed",
+                    ev.get("evidence_type") or "not_available",
+                    ev.get("source") or ev.get("model_evidence_source") or "not_available",
+                    ev.get("model_version") or "not_available",
+                    ev.get("dataset_version") or "not_available",
+                ]
+                for ev in evidence_list
+            ]
+            _build_docx_table(document, headers, rows, widths=[Inches(1.2), Inches(1.2), Inches(1.8), Inches(1.2), Inches(1.2)])
+        else:
+            document.add_paragraph("No candidate-level evidence provenance was available.")
+
+        document.add_paragraph("")
+
         # How to Improve Evidence Quality
         document.add_heading("How to Improve Evidence Quality", level=1)
         

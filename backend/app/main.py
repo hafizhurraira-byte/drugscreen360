@@ -26,6 +26,7 @@ from app.routers.experimental_results import results_router as experimental_resu
 from app.routers.final_report import router as final_report_router
 from app.routers.finder import router as finder_router
 from app.routers.health import router as health_router
+from app.routers.m2_scientific_core import router as m2_scientific_core_router
 from app.routers.models import router as models_router
 from app.routers.project_report import router as project_report_router
 from app.routers.projects import router as projects_router
@@ -89,6 +90,7 @@ app.include_router(benchmark_router, prefix="/api")
 app.include_router(models_router, prefix="/api")
 app.include_router(batch_library_router, prefix="/api")
 app.include_router(health_router, prefix="/api")
+app.include_router(m2_scientific_core_router, prefix="/api")
 app.include_router(research_export_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
 app.include_router(validation_planner_router, prefix="/api")

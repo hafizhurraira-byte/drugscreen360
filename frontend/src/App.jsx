@@ -2370,6 +2370,15 @@ export default function App() {
             <SummaryCard label="Validation" value={studioModelValidation?.valid ? "Valid" : studioModelValidation ? "Invalid" : "Pending"} icon={CheckCircle2} />
             <SummaryCard label="Active model" value={activeTrainedModel?.status === "available" ? "Available" : "Not active"} icon={Target} />
           </div>
+          <div className="empty-state-card">
+            <strong>M2 Scientific Core</strong>
+            <p>
+              Endpoint-aware ADMET model status, family-specific activation gates, applicability domain,
+              uncertainty/confidence, and unsupported docking/MD/generative capability states are tracked as
+              research-use-only evidence boundaries. Missing trained endpoints remain unavailable instead of
+              being replaced by heuristic or fake model outputs.
+            </p>
+          </div>
           {studioError && (
             <details className="empty-state-card" open>
               <summary><strong>Studio error:</strong> {studioError.message}</summary>

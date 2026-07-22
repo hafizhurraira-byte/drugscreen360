@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 import math
 from datetime import datetime, timezone
@@ -206,6 +207,11 @@ def _save_artifact(run_id: int, artifact: AdmetModelArtifactSummary) -> None:
         )
 
 
+def _artifact_hash(value: Any) -> str:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def train_admet_model(payload: AdmetTrainingRequest) -> AdmetTrainingResponse:
     dataset, rows, warnings = _load_training_rows(payload.dataset_id)
     if len(rows) < 20:
@@ -215,9 +221,13 @@ def train_admet_model(payload: AdmetTrainingRequest) -> AdmetTrainingResponse:
     x = [row["features"] for row in rows]
     stratify = y if task_type == "binary_classification" else None
     try:
-        x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=payload.test_size, random_state=payload.random_state, stratify=stratify)
+        train_idx, test_idx = train_test_split(list(range(len(rows))), test_size=payload.test_size, random_state=payload.random_state, stratify=stratify)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=f"Training refused: train/test split failed: {exc}") from exc
+    x_train = [x[i] for i in train_idx]
+    x_test = [x[i] for i in test_idx]
+    y_train = [y[i] for i in train_idx]
+    y_test = [y[i] for i in test_idx]
     model_type = payload.model_type
     if task_type == "regression" and model_type != "random_forest_regressor":
         model_type = "random_forest_regressor"
@@ -234,6 +244,25 @@ def train_admet_model(payload: AdmetTrainingRequest) -> AdmetTrainingResponse:
     version = f"{app_version()}-run-{run_id}"
     dump({"model": model, "feature_columns": FEATURE_COLUMNS, "task_type": task_type, "label_mapping": label_mapping}, artifact_dir / "model.joblib")
     feature_schema = {"input_type": "rdkit_descriptors", "feature_columns": FEATURE_COLUMNS, "label_mapping": label_mapping}
+    split_manifest = {
+        "dataset_id": payload.dataset_id,
+        "training_run_id": run_id,
+        "split_method": "train_test_split",
+        "test_size": payload.test_size,
+        "random_state": payload.random_state,
+        "train_record_ids": [rows[i]["record"].id for i in train_idx],
+        "test_record_ids": [rows[i]["record"].id for i in test_idx],
+        "dataset_version_hash": _artifact_hash([
+            {
+                "record_id": row["record"].id,
+                "canonical_smiles": row["record"].canonical_smiles,
+                "label": row["label"],
+            }
+            for row in rows
+        ]),
+        "split_hash": _artifact_hash({"train_record_ids": sorted(rows[i]["record"].id for i in train_idx), "test_record_ids": sorted(rows[i]["record"].id for i in test_idx)}),
+        "leakage_policy": "Random split persisted for reproducibility. Use scaffold-aware review for chemistry generalization claims.",
+    }
     model_card = AdmetModelCard(
         dataset_id=payload.dataset_id,
         dataset_name=dataset["name"],
@@ -257,10 +286,12 @@ def train_admet_model(payload: AdmetTrainingRequest) -> AdmetTrainingResponse:
         "tasks": [dataset.get("task_name") or "admet_task"],
         "input_type": "rdkit_descriptors",
         "limitations": "Experimental baseline model. Requires external validation and a supported local adapter loader before prediction use.",
-        "artifact_files": ["model.joblib", "feature_schema.json"],
+        "artifact_files": ["model.joblib", "feature_schema.json", "split_manifest.json"],
         "training_run_id": run_id,
         "metrics": metrics,
         "feature_schema": feature_schema,
+        "dataset_version_hash": split_manifest["dataset_version_hash"],
+        "split_hash": split_manifest["split_hash"],
     }
     summary = {
         "training_run_id": run_id,
@@ -271,8 +302,11 @@ def train_admet_model(payload: AdmetTrainingRequest) -> AdmetTrainingResponse:
         "metrics": metrics,
         "warnings": warnings,
         "limitations": LIMITATIONS,
+        "dataset_version_hash": split_manifest["dataset_version_hash"],
+        "split_hash": split_manifest["split_hash"],
     }
     (artifact_dir / "feature_schema.json").write_text(json.dumps(feature_schema, indent=2), encoding="utf-8")
+    (artifact_dir / "split_manifest.json").write_text(json.dumps(split_manifest, indent=2), encoding="utf-8")
     (artifact_dir / "model_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     (artifact_dir / "model_card.json").write_text(model_card.model_dump_json(indent=2), encoding="utf-8")
     (artifact_dir / "training_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
