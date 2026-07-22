@@ -45,8 +45,12 @@ def test_binary_classification_training_creates_artifacts(tmp_path, monkeypatch)
     assert (artifact_dir / "model_manifest.json").exists()
     assert (artifact_dir / "model_card.json").exists()
     assert (artifact_dir / "feature_schema.json").exists()
+    assert (artifact_dir / "split_manifest.json").exists()
     manifest = (artifact_dir / "model_manifest.json").read_text(encoding="utf-8")
     assert "artifact_files" in manifest
+    split_manifest = (artifact_dir / "split_manifest.json").read_text(encoding="utf-8")
+    assert "dataset_version_hash" in split_manifest
+    assert "split_hash" in split_manifest
     assert "prediction" not in body["metrics"]
 
 

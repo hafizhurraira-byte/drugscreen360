@@ -76,6 +76,30 @@ def test_final_report_creation_works_with_minimal_data(tmp_path, monkeypatch):
     assert body["missing_sections"] is not None
 
 
+def test_final_report_json_includes_evidence_package_provenance(tmp_path, monkeypatch):
+    monkeypatch.setattr(final_report_service, "REPORT_DIR", tmp_path / "final_project_reports")
+    project = client.post("/api/projects/create", json={"title": "M2 Evidence Project", "project_type": "disease_screening", "status": "active"}).json()
+    _save_disease_to_lead_snapshot(
+        project["id"],
+        "non-small cell lung cancer",
+        "EGFR",
+        "Erlotinib",
+        [{"compound_name": "Erlotinib", "compound_id": "KNOWN-ERLOTINIB", "smiles": "C#Cc1cccc(Nc2ncnc3cc(OCCOC)c(OCCOC)cc23)c1", "total_score": 0.72}],
+    )
+
+    report_id = _create_final(
+        project_id=project["id"],
+        report_title="M2 Evidence Package Report",
+        report_mode="concise_disease_to_lead_report",
+    ).json()["report_id"]
+    report = client.get(f"/api/final-report/reports/{report_id}/json").json()
+
+    assert "evidence_package" in report
+    assert "MODEL PREDICTION" in report["evidence_package"]["evidence_type_definitions"]
+    assert report["model_evidence_list"][0]["evidence_type"] == "RULE-BASED HEURISTIC"
+    assert report["model_evidence_list"][0]["source"] == "DrugScreen360 descriptor and rule-based workflow"
+
+
 def test_final_report_creation_works_with_project_data(tmp_path, monkeypatch):
     monkeypatch.setattr(final_report_service, "REPORT_DIR", tmp_path / "final_project_reports")
     project = client.post("/api/projects/create", json={"title": "Final Report Project", "project_type": "general_research", "status": "active"}).json()
