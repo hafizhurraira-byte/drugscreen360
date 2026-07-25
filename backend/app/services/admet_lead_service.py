@@ -23,6 +23,7 @@ from app.services.descriptors import calculate_descriptors, parse_smiles
 from app.services.admet_model_evidence_resolver import resolve_model_evidence
 from app.services.project_workspace_service import attach_project_item, get_project
 from app.services.rules import build_decision, evaluate_rules, plan_experimental_tests
+from app.services.activity_model_service import predict_egfr_activity
 
 SCIENTIFIC_NOTICE = "Computational prioritization only. Requires experimental validation."
 LIMITATIONS = [
@@ -142,6 +143,24 @@ def _load_candidates(payload: LeadPrioritizationRequest) -> list[LeadCandidateIn
     return candidates
 
 
+def _candidate_target(candidate: LeadCandidateInput, payload: LeadPrioritizationRequest) -> str | None:
+    metadata = candidate.metadata or {}
+    target = metadata.get("target_name") or metadata.get("target") or metadata.get("target_chembl_id")
+    if target:
+        return str(target)
+    if payload.project_id:
+        try:
+            project = get_project(payload.project_id)
+            return project.target_name
+        except Exception:
+            return None
+    return None
+
+
+def _is_egfr_target(target: str | None) -> bool:
+    return (target or "").strip().upper() in {"EGFR", "P00533", "CHEMBL203", "ERBB1", "HUMAN EGFR"}
+
+
 def _toxicity_evidence_summary(admet, trained_prediction: dict[str, Any] | None) -> dict[str, Any]:
     summary = admet.toxicity_evidence_summary.model_dump() if getattr(admet, "toxicity_evidence_summary", None) else {}
     endpoint = str((trained_prediction or {}).get("endpoint_predicted") or "").strip().lower()
@@ -245,6 +264,7 @@ def _score_candidate(
         risk_factors.append(f"Rule-based ADMET/Tox concern is {admet.overall.concern_level}.")
 
     trained_prediction = None
+    activity_prediction = None
     domain_status = "not available"
     uncertainty_level = "unknown"
     external_warning = "not available"
@@ -276,6 +296,29 @@ def _score_candidate(
             score -= 8 * weights["evidence"]
     else:
         missing_evidence.append("trained model prediction not requested")
+
+    if _is_egfr_target(_candidate_target(candidate, payload)):
+        try:
+            activity_prediction = predict_egfr_activity(canonical, "EGFR")
+            predicted = activity_prediction.get("predicted_pIC50")
+            domain = activity_prediction.get("applicability_domain_status")
+            if isinstance(predicted, (int, float)):
+                activity_bonus = min(8.0, max(0.0, float(predicted) - 6.0) * 2.0)
+                score += activity_bonus
+                components["egfr_activity_bonus"] = round(activity_bonus, 2)
+                positive_factors.append(f"EGFR v2 predicted pIC50 {predicted:.2f} ({domain}).")
+            if domain == "BORDERLINE":
+                score -= 5
+                components["egfr_activity_domain_penalty"] = 5
+                risk_factors.append("EGFR activity prediction is borderline in applicability domain.")
+            elif domain == "OUT_OF_DOMAIN":
+                score -= 12
+                components["egfr_activity_domain_penalty"] = 12
+                risk_factors.append("EGFR activity prediction is out-of-domain and low reliability.")
+            warnings.extend(activity_prediction.get("warnings") or [])
+        except Exception as exc:
+            missing_evidence.append("EGFR activity prediction")
+            warnings.append(f"EGFR activity prediction unavailable: {getattr(exc, 'detail', exc)}")
 
     if payload.include_domain:
         if trained_prediction is not None:
@@ -380,6 +423,7 @@ def _score_candidate(
             "toxicity_evidence_summary": _toxicity_evidence_summary(admet, trained_prediction),
         },
         trained_model_prediction=trained_prediction,
+        activity_model_prediction=activity_prediction,
         domain_status=domain_status,
         uncertainty_level=uncertainty_level,
         external_validation_warning=external_warning,

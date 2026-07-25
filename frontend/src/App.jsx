@@ -9512,6 +9512,8 @@ export default function App() {
                 <Field label="Artifact status" value={systemReadiness?.artifact_status || "Not checked"} />
                 <Field label="External validation" value={systemReadiness?.latest_external_validation_status || "Not checked"} />
                 <Field label="Calibration" value={systemReadiness?.calibration_status || "Not checked"} />
+                <Field label="EGFR activity" value={systemReadiness?.activity_modeling?.egfr?.active ? "ACTIVE v2" : systemReadiness?.activity_modeling?.egfr?.trained ? "Available, not active" : "Unavailable"} />
+                <Field label="Activity scope" value={systemReadiness?.activity_modeling?.egfr?.supported_target || "Target-specific only"} />
                 <Field label="Demo ready" value={systemReadiness?.demo_ready ? "yes" : "no"} />
               </div>
               {(systemReadiness?.warnings || []).map((warning) => <p className="warning-text" key={warning}>{warning}</p>)}

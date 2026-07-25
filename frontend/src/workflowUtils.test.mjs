@@ -6,6 +6,8 @@ import {
   buildAdmetDatasetFormData,
   getActiveAdmetModelApi,
   getAdmetDatasetSummaryApi,
+  getEgfrActivityStatusApi,
+  predictEgfrActivityApi,
   runExternalAdmetValidationApi,
   readableApiError,
   trainAdmetModelApi,
@@ -109,6 +111,8 @@ assert.ok(appSource.includes("unsupported docking/MD/generative capability state
 assert.ok(appSource.includes("M2B predictive activation adds split lineage"));
 assert.ok(appSource.includes("lightweight local training/validation job status"));
 assert.ok(appSource.includes("System Readiness"));
+assert.ok(appSource.includes("EGFR activity"));
+assert.ok(appSource.includes("activity_modeling"));
 assert.ok(appSource.includes("Load NSCLC / EGFR / Erlotinib Demo"));
 assert.ok(appSource.includes("synthetic_model_1") === false);
 assert.ok(appSource.includes("setStudioSelectedModelId(data.artifact?.model_id"));
@@ -184,5 +188,21 @@ const fetchValidation = async (url, options = {}) => {
 };
 const validationRun = await runExternalAdmetValidationApi(fetchValidation, "http://127.0.0.1:8010/api", validationForm, new Blob(["x"]));
 assert.equal(validationRun.id, 88);
+
+const activityCalls = [];
+const fetchActivity = async (url, options = {}) => {
+  activityCalls.push({ url, options });
+  if (url.endsWith("/activity/models/egfr/status")) {
+    return { ok: true, json: async () => ({ active: true, supported_target: "EGFR/P00533/CHEMBL203" }) };
+  }
+  if (url.endsWith("/activity/egfr/predict")) {
+    const body = JSON.parse(options.body);
+    assert.equal(body.smiles, "CCO");
+    return { ok: true, json: async () => ({ status: "available", predicted_pIC50: 5.1, applicability_domain_status: "OUT_OF_DOMAIN" }) };
+  }
+  throw new Error(`Unexpected URL ${url}`);
+};
+assert.equal((await getEgfrActivityStatusApi(fetchActivity, "http://127.0.0.1:8010/api")).active, true);
+assert.equal((await predictEgfrActivityApi(fetchActivity, "http://127.0.0.1:8010/api", "CCO")).applicability_domain_status, "OUT_OF_DOMAIN");
 
 console.log("workflow utils tests passed");

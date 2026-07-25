@@ -100,6 +100,56 @@ def test_final_report_json_includes_evidence_package_provenance(tmp_path, monkey
     assert report["model_evidence_list"][0]["source"] == "DrugScreen360 descriptor and rule-based workflow"
 
 
+def test_final_report_includes_egfr_activity_model_prediction(tmp_path, monkeypatch):
+    monkeypatch.setattr(final_report_service, "REPORT_DIR", tmp_path / "final_project_reports")
+    project = client.post("/api/projects/create", json={"title": "EGFR Activity Report", "project_type": "disease_screening", "status": "active"}).json()
+    run_id = _save_disease_to_lead_snapshot(
+        project["id"],
+        "non-small cell lung cancer",
+        "EGFR",
+        "Erlotinib",
+        [
+            {
+                "compound_name": "Erlotinib",
+                "compound_id": "CHEMBL553",
+                "smiles": "C#Cc1cccc(Nc2ncnc3cc(OCCOC)c(OCCOC)cc23)c1",
+                "total_score": 91.0,
+                "priority_label": "high_priority_for_review",
+                "activity_model_prediction": {
+                    "status": "available",
+                    "model_id": "egfr_activity_v2",
+                    "model_name": "random_forest_180_morgan",
+                    "model_version": "v2",
+                    "predicted_pIC50": 7.1,
+                    "predicted_IC50_nM": 79.4,
+                    "dataset_lineage": {"sources": ["ChEMBL EGFR curated v2", "BindingDB augmentation subset"]},
+                    "validation_status": "externally_validated_research_use",
+                    "applicability_domain_status": "IN_DOMAIN",
+                    "uncertainty_value": 0.5,
+                    "artifact_hash": "7bd850e41d877a0d3c1c39dde42914ba67fa81142962c7ca7e67d7707f1b6c61",
+                    "nearest_training_similarity": 0.8,
+                    "interval_lower": 5.9,
+                    "interval_upper": 8.3,
+                    "external_observed_coverage": 0.8337,
+                },
+            }
+        ],
+    )
+    response = _create_final(
+        project_id=project["id"],
+        report_mode="concise_disease_to_lead_report",
+        disease_to_lead_run_id=run_id,
+        formats=["json"],
+    )
+    report = client.get(response.json()["generated_files"]["json"]).json()
+    evidence = next(item for item in report["model_evidence_list"] if item["active_model_id"] == "egfr_activity_v2")
+
+    assert evidence["source"] == "DrugScreen360 EGFR target-specific activity model"
+    assert evidence["endpoint_predicted"] == "EGFR IC50/pIC50"
+    assert "model-derived IC50_nM" in evidence["prediction"]
+    assert evidence["external_observed_coverage"] == 0.8337
+
+
 def test_final_report_creation_works_with_project_data(tmp_path, monkeypatch):
     monkeypatch.setattr(final_report_service, "REPORT_DIR", tmp_path / "final_project_reports")
     project = client.post("/api/projects/create", json={"title": "Final Report Project", "project_type": "general_research", "status": "active"}).json()

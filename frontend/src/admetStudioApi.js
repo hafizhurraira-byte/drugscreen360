@@ -137,3 +137,20 @@ export async function listExternalAdmetValidationRunsApi(fetchImpl, apiBase) {
 export async function getExternalAdmetValidationRunApi(fetchImpl, apiBase, runId) {
   return requestJson(fetchImpl, `${apiBase}/admet-validation/external/runs/${runId}`, undefined, "Could not load validation run details.");
 }
+
+export async function getEgfrActivityStatusApi(fetchImpl, apiBase) {
+  return requestJson(fetchImpl, `${apiBase}/activity/models/egfr/status`, undefined, "Could not load EGFR activity model status.");
+}
+
+export async function predictEgfrActivityApi(fetchImpl, apiBase, smiles) {
+  return requestJson(
+    fetchImpl,
+    `${apiBase}/activity/egfr/predict`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ smiles }),
+    },
+    "EGFR activity prediction failed."
+  );
+}

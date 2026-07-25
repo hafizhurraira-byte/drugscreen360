@@ -62,6 +62,7 @@ class LeadCandidateRankingResult(BaseModel):
     developability_risk: str = "not evaluated"
     rule_based_admet_summary: dict[str, Any] = Field(default_factory=dict)
     trained_model_prediction: dict[str, Any] | None = None
+    activity_model_prediction: dict[str, Any] | None = None
     domain_status: str = "not available"
     uncertainty_level: str = "unknown"
     external_validation_warning: str = "not available"
