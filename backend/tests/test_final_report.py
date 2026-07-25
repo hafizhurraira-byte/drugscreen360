@@ -258,6 +258,7 @@ def test_concise_disease_to_lead_report_quality(tmp_path, monkeypatch):
 
     monkeypatch.setattr(final_report_service, "REPORT_DIR", tmp_path / "final_project_reports")
     monkeypatch.setattr(final_report_service, "get_active_trained_model_info", lambda: {"status": "unavailable"})
+    monkeypatch.setattr("app.services.admet_lead_service.predict_admet_endpoints", lambda smiles, endpoints=None: {"results": []})
     
     # 1. Create a project
     project = client.post("/api/projects/create", json={"title": "EGFR Lead Optimization Project", "project_type": "general_research", "status": "active"}).json()
