@@ -9514,8 +9514,34 @@ export default function App() {
                 <Field label="Calibration" value={systemReadiness?.calibration_status || "Not checked"} />
                 <Field label="EGFR activity" value={systemReadiness?.activity_modeling?.egfr?.active ? "ACTIVE v2" : systemReadiness?.activity_modeling?.egfr?.trained ? "Available, not active" : "Unavailable"} />
                 <Field label="Activity scope" value={systemReadiness?.activity_modeling?.egfr?.supported_target || "Target-specific only"} />
+                <Field label="Real ADMET endpoints" value={`${systemReadiness?.admet_endpoint_models?.active_endpoint_count ?? 0} active`} />
+                <Field label="ADMET scope" value={systemReadiness?.admet_endpoint_models?.universal_admet_model ? "Universal" : "Endpoint-specific only"} />
                 <Field label="Demo ready" value={systemReadiness?.demo_ready ? "yes" : "no"} />
               </div>
+              {(systemReadiness?.admet_endpoint_models?.models || []).length > 0 && (
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Endpoint</th>
+                        <th>State</th>
+                        <th>Gate</th>
+                        <th>Warning</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(systemReadiness?.admet_endpoint_models?.models || []).map((model) => (
+                        <tr key={model.endpoint}>
+                          <td>{model.display_name || model.endpoint}</td>
+                          <td>{model.endpoint === "clintox_cttox" && !model.active ? "ClinTox rejected" : model.active ? "ACTIVE" : model.registered ? "REGISTERED" : "UNAVAILABLE"}</td>
+                          <td>{model.gate_state || "Not checked"}</td>
+                          <td>{(model.warnings || [])[0] || "None"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
               {(systemReadiness?.warnings || []).map((warning) => <p className="warning-text" key={warning}>{warning}</p>)}
               <p className="limitation-label">
                 Next actions: {(systemReadiness?.recommended_next_actions || ["Refresh System Health"]).join("; ")}

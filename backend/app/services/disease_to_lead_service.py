@@ -283,7 +283,7 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
             
             model_predictions = predict_admet(
                 smiles,
-                ["rule_based_admet_v1", "trained_local_admet_model"],
+                ["rule_based_admet_v1", "trained_local_admet_model", "multi_endpoint_admet_v1"],
                 True
             )
             
