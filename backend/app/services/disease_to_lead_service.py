@@ -335,7 +335,8 @@ def run_disease_to_lead_workflow(payload: DiseaseToLeadRequest) -> dict[str, Any
             LeadCandidateInput(
                 compound_name=c.get("compound_name") or c["molecule_chembl_id"],
                 smiles=c.get("canonical_smiles") or c.get("smiles"),
-                compound_id=c["molecule_chembl_id"]
+                compound_id=c["molecule_chembl_id"],
+                metadata={"target_name": target_name, "target_chembl_id": target_id}
             )
         )
         

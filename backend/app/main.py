@@ -14,6 +14,7 @@ from app.routers.admet_explain import router as admet_explain_router
 from app.routers.admet_leads import router as admet_leads_router
 from app.routers.admet_training import router as admet_training_router
 from app.routers.admet_validation import router as admet_validation_router
+from app.routers.activity import router as activity_router
 from app.routers.benchmark import router as benchmark_router
 from app.routers.batch_library import router as batch_library_router
 from app.routers.cache import router as cache_router
@@ -79,6 +80,7 @@ app.include_router(admet_explain_router, prefix="/api")
 app.include_router(admet_leads_router, prefix="/api")
 app.include_router(admet_training_router, prefix="/api")
 app.include_router(admet_validation_router, prefix="/api")
+app.include_router(activity_router, prefix="/api")
 app.include_router(disease_finder_router, prefix="/api")
 app.include_router(evidence_router, prefix="/api")
 app.include_router(project_report_router, prefix="/api")

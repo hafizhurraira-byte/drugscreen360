@@ -219,11 +219,15 @@ def endpoint_aware_admet_status() -> list[dict[str, Any]]:
 
 
 def activity_model_status() -> dict[str, Any]:
+    from app.services.activity_model_service import egfr_activity_model_status
+
+    egfr = egfr_activity_model_status()
     return {
-        "status": "architecture_ready_untrained",
+        "status": "active_target_specific" if egfr.get("active") else "target_specific_available_not_active" if egfr.get("trained") else "architecture_ready_untrained",
         "model_family": "activity",
         "scope": "target_specific",
         "supported_task_types": ["binary_classification", "regression"],
+        "supported_targets": [egfr],
         "required_dataset_contract": {
             "target_id": "required",
             "target_name": "required",
@@ -234,8 +238,8 @@ def activity_model_status() -> dict[str, Any]:
             "transformation": "required when pIC50/pKi/pKd or log transforms are used",
             "provenance": "required",
         },
-        "activation_state": "DRAFT",
-        "limitations": ["No universal activity model is active. A bounded target-specific labelled dataset is required."],
+        "activation_state": "ACTIVE" if egfr.get("active") else "DRAFT",
+        "limitations": ["Activity modeling is target-specific. EGFR/P00533/CHEMBL203 is the only supported activity target when active; unsupported targets remain unavailable."],
     }
 
 

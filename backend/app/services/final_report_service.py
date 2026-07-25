@@ -482,6 +482,8 @@ def _candidate_quality_key(c: dict[str, Any]) -> tuple:
                 score_count += 1
     if c.get("trained_model_prediction") is not None:
         score_count += 1
+    if c.get("activity_model_prediction") is not None:
+        score_count += 1
     if c.get("total_score") is not None:
         score_count += 1
         
@@ -916,6 +918,41 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
     readiness = get_model_evidence_readiness().model_dump()
 
     for c in ranked_candidates[:5]:
+        activity_ev = c.get("activity_model_prediction")
+        if isinstance(activity_ev, dict) and activity_ev.get("status") == "available":
+            has_resolved_evidence = True
+            predicted_pic50 = activity_ev.get("predicted_pIC50")
+            predicted_ic50 = activity_ev.get("predicted_IC50_nM")
+            prediction_text = (
+                f"pIC50 {float(predicted_pic50):.3f}; model-derived IC50_nM {float(predicted_ic50):.3f}"
+                if isinstance(predicted_pic50, (int, float)) and isinstance(predicted_ic50, (int, float))
+                else "EGFR activity prediction available"
+            )
+            model_evidence_list.append({
+                "candidate_name": c.get("compound_name") or c.get("compound_id") or "Unnamed",
+                "model_available": True,
+                "active_model_id": activity_ev.get("model_id"),
+                "model_name": activity_ev.get("model_name"),
+                "evidence_type": "MODEL PREDICTION",
+                "source": "DrugScreen360 EGFR target-specific activity model",
+                "model_version": activity_ev.get("model_version"),
+                "dataset_version": "; ".join(activity_ev.get("dataset_lineage", {}).get("sources", [])) or "not_available",
+                "model_evidence_source": "trained local target-specific activity model",
+                "endpoint_predicted": "EGFR IC50/pIC50",
+                "prediction": prediction_text,
+                "confidence_level": "not_available",
+                "uncertainty_score": activity_ev.get("uncertainty_value"),
+                "applicability_domain_status": activity_ev.get("applicability_domain_status") or "not_available",
+                "calibration_status": "under_nominal_conformal_coverage",
+                "external_validation_status": activity_ev.get("validation_status") or "not_available",
+                "evidence_strength": "externally_validated_research_model",
+                "artifact_hash": activity_ev.get("artifact_hash"),
+                "nearest_training_similarity": activity_ev.get("nearest_training_similarity"),
+                "conformal_interval": [activity_ev.get("interval_lower"), activity_ev.get("interval_upper")],
+                "external_observed_coverage": activity_ev.get("external_observed_coverage"),
+                "missing_evidence": [],
+                "limitations": activity_ev.get("limitations") or [],
+            })
         ev = c.get("trained_model_prediction")
         if isinstance(ev, dict) and ev.get("model_available"):
             has_resolved_evidence = True
