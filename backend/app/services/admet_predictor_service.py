@@ -62,6 +62,7 @@ def predict_admet(smiles: str, model_ids: list[str], include_unavailable: bool =
     external_bundle = next((item for item in outputs if item.model_id == "external_admet_provider_v1"), None)
     local_bundle = next((item for item in outputs if item.model_id == "local_admet_model"), None)
     trained_bundle = next((item for item in outputs if item.model_id == "trained_local_admet_model"), None)
+    multi_endpoint_bundle = next((item for item in outputs if item.model_id == "multi_endpoint_admet_v1"), None)
     external_warning = "; ".join(external_bundle.warnings) if external_bundle and external_bundle.warnings else None
     local_warning = "; ".join(local_bundle.warnings) if local_bundle and local_bundle.warnings else None
     trained_warning = "; ".join(trained_bundle.warnings) if trained_bundle and trained_bundle.warnings else None
@@ -79,6 +80,9 @@ def predict_admet(smiles: str, model_ids: list[str], include_unavailable: bool =
         "trained_model_available": bool(trained_bundle and trained_bundle.model_status == "available"),
         "trained_model_status": trained_bundle.model_status if trained_bundle else "not_requested",
         "trained_model_warning": trained_warning,
+        "multi_endpoint_model_used": bool(multi_endpoint_bundle and multi_endpoint_bundle.model_status == "available"),
+        "multi_endpoint_model_available": bool(multi_endpoint_bundle and multi_endpoint_bundle.model_status == "available"),
+        "multi_endpoint_model_status": multi_endpoint_bundle.model_status if multi_endpoint_bundle else "not_requested",
         "mock_provider_used": mock_used,
     }
     interpretation = (

@@ -6,7 +6,9 @@ import {
   buildAdmetDatasetFormData,
   getActiveAdmetModelApi,
   getAdmetDatasetSummaryApi,
+  getAdmetEndpointModelsApi,
   getEgfrActivityStatusApi,
+  predictAdmetEndpointsApi,
   predictEgfrActivityApi,
   runExternalAdmetValidationApi,
   readableApiError,
@@ -113,6 +115,9 @@ assert.ok(appSource.includes("lightweight local training/validation job status")
 assert.ok(appSource.includes("System Readiness"));
 assert.ok(appSource.includes("EGFR activity"));
 assert.ok(appSource.includes("activity_modeling"));
+assert.ok(appSource.includes("admet_endpoint_models"));
+assert.ok(appSource.includes("Real ADMET endpoints"));
+assert.ok(appSource.includes("ClinTox rejected"));
 assert.ok(appSource.includes("Load NSCLC / EGFR / Erlotinib Demo"));
 assert.ok(appSource.includes("synthetic_model_1") === false);
 assert.ok(appSource.includes("setStudioSelectedModelId(data.artifact?.model_id"));
@@ -204,5 +209,33 @@ const fetchActivity = async (url, options = {}) => {
 };
 assert.equal((await getEgfrActivityStatusApi(fetchActivity, "http://127.0.0.1:8010/api")).active, true);
 assert.equal((await predictEgfrActivityApi(fetchActivity, "http://127.0.0.1:8010/api", "CCO")).applicability_domain_status, "OUT_OF_DOMAIN");
+
+const admetEndpointCalls = [];
+const fetchAdmetEndpoints = async (url, options = {}) => {
+  admetEndpointCalls.push({ url, options });
+  if (url.endsWith("/admet/models")) {
+    return { ok: true, json: async () => ({ models: [{ endpoint: "bbbp", active: true }, { endpoint: "clintox_cttox", gate_state: "NOT_ELIGIBLE" }] }) };
+  }
+  if (url.endsWith("/admet/predict")) {
+    const body = JSON.parse(options.body);
+    assert.equal(body.smiles, "CCO");
+    assert.deepEqual(body.endpoints, ["bbbp", "esol", "herg", "clintox_cttox"]);
+    return {
+      ok: true,
+      json: async () => ({
+        canonical_smiles: "CCO",
+        results: [
+          { endpoint: "bbbp", status: "available", prediction: { probability_bbb_penetrant: 0.61 }, warnings: ["low-specificity warning"] },
+          { endpoint: "clintox_cttox", status: "unavailable", reason: "model_failed_activation_gate" },
+        ],
+      }),
+    };
+  }
+  throw new Error(`Unexpected URL ${url}`);
+};
+const endpointModels = await getAdmetEndpointModelsApi(fetchAdmetEndpoints, "http://127.0.0.1:8010/api");
+assert.equal(endpointModels.models[0].endpoint, "bbbp");
+const endpointPrediction = await predictAdmetEndpointsApi(fetchAdmetEndpoints, "http://127.0.0.1:8010/api", "CCO", ["bbbp", "esol", "herg", "clintox_cttox"]);
+assert.equal(endpointPrediction.results.find((item) => item.endpoint === "clintox_cttox").reason, "model_failed_activation_gate");
 
 console.log("workflow utils tests passed");

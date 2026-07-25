@@ -484,6 +484,8 @@ def _candidate_quality_key(c: dict[str, Any]) -> tuple:
         score_count += 1
     if c.get("activity_model_prediction") is not None:
         score_count += 1
+    if c.get("admet_model_predictions") is not None:
+        score_count += 1
     if c.get("total_score") is not None:
         score_count += 1
         
@@ -953,6 +955,34 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
                 "missing_evidence": [],
                 "limitations": activity_ev.get("limitations") or [],
             })
+        admet_endpoint_ev = c.get("admet_model_predictions")
+        if isinstance(admet_endpoint_ev, dict):
+            for endpoint_ev in admet_endpoint_ev.get("results", []):
+                has_resolved_evidence = has_resolved_evidence or endpoint_ev.get("status") == "available"
+                pred = endpoint_ev.get("prediction") or {}
+                model_evidence_list.append({
+                    "candidate_name": c.get("compound_name") or c.get("compound_id") or "Unnamed",
+                    "model_available": endpoint_ev.get("status") == "available",
+                    "active_model_id": endpoint_ev.get("model_id"),
+                    "model_name": endpoint_ev.get("display_name"),
+                    "evidence_type": "MODEL PREDICTION" if endpoint_ev.get("status") == "available" else "UNAVAILABLE/REJECTED MODEL",
+                    "source": "DrugScreen360 M2C endpoint-specific ADMET model",
+                    "model_version": endpoint_ev.get("model_version"),
+                    "dataset_version": endpoint_ev.get("dataset_hash") or "not_available",
+                    "model_evidence_source": "trained local endpoint-specific ADMET model",
+                    "endpoint_predicted": endpoint_ev.get("endpoint"),
+                    "prediction": json.dumps(pred, sort_keys=True),
+                    "confidence_level": "not_available",
+                    "uncertainty_score": endpoint_ev.get("uncertainty_value"),
+                    "applicability_domain_status": endpoint_ev.get("domain_status") or "not_available",
+                    "calibration_status": endpoint_ev.get("calibration_status") or "not_available",
+                    "external_validation_status": "held_out_test_only",
+                    "evidence_strength": "endpoint_specific_model_evidence" if endpoint_ev.get("status") == "available" else "rejected_or_unavailable",
+                    "artifact_hash": endpoint_ev.get("artifact_hash"),
+                    "nearest_training_similarity": endpoint_ev.get("nearest_training_similarity"),
+                    "missing_evidence": [] if endpoint_ev.get("status") == "available" else [endpoint_ev.get("reason") or "endpoint model unavailable"],
+                    "limitations": endpoint_ev.get("limitations") or endpoint_ev.get("warnings") or [],
+                })
         ev = c.get("trained_model_prediction")
         if isinstance(ev, dict) and ev.get("model_available"):
             has_resolved_evidence = True

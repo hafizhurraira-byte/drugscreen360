@@ -6,6 +6,7 @@ from app.services.admet_toxicity_engine import evaluate_admet_toxicity
 from app.services.admet_external_provider import check_external_provider_status, predict_external_admet
 from app.services.local_admet_model import check_local_admet_model_status, predict_local_admet
 from app.services.admet_trained_model_service import get_active_trained_model_info, predict_trained_model
+from app.services.admet_endpoint_model_service import list_admet_models, predict_admet_endpoints
 
 
 TASKS = [
@@ -353,11 +354,90 @@ class TrainedLocalAdmetModelAdapter:
             )
 
 
+class MultiEndpointAdmetAdapter:
+    model_id = "multi_endpoint_admet_v1"
+    model_name = "M2C Multi-Endpoint ADMET Models"
+
+    def is_available(self) -> bool:
+        return any(item.get("active") for item in list_admet_models()["models"])
+
+    def get_model_info(self) -> ModelInfo:
+        models = list_admet_models()["models"]
+        active = [item["endpoint"] for item in models if item.get("active")]
+        return ModelInfo(
+            model_id=self.model_id,
+            model_name=self.model_name,
+            model_type="endpoint_specific_trained_models",
+            prediction_tasks=active or ["bbbp", "esol", "herg", "clintox_cttox"],
+            status="available" if active else "unavailable",
+            version="v1",
+            source="Registered M2C-2 frozen ADMET artifacts",
+            limitations=[
+                "Research-use computational predictions only.",
+                "ClinTox v1 is rejected and does not provide production predictions.",
+                "Endpoint-specific warnings must be reviewed.",
+            ],
+            last_checked_at=_now(),
+            warning=None if active else "No active M2C endpoint models are available.",
+        )
+
+    def predict(self, smiles: str) -> ModelPredictionBundle:
+        info = self.get_model_info()
+        if info.status != "available":
+            return ModelPredictionBundle(
+                model_id=self.model_id,
+                model_name=self.model_name,
+                model_status="unavailable",
+                prediction_source="M2C endpoint models unavailable",
+                confidence="None",
+                predictions=[],
+                warnings=[info.warning or "No active endpoint models are available."],
+                limitations=info.limitations,
+            )
+        raw = predict_admet_endpoints(smiles, ["bbbp", "esol", "herg", "clintox_cttox"])
+        predictions = []
+        warnings = []
+        for item in raw["results"]:
+            warnings.extend(item.get("warnings") or [])
+            pred = item.get("prediction") or {}
+            score = pred.get("predicted_logS")
+            label = str(pred.get("predicted_class") if "predicted_class" in pred else pred.get("predicted_logS", item.get("status")))
+            probability = next((v for k, v in pred.items() if k.startswith("probability_")), None)
+            predictions.append(
+                PredictionResult(
+                    task_name=item["endpoint"],
+                    prediction_label=label,
+                    prediction_score=score if isinstance(score, (int, float)) else probability,
+                    probability=probability,
+                    confidence="Model prediction with endpoint-specific limitations" if item.get("status") == "available" else "None",
+                    model_id=self.model_id,
+                    model_name=self.model_name,
+                    model_status="available" if item.get("status") == "available" else "unavailable",
+                    limitations=item.get("limitations") or [],
+                    warnings=item.get("warnings") or [],
+                    domain_status=item.get("domain_status"),
+                    uncertainty_level="endpoint_specific",
+                )
+            )
+        return ModelPredictionBundle(
+            model_id=self.model_id,
+            model_name=self.model_name,
+            model_status="available",
+            prediction_source="M2C frozen endpoint-specific ADMET models",
+            confidence="Endpoint-specific; review domain and calibration warnings",
+            predictions=predictions,
+            raw_output=raw,
+            warnings=list(dict.fromkeys(warnings)),
+            limitations=info.limitations,
+        )
+
+
 ADAPTERS: dict[str, PredictorAdapter] = {
     "rule_based_admet_v1": RuleBasedAdmetAdapter(),
     "external_admet_provider_v1": ExternalAdmetProviderAdapter(),
     "local_admet_model": LocalAdmetModelAdapter(),
     "trained_local_admet_model": TrainedLocalAdmetModelAdapter(),
+    "multi_endpoint_admet_v1": MultiEndpointAdmetAdapter(),
     "external_admet_service": UnavailableAdapter("external_admet_service", "External ADMET Service Adapter", "external_placeholder", "External service"),
     "tox_model_adapter": UnavailableAdapter("tox_model_adapter", "Toxicity Model Adapter", "ml_placeholder", "Future toxicity model"),
 }

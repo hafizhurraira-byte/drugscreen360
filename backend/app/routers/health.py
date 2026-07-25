@@ -7,6 +7,7 @@ from app.services.cache_service import cache_stats
 from app.services.admet_trained_model_service import discover_trained_models, get_active_trained_model_info
 from app.services.admet_validation_service import get_latest_external_validation_by_model
 from app.services.activity_model_service import egfr_activity_model_status
+from app.services.admet_endpoint_model_service import list_admet_models
 from app.services.model_registry import model_status_response
 from app.services.version import app_version
 
@@ -170,6 +171,7 @@ def system_readiness():
         overall = "Not Ready"
 
     egfr_activity = egfr_activity_model_status()
+    admet_endpoint_models = list_admet_models()["models"]
 
     return {
         "app_version": app_version(),
@@ -191,6 +193,11 @@ def system_readiness():
             "egfr": egfr_activity,
             "supported_target_count": 1 if egfr_activity.get("trained") else 0,
             "universal_activity_model": False,
+        },
+        "admet_endpoint_models": {
+            "models": admet_endpoint_models,
+            "active_endpoint_count": len([item for item in admet_endpoint_models if item.get("active")]),
+            "universal_admet_model": False,
         },
         "warnings": warnings,
         "recommended_next_actions": list(dict.fromkeys(actions)),

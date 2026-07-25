@@ -24,6 +24,7 @@ from app.services.admet_model_evidence_resolver import resolve_model_evidence
 from app.services.project_workspace_service import attach_project_item, get_project
 from app.services.rules import build_decision, evaluate_rules, plan_experimental_tests
 from app.services.activity_model_service import predict_egfr_activity
+from app.services.admet_endpoint_model_service import predict_admet_endpoints
 
 SCIENTIFIC_NOTICE = "Computational prioritization only. Requires experimental validation."
 LIMITATIONS = [
@@ -161,6 +162,17 @@ def _is_egfr_target(target: str | None) -> bool:
     return (target or "").strip().upper() in {"EGFR", "P00533", "CHEMBL203", "ERBB1", "HUMAN EGFR"}
 
 
+def _is_cns_context(candidate: LeadCandidateInput, payload: LeadPrioritizationRequest) -> bool:
+    text = " ".join(str(v) for v in (candidate.metadata or {}).values()).lower()
+    if payload.project_id:
+        try:
+            project = get_project(payload.project_id)
+            text += f" {project.disease_area or ''} {project.target_name or ''}".lower()
+        except Exception:
+            pass
+    return any(token in text for token in ["cns", "brain", "glioma", "glioblastoma", "neuro", "alzheimer", "parkinson"])
+
+
 def _toxicity_evidence_summary(admet, trained_prediction: dict[str, Any] | None) -> dict[str, Any]:
     summary = admet.toxicity_evidence_summary.model_dump() if getattr(admet, "toxicity_evidence_summary", None) else {}
     endpoint = str((trained_prediction or {}).get("endpoint_predicted") or "").strip().lower()
@@ -265,6 +277,7 @@ def _score_candidate(
 
     trained_prediction = None
     activity_prediction = None
+    admet_model_predictions = None
     domain_status = "not available"
     uncertainty_level = "unknown"
     external_warning = "not available"
@@ -319,6 +332,47 @@ def _score_candidate(
         except Exception as exc:
             missing_evidence.append("EGFR activity prediction")
             warnings.append(f"EGFR activity prediction unavailable: {getattr(exc, 'detail', exc)}")
+
+    try:
+        admet_model_predictions = predict_admet_endpoints(canonical, ["bbbp", "esol", "herg", "clintox_cttox"])
+        for endpoint_result in admet_model_predictions.get("results", []):
+            endpoint = endpoint_result.get("endpoint")
+            if endpoint_result.get("status") != "available":
+                if endpoint == "clintox_cttox":
+                    missing_evidence.append("ClinTox model rejected")
+                continue
+            pred = endpoint_result.get("prediction") or {}
+            domain = endpoint_result.get("domain_status")
+            if endpoint == "herg":
+                prob = pred.get("probability_herg_inhibitor")
+                if isinstance(prob, (int, float)):
+                    penalty = round(float(prob) * 14 * weights["admet"], 2)
+                    score -= penalty
+                    components["herg_model_risk_penalty"] = penalty
+                    risk_factors.append(f"hERG model inhibitor probability {prob:.2f} ({domain}); not cardiac safety evidence.")
+            elif endpoint == "esol":
+                logs = pred.get("predicted_logS")
+                if isinstance(logs, (int, float)):
+                    adjustment = max(-6.0, min(4.0, (float(logs) + 3.0) * 1.5))
+                    score += adjustment
+                    components["esol_model_developability_adjustment"] = round(adjustment, 2)
+                    positive_factors.append(f"ESOL model-derived logS {logs:.2f} ({domain}).")
+            elif endpoint == "bbbp":
+                prob = pred.get("probability_bbb_penetrant")
+                if isinstance(prob, (int, float)) and _is_cns_context(candidate, payload):
+                    adjustment = round((float(prob) - 0.5) * 6, 2)
+                    score += adjustment
+                    components["bbbp_contextual_adjustment"] = adjustment
+                    positive_factors.append(f"BBBP benchmark probability {prob:.2f} used only because CNS context was detected.")
+            if domain == "BORDERLINE":
+                score -= 2
+                risk_factors.append(f"{endpoint} model prediction is borderline in applicability domain.")
+            elif domain == "OUT_OF_DOMAIN":
+                score -= 5
+                risk_factors.append(f"{endpoint} model prediction is out-of-domain.")
+            warnings.extend(endpoint_result.get("warnings") or [])
+    except Exception as exc:
+        warnings.append(f"ADMET endpoint model predictions unavailable: {getattr(exc, 'detail', exc)}")
 
     if payload.include_domain:
         if trained_prediction is not None:
@@ -424,6 +478,7 @@ def _score_candidate(
         },
         trained_model_prediction=trained_prediction,
         activity_model_prediction=activity_prediction,
+        admet_model_predictions=admet_model_predictions,
         domain_status=domain_status,
         uncertainty_level=uncertainty_level,
         external_validation_warning=external_warning,

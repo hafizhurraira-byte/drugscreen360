@@ -154,3 +154,20 @@ export async function predictEgfrActivityApi(fetchImpl, apiBase, smiles) {
     "EGFR activity prediction failed."
   );
 }
+
+export async function getAdmetEndpointModelsApi(fetchImpl, apiBase) {
+  return requestJson(fetchImpl, `${apiBase}/admet/models`, undefined, "Could not load endpoint ADMET model status.");
+}
+
+export async function predictAdmetEndpointsApi(fetchImpl, apiBase, smiles, endpoints = ["bbbp", "esol", "herg"]) {
+  return requestJson(
+    fetchImpl,
+    `${apiBase}/admet/predict`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ smiles, endpoints }),
+    },
+    "ADMET endpoint prediction failed."
+  );
+}
