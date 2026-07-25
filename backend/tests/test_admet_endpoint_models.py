@@ -10,6 +10,7 @@ from fastapi import HTTPException
 
 from app import database
 from app.services import admet_endpoint_model_service as service
+from app.services import admet_endpoint_external_evidence_service as external_service
 from app.services.admet_lead_service import prioritize_leads
 from app.models.admet_lead_models import LeadCandidateInput, LeadPrioritizationRequest
 
@@ -102,6 +103,53 @@ def _fake_artifact(tmp_path, endpoint="bbbp", task="classification", model=None,
     return folder
 
 
+def _fake_m2d1_ledger(tmp_path: Path) -> Path:
+    payload = {
+        "protocol": {"sha256": external_service.M2D1_PROTOCOL_HASH},
+        "curation": [
+            {"endpoint": "bbbp", "primary": 6146, "overlap": 1659},
+            {"endpoint": "esol", "primary": 8882, "overlap": 1098},
+            {"endpoint": "herg", "primary": 4171, "overlap": 73},
+        ],
+        "results": {
+            "bbbp": {
+                "model_hash": service.ENDPOINTS["bbbp"]["expected_hash"],
+                "curated_dataset_hash": external_service.M2D1_COHORT_HASHES["bbbp"],
+                "metrics": {"n": 6146, "auroc": 0.9121, "auprc": 0.9361, "f1": 0.8546, "recall": 0.9339, "specificity": 0.6435, "balanced_accuracy": 0.7887, "brier_score": 0.1219, "ece": 0.0529},
+                "domain_metrics": {"IN_DOMAIN": {"auroc": 0.9462}, "OUT_OF_DOMAIN": {"auroc": 0.6552}},
+                "independence_decision": "PROSPECTIVE_INDEPENDENT",
+                "final_decision": "EXTERNAL_VALIDATION_SUPPORTS_ACTIVE",
+                "activation_recommendation": "preserve_active_with_documented_external_validation_warning",
+                "limitations": ["not proof of human CNS exposure"],
+            },
+            "esol": {
+                "model_hash": service.ENDPOINTS["esol"]["expected_hash"],
+                "curated_dataset_hash": external_service.M2D1_COHORT_HASHES["esol"],
+                "metrics": {"n": 8882, "mae": 1.0270, "rmse": 1.4577, "r2": 0.6309, "pearson": 0.7961, "spearman": 0.7804, "residual_bias": 0.1285},
+                "domain_metrics": {"IN_DOMAIN": {"rmse": 1.1893}, "OUT_OF_DOMAIN": {"rmse": 2.5884}},
+                "conformal": {"nominal_coverage": 0.9, "external_observed_coverage": 0.6147, "internal_test_coverage": 0.8617},
+                "independence_decision": "NON_OVERLAPPING_WITH_PROVENANCE_LIMITATION",
+                "final_decision": "ACTIVE_WITH_STRONGER_WARNING",
+                "activation_recommendation": "preserve_active_with_stronger_interval_warning",
+                "limitations": ["interval undercoverage externally"],
+            },
+            "herg": {
+                "model_hash": service.ENDPOINTS["herg"]["expected_hash"],
+                "curated_dataset_hash": external_service.M2D1_COHORT_HASHES["herg"],
+                "metrics": {"n": 4171, "auroc": 0.9003, "auprc": 0.7134, "f1": 0.5444, "recall": 0.8227, "specificity": 0.8058, "balanced_accuracy": 0.8143, "brier_score": 0.1490, "ece": 0.2665},
+                "domain_metrics": {"IN_DOMAIN": {"auroc": 0.9261}, "OUT_OF_DOMAIN": {"auroc": 0.7675}},
+                "independence_decision": "NON_OVERLAPPING_WITH_PROVENANCE_LIMITATION",
+                "final_decision": "RECALIBRATION_RECOMMENDED",
+                "activation_recommendation": "preserve_active_but_review_recalibration",
+                "limitations": ["raw probabilities are poorly calibrated externally"],
+            },
+        },
+    }
+    path = tmp_path / "m2d1_master_results.json"
+    _write_json(path, payload)
+    return path
+
+
 @pytest.fixture
 def isolated_registry(tmp_path, monkeypatch):
     monkeypatch.setattr(database, "DB_PATH", tmp_path / "admet-endpoint.sqlite3")
@@ -174,6 +222,60 @@ def test_prediction_contracts_include_lineage_domain_uncertainty_and_partial_bat
     assert clintox_result["reason"] == "model_failed_activation_gate"
     assert batch["results"][0]["success"] is True
     assert batch["results"][1]["success"] is False
+
+
+def test_m2d1_external_evidence_import_status_prediction_and_idempotency(isolated_registry):
+    folders = {
+        "bbbp": _fake_artifact(isolated_registry, "bbbp"),
+        "esol": _fake_artifact(isolated_registry, "esol", task="regression"),
+        "herg": _fake_artifact(isolated_registry, "herg"),
+    }
+    for endpoint, folder in folders.items():
+        service.ENDPOINTS[endpoint]["expected_hash"] = _hash(folder / "model.joblib")
+        service.register_admet_artifact(endpoint, folder)
+        service.activate_admet_endpoint(endpoint, initiated_by="pytest")
+
+    ledger = _fake_m2d1_ledger(isolated_registry)
+    dry_run = external_service.import_m2d1_external_validation(ledger)
+    first = external_service.import_m2d1_external_validation(ledger, dry_run=False, imported_by="pytest")
+    second = external_service.import_m2d1_external_validation(ledger, dry_run=False, imported_by="pytest")
+    status = service.admet_model_status("herg")
+    prediction = service.predict_admet_endpoints("CCO", ["bbbp", "esol", "herg", "clintox_cttox"])["results"]
+
+    assert {item["endpoint"] for item in dry_run["imported"]} == {"bbbp", "esol", "herg"}
+    assert len(first["imported"]) == 3
+    assert len(second["skipped"]) == 3
+    assert status["active"] is True
+    assert status["external_evidence_decision"] == "RECALIBRATION_RECOMMENDED"
+    assert status["warning_severity"] == "STRONG_WARNING"
+    bbbp = next(item for item in prediction if item["endpoint"] == "bbbp")
+    esol = next(item for item in prediction if item["endpoint"] == "esol")
+    herg = next(item for item in prediction if item["endpoint"] == "herg")
+    clintox = next(item for item in prediction if item["endpoint"] == "clintox_cttox")
+    assert bbbp["external_validation"]["evidence_decision"] == "EXTERNAL_VALIDATION_SUPPORTS_ACTIVE"
+    assert esol["external_validation"]["calibration_summary"]["external_observed_coverage"] == pytest.approx(0.6147)
+    assert any("61.47%" in warning for warning in esol["warnings"])
+    assert herg["external_validation"]["key_metrics"]["ece"] == pytest.approx(0.2665)
+    assert any("recalibration" in warning.lower() for warning in herg["warnings"])
+    assert clintox["status"] == "unavailable"
+    assert clintox["external_validation"]["available"] is False
+
+
+def test_m2d1_external_evidence_rejects_integrity_mismatches(isolated_registry):
+    service.ENDPOINTS["bbbp"]["expected_hash"] = "expected-model-hash"
+    ledger = _fake_m2d1_ledger(isolated_registry)
+    payload = json.loads(ledger.read_text())
+    payload["protocol"]["sha256"] = "wrong"
+    _write_json(ledger, payload)
+
+    with pytest.raises(HTTPException):
+        external_service.import_m2d1_external_validation(ledger, endpoints=["bbbp"])
+
+    payload["protocol"]["sha256"] = external_service.M2D1_PROTOCOL_HASH
+    payload["results"]["bbbp"]["model_hash"] = "wrong"
+    _write_json(ledger, payload)
+    with pytest.raises(HTTPException):
+        external_service.import_m2d1_external_validation(ledger, endpoints=["bbbp"])
 
 
 def test_missing_or_corrupt_artifact_fails_closed(isolated_registry):

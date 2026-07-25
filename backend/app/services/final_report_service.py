@@ -25,6 +25,7 @@ from app.models.final_report_models import (
 )
 from app.models.project_workspace_models import ProjectAttachRequest
 from app.services.admet_trained_model_service import get_active_trained_model_info
+from app.services.admet_endpoint_external_evidence_service import list_endpoint_external_evidence
 from app.routers.admet_model_evidence import get_model_evidence_readiness
 from app.services.local_admet_model import validate_local_admet_model
 from app.services.model_registry import model_status_response
@@ -234,10 +235,15 @@ def _prediction_section(payload: FinalProjectReportRequest) -> FinalProjectRepor
 
 def _external_validation_section(payload: FinalProjectReportRequest) -> FinalProjectReportSection:
     records = _rows("admet_external_validation_runs", limit=50)
+    endpoint_records = list_endpoint_external_evidence()
     summary = {
         "external_validation_run_count": len(records),
         "latest_status": records[0].get("status") if records else "not available",
         "latest_metrics": _json_loads(records[0].get("metric_summary_json"), {}) if records else {},
+        "endpoint_external_validation_count": len(endpoint_records),
+        "endpoint_evidence_decisions": {
+            r.get("endpoint"): r.get("evidence_decision") for r in endpoint_records
+        },
     }
     clean_records = [
         {
@@ -254,6 +260,24 @@ def _external_validation_section(payload: FinalProjectReportRequest) -> FinalPro
         }
         for r in records
     ]
+    clean_records.extend(
+        {
+            "record_type": "endpoint_governance_evidence",
+            "endpoint": r.get("endpoint"),
+            "model_id": r.get("model_id"),
+            "model_version": r.get("model_version"),
+            "external_dataset_id": r.get("dataset_id"),
+            "external_sample_count": r.get("external_sample_count"),
+            "independence_status": r.get("independence_status"),
+            "external_validation_status": r.get("evidence_decision"),
+            "activation_recommendation": r.get("activation_recommendation"),
+            "warning_severity": r.get("warning_severity"),
+            "key_metrics": r.get("key_metrics"),
+            "calibration_summary": r.get("calibration_summary"),
+            "created_at": r.get("evidence_timestamp"),
+        }
+        for r in endpoint_records
+    )
     return _section("external_validation", "External Validation & Calibration", payload.include_external_validation, clean_records, summary)
 
 
@@ -960,6 +984,7 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
             for endpoint_ev in admet_endpoint_ev.get("results", []):
                 has_resolved_evidence = has_resolved_evidence or endpoint_ev.get("status") == "available"
                 pred = endpoint_ev.get("prediction") or {}
+                external_ev = endpoint_ev.get("external_validation") or {}
                 model_evidence_list.append({
                     "candidate_name": c.get("compound_name") or c.get("compound_id") or "Unnamed",
                     "model_available": endpoint_ev.get("status") == "available",
@@ -976,7 +1001,9 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
                     "uncertainty_score": endpoint_ev.get("uncertainty_value"),
                     "applicability_domain_status": endpoint_ev.get("domain_status") or "not_available",
                     "calibration_status": endpoint_ev.get("calibration_status") or "not_available",
-                    "external_validation_status": "held_out_test_only",
+                    "external_validation_status": external_ev.get("evidence_decision") or external_ev.get("external_validation_status") or "not_available",
+                    "external_validation_summary": external_ev,
+                    "external_warning_severity": endpoint_ev.get("warning_severity"),
                     "evidence_strength": "endpoint_specific_model_evidence" if endpoint_ev.get("status") == "available" else "rejected_or_unavailable",
                     "artifact_hash": endpoint_ev.get("artifact_hash"),
                     "nearest_training_similarity": endpoint_ev.get("nearest_training_similarity"),
@@ -1086,6 +1113,18 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
         "main_warnings": list(dict.fromkeys(prioritization_warnings)),
         "next_recommended_steps": next_steps
     }
+
+    endpoint_governance_for_report: list[dict[str, Any]] = []
+    seen_endpoint_evidence: set[str] = set()
+    for item in model_evidence_list:
+        external_summary = item.get("external_validation_summary") or {}
+        if not external_summary.get("available"):
+            continue
+        key = external_summary.get("evidence_hash") or f"{external_summary.get('endpoint')}:{external_summary.get('model_id')}:{external_summary.get('evidence_decision')}"
+        if key in seen_endpoint_evidence:
+            continue
+        seen_endpoint_evidence.add(key)
+        endpoint_governance_for_report.append(external_summary)
 
     payload = {
         "report_title": request.report_title,
@@ -1206,8 +1245,9 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
         },
         
         "external_validation": {
-            "has_external_validation": len(ext_runs) > 0,
-            "validation_details": ext_runs
+            "has_external_validation": len(ext_runs) > 0 or bool(endpoint_governance_for_report),
+            "validation_details": ext_runs,
+            "endpoint_governance_evidence": endpoint_governance_for_report,
         },
         
         "experimental_feedback": {
@@ -1651,6 +1691,22 @@ def _build_pdf(payload: dict[str, Any]) -> bytes:
         story.append(Spacer(1, 5))
         ext_val = payload["external_validation"]
         if ext_val["has_external_validation"]:
+            if ext_val.get("endpoint_governance_evidence"):
+                endpoint_rows = []
+                for r in ext_val["endpoint_governance_evidence"]:
+                    metrics = r.get("key_metrics") or {}
+                    cal = r.get("calibration_summary") or {}
+                    metric_str = ", ".join(f"{k}: {v:.4g}" for k, v in metrics.items() if isinstance(v, (int, float)))
+                    cal_str = ", ".join(f"{k}: {v:.4g}" if isinstance(v, (int, float)) else f"{k}: {v}" for k, v in cal.items() if v is not None)
+                    endpoint_rows.append([
+                        r.get("endpoint") or "N/A",
+                        r.get("external_validation_status") or r.get("evidence_decision") or "N/A",
+                        str(r.get("external_sample_count") or "N/A"),
+                        metric_str or "N/A",
+                        cal_str or "Not available",
+                    ])
+                story.append(_build_pdf_table(["Endpoint", "Evidence Decision", "N", "External Metrics", "Calibration"], endpoint_rows, widths=[0.8*inch, 1.7*inch, 0.6*inch, 2.2*inch, 1.7*inch]))
+                story.append(Spacer(1, 8))
             headers = ["Task Name", "Status", "External Metrics", "Calibration", "Warnings"]
             rows = []
             for r in ext_val["validation_details"]:
@@ -1665,7 +1721,8 @@ def _build_pdf(payload: dict[str, Any]) -> bytes:
                     cal_str or "Not available",
                     "; ".join(r.get("warnings") or []) or "None",
                 ])
-            story.append(_build_pdf_table(headers, rows, widths=[1.3*inch, 0.8*inch, 2.0*inch, 1.4*inch, 1.5*inch]))
+            if rows:
+                story.append(_build_pdf_table(headers, rows, widths=[1.3*inch, 0.8*inch, 2.0*inch, 1.4*inch, 1.5*inch]))
         else:
             story.append(Paragraph("External validation/calibration was not available for this project.", styles["BodyText"]))
         story.append(Spacer(1, 15))
@@ -1988,6 +2045,22 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
         document.add_heading("External Validation Summary", level=1)
         ext_val = payload["external_validation"]
         if ext_val["has_external_validation"]:
+            if ext_val.get("endpoint_governance_evidence"):
+                endpoint_rows = []
+                for r in ext_val["endpoint_governance_evidence"]:
+                    metrics = r.get("key_metrics") or {}
+                    cal = r.get("calibration_summary") or {}
+                    metric_str = ", ".join(f"{k}: {v:.4g}" for k, v in metrics.items() if isinstance(v, (int, float)))
+                    cal_str = ", ".join(f"{k}: {v:.4g}" if isinstance(v, (int, float)) else f"{k}: {v}" for k, v in cal.items() if v is not None)
+                    endpoint_rows.append([
+                        r.get("endpoint") or "N/A",
+                        r.get("external_validation_status") or r.get("evidence_decision") or "N/A",
+                        str(r.get("external_sample_count") or "N/A"),
+                        metric_str or "N/A",
+                        cal_str or "Not available",
+                    ])
+                _build_docx_table(document, ["Endpoint", "Evidence Decision", "N", "External Metrics", "Calibration"], endpoint_rows, widths=[Inches(0.8), Inches(1.7), Inches(0.6), Inches(2.2), Inches(1.7)])
+                document.add_paragraph("")
             rows = []
             for r in ext_val["validation_details"]:
                 metrics = r["metric_summary"]
@@ -2001,7 +2074,8 @@ def _build_docx(payload: dict[str, Any]) -> bytes:
                     cal_str or "Not available",
                     "; ".join(r.get("warnings") or []) or "None",
                 ])
-            _build_docx_table(document, ["Task Name", "Status", "External Metrics", "Calibration", "Warnings"], rows, widths=[Inches(1.3), Inches(0.8), Inches(2.0), Inches(1.4), Inches(1.5)])
+            if rows:
+                _build_docx_table(document, ["Task Name", "Status", "External Metrics", "Calibration", "Warnings"], rows, widths=[Inches(1.3), Inches(0.8), Inches(2.0), Inches(1.4), Inches(1.5)])
         else:
             document.add_paragraph("External validation/calibration was not available for this project.")
             

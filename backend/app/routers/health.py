@@ -172,6 +172,7 @@ def system_readiness():
 
     egfr_activity = egfr_activity_model_status()
     admet_endpoint_models = list_admet_models()["models"]
+    externally_validated_admet = [item for item in admet_endpoint_models if item.get("external_validation_available")]
 
     return {
         "app_version": app_version(),
@@ -197,6 +198,11 @@ def system_readiness():
         "admet_endpoint_models": {
             "models": admet_endpoint_models,
             "active_endpoint_count": len([item for item in admet_endpoint_models if item.get("active")]),
+            "external_validation_completed_count": len(externally_validated_admet),
+            "external_evidence_decisions": {
+                item.get("endpoint"): item.get("external_evidence_decision")
+                for item in externally_validated_admet
+            },
             "universal_admet_model": False,
         },
         "warnings": warnings,
