@@ -9515,6 +9515,7 @@ export default function App() {
                 <Field label="EGFR activity" value={systemReadiness?.activity_modeling?.egfr?.active ? "ACTIVE v2" : systemReadiness?.activity_modeling?.egfr?.trained ? "Available, not active" : "Unavailable"} />
                 <Field label="Activity scope" value={systemReadiness?.activity_modeling?.egfr?.supported_target || "Target-specific only"} />
                 <Field label="Real ADMET endpoints" value={`${systemReadiness?.admet_endpoint_models?.active_endpoint_count ?? 0} active`} />
+                <Field label="Externally checked ADMET endpoints" value={`${systemReadiness?.admet_endpoint_models?.external_validation_completed_count ?? 0} imported`} />
                 <Field label="ADMET scope" value={systemReadiness?.admet_endpoint_models?.universal_admet_model ? "Universal" : "Endpoint-specific only"} />
                 <Field label="Demo ready" value={systemReadiness?.demo_ready ? "yes" : "no"} />
               </div>
@@ -9526,6 +9527,8 @@ export default function App() {
                         <th>Endpoint</th>
                         <th>State</th>
                         <th>Gate</th>
+                        <th>External Evidence</th>
+                        <th>N</th>
                         <th>Warning</th>
                       </tr>
                     </thead>
@@ -9535,6 +9538,8 @@ export default function App() {
                           <td>{model.display_name || model.endpoint}</td>
                           <td>{model.endpoint === "clintox_cttox" && !model.active ? "ClinTox rejected" : model.active ? "ACTIVE" : model.registered ? "REGISTERED" : "UNAVAILABLE"}</td>
                           <td>{model.gate_state || "Not checked"}</td>
+                          <td>{model.endpoint === "clintox_cttox" ? "Inactive - activation gate failed" : model.external_evidence_decision || "Not imported"}</td>
+                          <td>{model.external_sample_count || "N/A"}</td>
                           <td>{(model.warnings || [])[0] || "None"}</td>
                         </tr>
                       ))}

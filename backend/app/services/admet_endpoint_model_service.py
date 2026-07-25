@@ -13,6 +13,11 @@ from rdkit import Chem, DataStructs
 from rdkit.Chem import Crippen, Descriptors, Lipinski, rdFingerprintGenerator
 
 from app.database import get_connection, init_db
+from app.services.admet_endpoint_external_evidence_service import (
+    external_warning_messages,
+    get_latest_endpoint_external_evidence,
+    unavailable_external_evidence,
+)
 
 
 SCIENTIFIC_NOTICE = (
@@ -299,6 +304,16 @@ def admet_model_status(endpoint: str) -> dict[str, Any]:
     active = get_active_endpoint(endpoint)
     gate = evaluate_admet_activation_gate(endpoint) if registered and verification.get("valid") else {"activation_state": "NOT_REGISTERED" if not registered else "VALIDATION_FAILED"}
     domain_manifest = verification.get("domain_reference_manifest") or {}
+    external_evidence = (
+        get_latest_endpoint_external_evidence(endpoint, spec["model_id"])
+        if endpoint != "clintox_cttox"
+        else unavailable_external_evidence()
+    )
+    warnings = list(dict.fromkeys(
+        (verification.get("warnings") or [])
+        + (verification.get("errors") or [])
+        + external_warning_messages(endpoint, external_evidence)
+    ))
     return {
         "endpoint": endpoint,
         "display_name": spec["display_name"],
@@ -312,11 +327,27 @@ def admet_model_status(endpoint: str) -> dict[str, Any]:
         "model_hash": spec["expected_hash"],
         "task_type": spec["task_type"],
         "prediction_label": spec["prediction_label"],
-        "warnings": list(dict.fromkeys((verification.get("warnings") or []) + (verification.get("errors") or []))),
+        "warnings": warnings,
         "compact_domain_reference_verified": bool(registered and verification.get("valid") and domain_manifest),
         "domain_reference_hash": domain_manifest.get("domain_artifact_sha256"),
         "domain_schema_hash": domain_manifest.get("domain_schema_hash"),
         "domain_reference_count": domain_manifest.get("fingerprint_count"),
+        "external_validation_available": external_evidence.get("available", False),
+        "external_validation_status": external_evidence.get("external_validation_status"),
+        "external_evidence_decision": external_evidence.get("evidence_decision"),
+        "external_dataset_id": external_evidence.get("dataset_id"),
+        "external_dataset_version": external_evidence.get("dataset_version"),
+        "external_sample_count": external_evidence.get("external_sample_count"),
+        "external_independence_status": external_evidence.get("independence_status"),
+        "external_metrics_summary": external_evidence.get("key_metrics"),
+        "external_domain_summary": external_evidence.get("domain_summary"),
+        "external_calibration_summary": external_evidence.get("calibration_summary"),
+        "external_validation_timestamp": external_evidence.get("evidence_timestamp"),
+        "external_protocol_hash": external_evidence.get("protocol_hash"),
+        "external_cohort_hash": external_evidence.get("cohort_hash"),
+        "external_limitations": external_evidence.get("limitations"),
+        "activation_recommendation": external_evidence.get("activation_recommendation"),
+        "warning_severity": "UNAVAILABLE" if endpoint == "clintox_cttox" else external_evidence.get("warning_severity", "UNAVAILABLE"),
         "clinical_validity": False,
         "research_use_only": True,
     }
@@ -563,7 +594,15 @@ def predict_admet_endpoints(smiles: str, endpoints: list[str] | None = None) -> 
         endpoint = endpoint.strip().lower()
         spec = _spec(endpoint)
         if endpoint == "clintox_cttox":
-            results.append({"endpoint": endpoint, "status": "unavailable", "reason": "model_failed_activation_gate", "model_id": spec["model_id"], "warnings": spec["mandatory_warnings"]})
+            results.append({
+                "endpoint": endpoint,
+                "status": "unavailable",
+                "reason": "model_failed_activation_gate",
+                "model_id": spec["model_id"],
+                "external_validation": unavailable_external_evidence(),
+                "warning_severity": "UNAVAILABLE",
+                "warnings": spec["mandatory_warnings"],
+            })
             continue
         try:
             model, verification, schema, metrics, calibration, domain = _load_bundle(endpoint)
@@ -593,6 +632,10 @@ def predict_admet_endpoints(smiles: str, endpoints: list[str] | None = None) -> 
                     "model_derived_solubility_mol_L": float(math.pow(10, value)),
                     "conformal_interval": calibration.get("conformal_interval"),
                 }
+            external_evidence = get_latest_endpoint_external_evidence(endpoint, spec["model_id"])
+            warnings = spec["mandatory_warnings"] + external_warning_messages(endpoint, external_evidence, domain_state)
+            if domain_state != "IN_DOMAIN":
+                warnings.append(f"{endpoint} prediction is {domain_state}; interpret with reduced confidence.")
             results.append({
                 "endpoint": endpoint,
                 "status": "available",
@@ -610,13 +653,21 @@ def predict_admet_endpoints(smiles: str, endpoints: list[str] | None = None) -> 
                 "uncertainty_method": "tree_prediction_std",
                 "uncertainty_value": uncertainty,
                 "calibration_status": calibration.get("classification_calibration") or "not_applicable",
+                "external_validation": external_evidence,
+                "warning_severity": external_evidence.get("warning_severity", "UNAVAILABLE"),
                 "test_metrics": metrics.get("test_metrics"),
-                "warnings": spec["mandatory_warnings"] + ([] if domain_state == "IN_DOMAIN" else [f"{endpoint} prediction is {domain_state}; interpret with reduced confidence."]),
-                "limitations": verification["manifest"].get("limitations") or spec["mandatory_warnings"],
+                "warnings": list(dict.fromkeys(warnings)),
+                "limitations": list(dict.fromkeys((verification["manifest"].get("limitations") or []) + external_evidence.get("limitations", []) + spec["mandatory_warnings"])),
                 "prediction": result,
             })
         except Exception as exc:
-            results.append({"endpoint": endpoint, "status": "unavailable", "reason": getattr(exc, "detail", str(exc)), "warnings": spec["mandatory_warnings"]})
+            results.append({
+                "endpoint": endpoint,
+                "status": "unavailable",
+                "reason": getattr(exc, "detail", str(exc)),
+                "external_validation": get_latest_endpoint_external_evidence(endpoint, spec["model_id"]),
+                "warnings": spec["mandatory_warnings"],
+            })
     return {"canonical_smiles": canonical, "results": results, "scientific_notice": SCIENTIFIC_NOTICE}
 
 

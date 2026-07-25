@@ -343,6 +343,10 @@ def _score_candidate(
                 continue
             pred = endpoint_result.get("prediction") or {}
             domain = endpoint_result.get("domain_status")
+            external_ev = endpoint_result.get("external_validation") or {}
+            if external_ev.get("available"):
+                components[f"{endpoint}_external_evidence_decision"] = external_ev.get("evidence_decision")
+                components[f"{endpoint}_external_warning_severity"] = endpoint_result.get("warning_severity")
             if endpoint == "herg":
                 prob = pred.get("probability_herg_inhibitor")
                 if isinstance(prob, (int, float)):

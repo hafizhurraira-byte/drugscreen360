@@ -569,6 +569,35 @@ def init_db() -> None:
         )
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS admet_endpoint_external_validation_evidence (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                endpoint_key TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                model_version TEXT,
+                model_hash TEXT NOT NULL,
+                external_dataset_id TEXT NOT NULL,
+                external_dataset_version TEXT NOT NULL,
+                external_cohort_hash TEXT NOT NULL,
+                protocol_hash TEXT NOT NULL,
+                independence_decision TEXT NOT NULL,
+                external_sample_count INTEGER NOT NULL,
+                exact_overlap_exclusions INTEGER NOT NULL DEFAULT 0,
+                scaffold_overlap_count INTEGER NOT NULL DEFAULT 0,
+                metrics_json TEXT NOT NULL,
+                domain_metrics_json TEXT NOT NULL,
+                calibration_summary_json TEXT NOT NULL,
+                final_evidence_decision TEXT NOT NULL,
+                activation_recommendation TEXT NOT NULL,
+                limitations_json TEXT NOT NULL,
+                evidence_source TEXT NOT NULL,
+                evidence_hash TEXT NOT NULL UNIQUE,
+                imported_by TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS admet_domain_evaluations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 model_id TEXT NOT NULL,
