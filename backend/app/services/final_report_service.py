@@ -980,6 +980,10 @@ def _build_payload_concise(request: FinalProjectReportRequest, created_at: str) 
                     "evidence_strength": "endpoint_specific_model_evidence" if endpoint_ev.get("status") == "available" else "rejected_or_unavailable",
                     "artifact_hash": endpoint_ev.get("artifact_hash"),
                     "nearest_training_similarity": endpoint_ev.get("nearest_training_similarity"),
+                    "domain_reference_hash": endpoint_ev.get("domain_reference_hash"),
+                    "domain_schema_hash": endpoint_ev.get("domain_schema_hash"),
+                    "domain_reference_count": endpoint_ev.get("domain_reference_count"),
+                    "compact_reference_used": endpoint_ev.get("compact_reference_used"),
                     "missing_evidence": [] if endpoint_ev.get("status") == "available" else [endpoint_ev.get("reason") or "endpoint model unavailable"],
                     "limitations": endpoint_ev.get("limitations") or endpoint_ev.get("warnings") or [],
                 })

@@ -65,6 +65,40 @@ def _fake_artifact(tmp_path, endpoint="bbbp", task="classification", model=None,
         "model_hash_sha256": _hash(folder / "model.joblib"),
         "activation_gate": {"result": "NOT_ELIGIBLE" if endpoint == "clintox_cttox" else "ACTIVATION_ELIGIBLE"},
     })
+    if endpoint != "clintox_cttox":
+        query = service._packed_query_fingerprint("CCO", {"feature_set": "morgan", "radius": 2, "bits": 2048, "feature_dimension": 2048})
+        np.savez_compressed(
+            folder / "domain_fingerprints.npz",
+            packed_fingerprints=np.array([query], dtype=np.uint8),
+            record_ids=np.array(["train_1"], dtype="<U7"),
+            canonical_smiles_hashes=np.array(["hash_1"], dtype="<U64"),
+            fingerprint_bit_length=np.array([2048], dtype=np.int32),
+            fingerprint_count=np.array([1], dtype=np.int32),
+            deterministic_order_hash=np.array(["order"], dtype="<U64"),
+        )
+        training = json.loads((folder / "training_metadata.json").read_text())
+        schema = json.loads((folder / "feature_schema.json").read_text())
+        domain_hash = _hash(folder / "domain_fingerprints.npz")
+        schema_hash = service._schema_hash(schema, training, endpoint, service.ENDPOINTS[endpoint]["model_id"])
+        _write_json(folder / "domain_reference_manifest.json", {
+            "domain_reference_version": "m2c4_v1",
+            "endpoint_key": endpoint,
+            "model_id": service.ENDPOINTS[endpoint]["model_id"],
+            "domain_artifact_filename": "domain_fingerprints.npz",
+            "domain_artifact_sha256": domain_hash,
+            "domain_schema_hash": schema_hash,
+            "fingerprint_count": 1,
+            "thresholds": [0.4, 0.2],
+            "dataset_hash": training["dataset_hash"],
+            "split_hash": training["split_hash"],
+            "similarity_metric": "Tanimoto",
+            "parity_validation": {"domain_label_mismatch_count": 0},
+        })
+        _write_json(folder / "domain_reference_freeze_record.json", {
+            "thresholds_unchanged": True,
+            "model_retrained": False,
+            "model_modified": False,
+        })
     return folder
 
 
@@ -74,6 +108,7 @@ def isolated_registry(tmp_path, monkeypatch):
     monkeypatch.setattr(service, "_manifest_path", lambda endpoint: tmp_path / "registry" / endpoint / service.ENDPOINTS[endpoint]["model_id"] / "registration_manifest.json")
     original = copy.deepcopy(service.ENDPOINTS)
     monkeypatch.setattr(service, "ENDPOINTS", original)
+    service.clear_domain_reference_cache()
     return tmp_path
 
 
@@ -92,6 +127,8 @@ def test_register_gate_activate_history_and_deactivate_endpoint(isolated_registr
     assert gate["activation_state"] == "ACTIVATION_ELIGIBLE"
     assert activated["status"] == "ACTIVE"
     assert status["active"] is True
+    assert status["compact_domain_reference_verified"] is True
+    assert status["domain_reference_count"] == 1
     assert deactivated["status"] == "DISABLED"
     assert len(history) == 2
 
@@ -118,7 +155,6 @@ def test_prediction_contracts_include_lineage_domain_uncertainty_and_partial_bat
         service.ENDPOINTS[endpoint]["expected_hash"] = _hash(folder / "model.joblib")
         service.register_admet_artifact(endpoint, folder)
         service.activate_admet_endpoint(endpoint, initiated_by="pytest")
-    monkeypatch.setattr(service, "_domain_status", lambda *args, **kwargs: (0.55, "IN_DOMAIN"))
 
     single = service.predict_admet_endpoints("CCO", ["bbbp", "esol", "herg", "clintox_cttox"])
     batch = service.batch_predict_admet_endpoints([{"smiles": "CCO"}, {"smiles": "not-smiles"}], ["bbbp"])
@@ -149,6 +185,37 @@ def test_missing_or_corrupt_artifact_fails_closed(isolated_registry):
     assert missing["valid"] is False
     assert corrupt["valid"] is False
     assert any("SHA256" in error for error in corrupt["errors"])
+
+
+def test_compact_domain_reference_failure_modes_fail_closed(isolated_registry):
+    folder = _fake_artifact(isolated_registry, "bbbp")
+    service.ENDPOINTS["bbbp"]["expected_hash"] = _hash(folder / "model.joblib")
+    (folder / "domain_fingerprints.npz").unlink()
+    missing = service.verify_admet_artifact("bbbp", folder)
+
+    folder = _fake_artifact(isolated_registry, "esol", task="regression")
+    service.ENDPOINTS["esol"]["expected_hash"] = _hash(folder / "model.joblib")
+    manifest = json.loads((folder / "domain_reference_manifest.json").read_text())
+    manifest["domain_schema_hash"] = "wrong"
+    _write_json(folder / "domain_reference_manifest.json", manifest)
+    wrong_schema = service.verify_admet_artifact("esol", folder)
+
+    assert missing["valid"] is False
+    assert any("domain_fingerprints.npz" in error for error in missing["errors"])
+    assert wrong_schema["valid"] is False
+    assert any("schema" in error.lower() for error in wrong_schema["errors"])
+
+
+def test_compact_domain_cache_reuse_and_clear(isolated_registry, monkeypatch):
+    folder = _fake_artifact(isolated_registry, "bbbp")
+    service.ENDPOINTS["bbbp"]["expected_hash"] = _hash(folder / "model.joblib")
+    service.register_admet_artifact("bbbp", folder)
+    service.activate_admet_endpoint("bbbp", initiated_by="pytest")
+    service.predict_admet_endpoints("CCO", ["bbbp"])
+
+    assert len(service._DOMAIN_CACHE) == 1
+    service.clear_domain_reference_cache("bbbp")
+    assert len(service._DOMAIN_CACHE) == 0
 
 
 def test_candidate_ranking_uses_active_admet_without_clintox(monkeypatch):

@@ -1,6 +1,7 @@
 import hashlib
 import json
 import math
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,7 @@ REQUIRED_FILES = [
     "calibration_metadata.json",
     "freeze_record.json",
 ]
+COMPACT_DOMAIN_FILES = ["domain_fingerprints.npz", "domain_reference_manifest.json", "domain_reference_freeze_record.json"]
 
 ENDPOINTS: dict[str, dict[str, Any]] = {
     "bbbp": {
@@ -91,6 +93,10 @@ ENDPOINTS: dict[str, dict[str, Any]] = {
         ],
     },
 }
+_DOMAIN_CACHE: dict[tuple[str, str, str], dict[str, Any]] = {}
+_DOMAIN_CACHE_LOCK = threading.Lock()
+_MAX_DOMAIN_CACHE_ENTRIES = 4
+_MAX_DOMAIN_REFERENCE_BYTES = 25 * 1024 * 1024
 
 
 def _repo_root() -> Path:
@@ -116,6 +122,15 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def clear_domain_reference_cache(endpoint: str | None = None) -> None:
+    with _DOMAIN_CACHE_LOCK:
+        if endpoint is None:
+            _DOMAIN_CACHE.clear()
+        else:
+            for key in [item for item in _DOMAIN_CACHE if item[0] == endpoint]:
+                _DOMAIN_CACHE.pop(key, None)
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -181,6 +196,13 @@ def verify_admet_artifact(endpoint: str, artifact_dir: str | Path | None = None)
             errors.append(f"{name} is missing.")
         else:
             hashes[name] = _sha256(path)
+    if spec["eligible"]:
+        for name in COMPACT_DOMAIN_FILES:
+            path = folder / name
+            if not path.exists():
+                errors.append(f"{name} is missing.")
+            else:
+                hashes[name] = _sha256(path)
     if hashes.get("model.joblib") != spec["expected_hash"]:
         errors.append("model.joblib SHA256 does not match the frozen expected hash.")
     manifest = _load_json(folder / "model_manifest.json")
@@ -188,6 +210,8 @@ def verify_admet_artifact(endpoint: str, artifact_dir: str | Path | None = None)
     training = _load_json(folder / "training_metadata.json")
     metrics = _load_json(folder / "metrics.json")
     freeze = _load_json(folder / "freeze_record.json")
+    domain_manifest = _load_json(folder / "domain_reference_manifest.json")
+    domain_freeze = _load_json(folder / "domain_reference_freeze_record.json")
     if manifest.get("model_id") != spec["model_id"]:
         errors.append("model_manifest.json model_id does not match endpoint.")
     if manifest.get("task_type") != ("classification" if spec["task_type"] == "binary_classification" else "regression"):
@@ -198,6 +222,19 @@ def verify_admet_artifact(endpoint: str, artifact_dir: str | Path | None = None)
         errors.append("Dataset/split lineage is incomplete.")
     if not feature_schema.get("feature_dimension"):
         errors.append("Feature schema is incomplete.")
+    if spec["eligible"]:
+        if domain_manifest.get("endpoint_key") != endpoint or domain_manifest.get("model_id") != spec["model_id"]:
+            errors.append("Compact domain reference endpoint/model metadata does not match.")
+        if domain_manifest.get("domain_schema_hash") != _schema_hash(feature_schema, training, endpoint, manifest.get("model_id")):
+            errors.append("Compact domain reference schema hash does not match model feature schema.")
+        if domain_manifest.get("domain_artifact_sha256") and hashes.get("domain_fingerprints.npz") != domain_manifest.get("domain_artifact_sha256"):
+            errors.append("Compact domain reference SHA256 does not match manifest.")
+        if domain_manifest.get("dataset_hash") != training.get("dataset_hash") or domain_manifest.get("split_hash") != training.get("split_hash"):
+            errors.append("Compact domain reference lineage does not match model training metadata.")
+        if domain_manifest.get("parity_validation", {}).get("domain_label_mismatch_count") not in {0, None}:
+            errors.append("Compact domain parity validation reported domain-label mismatches.")
+        if domain_freeze.get("model_retrained") is not False or domain_freeze.get("thresholds_unchanged") is not True:
+            errors.append("Compact domain freeze amendment is incomplete.")
     if not metrics.get("test_metrics") or not metrics.get("selected_validation_metrics"):
         errors.append("Validation or TEST metrics are missing.")
     gate = (freeze.get("activation_gate") or {}).get("result")
@@ -218,6 +255,8 @@ def verify_admet_artifact(endpoint: str, artifact_dir: str | Path | None = None)
         "training_metadata": training,
         "metrics": metrics,
         "freeze_record": freeze,
+        "domain_reference_manifest": domain_manifest,
+        "domain_reference_freeze_record": domain_freeze,
     }
 
 
@@ -243,6 +282,7 @@ def register_admet_artifact(endpoint: str, source_dir: str | Path, overwrite: bo
         "activation_gate_state": evaluate_admet_activation_gate(endpoint, source_dir)["activation_state"],
         "warnings": spec["mandatory_warnings"],
         "verification": {k: v for k, v in verification.items() if k not in {"metrics"}},
+        "domain_reference": verification.get("domain_reference_manifest"),
     }
     target.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return manifest
@@ -258,6 +298,7 @@ def admet_model_status(endpoint: str) -> dict[str, Any]:
     verification = verify_admet_artifact(endpoint) if registered else {"valid": False, "errors": ["not_registered"], "warnings": spec["mandatory_warnings"]}
     active = get_active_endpoint(endpoint)
     gate = evaluate_admet_activation_gate(endpoint) if registered and verification.get("valid") else {"activation_state": "NOT_REGISTERED" if not registered else "VALIDATION_FAILED"}
+    domain_manifest = verification.get("domain_reference_manifest") or {}
     return {
         "endpoint": endpoint,
         "display_name": spec["display_name"],
@@ -272,6 +313,10 @@ def admet_model_status(endpoint: str) -> dict[str, Any]:
         "task_type": spec["task_type"],
         "prediction_label": spec["prediction_label"],
         "warnings": list(dict.fromkeys((verification.get("warnings") or []) + (verification.get("errors") or []))),
+        "compact_domain_reference_verified": bool(registered and verification.get("valid") and domain_manifest),
+        "domain_reference_hash": domain_manifest.get("domain_artifact_sha256"),
+        "domain_schema_hash": domain_manifest.get("domain_schema_hash"),
+        "domain_reference_count": domain_manifest.get("fingerprint_count"),
         "clinical_validity": False,
         "research_use_only": True,
     }
@@ -404,32 +449,110 @@ def _load_bundle(endpoint: str):
         _load_json(folder / "feature_schema.json"),
         _load_json(folder / "metrics.json"),
         _load_json(folder / "calibration_metadata.json"),
-        np.load(folder / "domain_reference.npz", allow_pickle=True),
+        _load_domain_reference(endpoint, folder, verification),
     )
 
 
-def _domain_status(smiles: str, domain: Any, schema: dict[str, Any], artifact_dir: Path) -> tuple[float | None, str]:
-    # ponytail: M2C-2 saved nearest-neighbor thresholds, not train fingerprints; rebuild from frozen TRAIN rows when local curated data is present. Store train fingerprints in M2C-4 if prediction throughput matters.
-    split_ref = _load_json(artifact_dir / "split_reference.json")
-    split_file = split_ref.get("split_file")
-    if not split_file:
-        return None, "not_available"
-    curated = Path(split_file).with_name(Path(split_file).name.replace("_split_v1.json", "_curated_v1.csv"))
-    if not curated.exists():
-        return None, "not_available"
-    import pandas as pd
+def _schema_hash(schema: dict[str, Any], training: dict[str, Any], endpoint: str, model_id: str) -> str:
+    payload = {
+        "schema_version": "m2c4_domain_schema_v1",
+        "fingerprint_algorithm": schema.get("fingerprint", "RDKit Morgan"),
+        "radius": int(schema.get("radius", 2)),
+        "bit_length": int(schema.get("bits", 2048)),
+        "use_chirality": bool(schema.get("use_chirality", False)),
+        "use_features": bool(schema.get("use_features", False)),
+        "vector_type": "bit_vector",
+        "similarity_metric": "Tanimoto",
+        "source_split": "TRAIN",
+        "molecule_standardisation": "RDKit canonical SMILES, isomericSmiles=True",
+        "rdkit_version": schema.get("rdkit_version") or training.get("package_versions", {}).get("rdkit"),
+        "endpoint": endpoint,
+        "model_id": model_id,
+        "dataset_hash": training.get("dataset_hash"),
+        "split_hash": training.get("split_hash"),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
-    df = pd.read_csv(curated)
-    train_ids = set(split_ref.get("partitions", {}).get("TRAIN", []))
-    train_smiles = df[df["record_id"].isin(train_ids)]["canonical_smiles"].tolist()
-    gen = rdFingerprintGenerator.GetMorganGenerator(radius=int(schema.get("radius", 2)), fpSize=int(schema.get("bits", 2048)))
-    query = gen.GetFingerprint(Chem.MolFromSmiles(smiles))
-    train_fps = [gen.GetFingerprint(Chem.MolFromSmiles(s)) for s in train_smiles]
-    nearest = max(DataStructs.BulkTanimotoSimilarity(query, train_fps)) if train_fps else None
-    thresholds = domain["thresholds"].tolist()
-    if nearest is None:
-        return None, "not_available"
-    return nearest, "IN_DOMAIN" if nearest >= thresholds[0] else "BORDERLINE" if nearest >= thresholds[1] else "OUT_OF_DOMAIN"
+
+def _load_domain_reference(endpoint: str, artifact_dir: Path, verification: dict[str, Any]) -> dict[str, Any]:
+    manifest = verification.get("domain_reference_manifest") or {}
+    artifact = artifact_dir / manifest.get("domain_artifact_filename", "domain_fingerprints.npz")
+    artifact_hash = _sha256(artifact) if artifact.exists() else ""
+    cache_key = (endpoint, verification["manifest"].get("model_id", ""), artifact_hash)
+    with _DOMAIN_CACHE_LOCK:
+        cached = _DOMAIN_CACHE.get(cache_key)
+        if cached:
+            return cached
+    if not artifact.exists() or artifact_hash != manifest.get("domain_artifact_sha256"):
+        raise HTTPException(status_code=400, detail="domain_reference_unavailable_or_invalid")
+    if artifact.stat().st_size > _MAX_DOMAIN_REFERENCE_BYTES:
+        raise HTTPException(status_code=400, detail="domain_reference_unavailable_or_invalid")
+    expected_schema_hash = _schema_hash(verification["feature_schema"], verification["training_metadata"], endpoint, verification["manifest"].get("model_id"))
+    if manifest.get("domain_schema_hash") != expected_schema_hash:
+        raise HTTPException(status_code=400, detail="domain_reference_unavailable_or_invalid")
+    with np.load(artifact, allow_pickle=False) as data:
+        packed = data["packed_fingerprints"]
+        record_ids = data["record_ids"]
+        smiles_hashes = data["canonical_smiles_hashes"]
+        if packed.dtype != np.uint8 or record_ids.dtype.kind == "O" or smiles_hashes.dtype.kind == "O":
+            raise HTTPException(status_code=400, detail="domain_reference_unavailable_or_invalid")
+        reference = {
+            "packed_fingerprints": packed.copy(),
+            "record_ids": record_ids.astype(str).copy(),
+            "canonical_smiles_hashes": smiles_hashes.astype(str).copy(),
+            "thresholds": tuple(float(x) for x in manifest["thresholds"]),
+            "artifact_hash": artifact_hash,
+            "schema_hash": manifest["domain_schema_hash"],
+            "reference_count": int(manifest["fingerprint_count"]),
+            "similarity_metric": manifest.get("similarity_metric", "Tanimoto"),
+            "estimated_memory_bytes": int(packed.nbytes + record_ids.nbytes + smiles_hashes.nbytes),
+            "version": manifest.get("domain_reference_version", "m2c4_v1"),
+        }
+    if reference["reference_count"] != len(reference["packed_fingerprints"]):
+        raise HTTPException(status_code=400, detail="domain_reference_unavailable_or_invalid")
+    with _DOMAIN_CACHE_LOCK:
+        if len(_DOMAIN_CACHE) >= _MAX_DOMAIN_CACHE_ENTRIES:
+            _DOMAIN_CACHE.pop(next(iter(_DOMAIN_CACHE)))
+        _DOMAIN_CACHE[cache_key] = reference
+    return reference
+
+
+def _packed_query_fingerprint(smiles: str, schema: dict[str, Any]) -> np.ndarray:
+    mol = Chem.MolFromSmiles(smiles)
+    gen = rdFingerprintGenerator.GetMorganGenerator(
+        radius=int(schema.get("radius", 2)),
+        fpSize=int(schema.get("bits", 2048)),
+        includeChirality=bool(schema.get("use_chirality", False)),
+        useBondTypes=True,
+    )
+    arr = np.zeros((int(schema.get("bits", 2048)),), dtype=np.uint8)
+    DataStructs.ConvertToNumpyArray(gen.GetFingerprint(mol), arr)
+    return np.packbits(arr, bitorder="big")
+
+
+def _domain_status(smiles: str, domain: dict[str, Any], schema: dict[str, Any], artifact_dir: Path) -> dict[str, Any]:
+    query = _packed_query_fingerprint(smiles, schema)
+    packed = domain["packed_fingerprints"]
+    intersection = np.unpackbits(np.bitwise_and(packed, query), axis=1, bitorder="big").sum(axis=1)
+    union = np.unpackbits(np.bitwise_or(packed, query), axis=1, bitorder="big").sum(axis=1)
+    similarities = np.divide(intersection, union, out=np.zeros_like(intersection, dtype=float), where=union != 0)
+    nearest_index = int(np.argmax(similarities))
+    nearest = float(similarities[nearest_index])
+    in_threshold, borderline_threshold = domain["thresholds"]
+    status = "IN_DOMAIN" if nearest >= in_threshold else "BORDERLINE" if nearest >= borderline_threshold else "OUT_OF_DOMAIN"
+    return {
+        "nearest_training_similarity": nearest,
+        "domain_status": status,
+        "nearest_reference_index": nearest_index,
+        "nearest_reference_hash": str(domain["canonical_smiles_hashes"][nearest_index]),
+        "domain_reference_version": domain["version"],
+        "domain_reference_hash": domain["artifact_hash"],
+        "domain_schema_hash": domain["schema_hash"],
+        "domain_reference_count": domain["reference_count"],
+        "similarity_metric": domain["similarity_metric"],
+        "domain_thresholds": {"in_domain": in_threshold, "borderline": borderline_threshold},
+        "compact_reference_used": True,
+    }
 
 
 def predict_admet_endpoints(smiles: str, endpoints: list[str] | None = None) -> dict[str, Any]:
@@ -446,7 +569,9 @@ def predict_admet_endpoints(smiles: str, endpoints: list[str] | None = None) -> 
             model, verification, schema, metrics, calibration, domain = _load_bundle(endpoint)
             x = _features(canonical, schema)
             folder = Path(verification["artifact_dir"])
-            nearest, domain_state = _domain_status(canonical, domain, schema, folder)
+            domain_result = _domain_status(canonical, domain, schema, folder)
+            nearest = domain_result["nearest_training_similarity"]
+            domain_state = domain_result["domain_status"]
             task = spec["task_type"]
             raw_pred = model.predict(x)[0]
             tree_values = []
@@ -481,6 +606,7 @@ def predict_admet_endpoints(smiles: str, endpoints: list[str] | None = None) -> 
                 "activation_status": "ACTIVE",
                 "nearest_training_similarity": nearest,
                 "domain_status": domain_state,
+                **domain_result,
                 "uncertainty_method": "tree_prediction_std",
                 "uncertainty_value": uncertainty,
                 "calibration_status": calibration.get("classification_calibration") or "not_applicable",
