@@ -1,12 +1,13 @@
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Register frozen EGFR v2 activity model artifact.")
-    parser.add_argument("--source-dir", default=r"D:\DRUG CONJUGATE\DRUGDESIGN360_REAL_DATA\models\egfr_activity_v2")
+    parser.add_argument("--source-dir", default=os.getenv("DRUGDESIGN360_EGFR_V2_ARTIFACT_DIR", ""))
     parser.add_argument("--copy-required-files", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--activate", action="store_true")

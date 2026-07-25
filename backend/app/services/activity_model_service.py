@@ -42,7 +42,7 @@ def _activity_root() -> Path:
 
 
 def _default_external_egfr_v2_dir() -> Path:
-    return Path(os.getenv("DRUGDESIGN360_EGFR_V2_ARTIFACT_DIR", r"D:\DRUG CONJUGATE\DRUGDESIGN360_REAL_DATA\models\egfr_activity_v2"))
+    return Path(os.getenv("DRUGDESIGN360_EGFR_V2_ARTIFACT_DIR", ""))
 
 
 def _registry_manifest_path() -> Path:

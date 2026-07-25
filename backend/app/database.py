@@ -459,7 +459,7 @@ def init_db() -> None:
             """
             CREATE TABLE IF NOT EXISTS activity_active_models (
                 target_key TEXT PRIMARY KEY,
-                model_id TEXT,
+                model_id TEXT NOT NULL,
                 status TEXT NOT NULL,
                 activated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
