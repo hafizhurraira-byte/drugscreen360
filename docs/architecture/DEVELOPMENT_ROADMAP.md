@@ -1,5 +1,9 @@
 # Development Roadmap
 
+## BETA-P3 pretrained ADME qualification
+
+BETA-P3 completed the bounded official-source review of ADMET-AI, a DeepChem-based pretrained option, and no integration. No candidate passed every mandatory gate: ADMET-AI has unresolved explicit weight and endpoint-dataset rights plus v2-specific validation gaps, while no qualified frozen DeepChem ADME artifact was identified. No runtime, adapter, registry record, endpoint, or activation was added. See `docs/beta_p3_adme_candidate_review.md` and `docs/beta_p3_engine_selection_decision.md`.
+
 This roadmap sequences DRUGDESIGN 360 from the current DrugScreen360 MVP toward the long-term five-system platform.
 
 ## Platform Versions
