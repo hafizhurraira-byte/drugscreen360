@@ -576,6 +576,10 @@ export default function App() {
   const [engineLoading, setEngineLoading] = useState(false);
   const [engineError, setEngineError] = useState("");
   const [engineSearch, setEngineSearch] = useState("");
+  const [engineExecutionKind, setEngineExecutionKind] = useState("rdkit");
+  const [engineExecutionInput, setEngineExecutionInput] = useState("CCO");
+  const [engineExecutionResult, setEngineExecutionResult] = useState(null);
+  const [engineExecutionLoading, setEngineExecutionLoading] = useState(false);
   const [engineClassFilter, setEngineClassFilter] = useState("");
   const [engineBlockedOnly, setEngineBlockedOnly] = useState(false);
   const [engineSort, setEngineSort] = useState("engine_name");
@@ -1038,6 +1042,24 @@ export default function App() {
       fetch(`${API_BASE}/scientific-engines/${item.engine_id}/versions/${item.version.engine_version}/reconciliation`),
     ]);
     setSelectedEngine({ ...item, history: historyResponse.ok ? await historyResponse.json() : [], reconciliation: reconciliationResponse.ok ? await reconciliationResponse.json() : null });
+  }
+
+  async function submitEngineContract(execute = false) {
+    const choices = {
+      rdkit: ["rdkit_toolkit", engineRegistry.items.find((item) => item.engine_id === "rdkit_toolkit")?.version.engine_version, "DESCRIPTOR_CALCULATION", "molecular_descriptors", { molecule: { smiles: engineExecutionInput } }],
+      rules: ["medicinal_chemistry_rule_filters", "1", "STRUCTURAL_ALERTS", "medicinal_chemistry_alerts", { molecule: { smiles: engineExecutionInput } }],
+      pubchem: ["pubchem_connector", "PUG_REST", "DATABASE_EVIDENCE_RETRIEVAL", "compound_record", { query: { compound_name: engineExecutionInput } }],
+      bbbp: ["bbbp_v1", "v1", "ADME_PREDICTION", "bbbp_classification", { molecule: { smiles: engineExecutionInput } }],
+    };
+    const [engine_id, engine_version, task_type, endpoint, inputs] = choices[engineExecutionKind];
+    if (!engine_version) return setEngineExecutionResult({ status: "ADAPTER_NOT_FOUND", errors: [{ message: "The selected registry version is unavailable." }] });
+    setEngineExecutionLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/scientific-engine-executions/${execute ? "execute" : "validate"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract_version: "1.0", engine_id, engine_version, task_type, endpoint, inputs, parameters: {}, execution_context: { deployment_profile: "LOCAL_RESEARCH", requested_by: "local-ui", research_only: true } }) });
+      const data = await response.json();
+      setEngineExecutionResult(response.ok ? data : { status: "FAILED_VALIDATION", errors: [{ message: JSON.stringify(data.detail || data) }] });
+    } catch (err) { setEngineExecutionResult({ status: "EXECUTION_FAILED", errors: [{ message: err.message }] }); }
+    finally { setEngineExecutionLoading(false); }
   }
 
   async function loadResearchExports() {
@@ -9496,6 +9518,14 @@ export default function App() {
           <Section title="Scientific Engines" icon={Beaker} wide>
             <p className="warning-text">Research use only. Registered or active does not mean clinically validated, safe, effective, or commercially approved.</p>
             <p className="limitation-label">Rule-based results and database records are not model predictions. Applicability domain, uncertainty, and licence permissions may be unknown.</p>
+            <h3>Execution contract</h3>
+            <div className="finder-search">
+              <label>Reference adapter<select value={engineExecutionKind} onChange={(event) => setEngineExecutionKind(event.target.value)}><option value="rdkit">RDKit descriptors</option><option value="rules">Medicinal-chemistry rules</option><option value="pubchem">PubChem compound lookup</option><option value="bbbp">Blocked BBBP demonstration</option></select></label>
+              <label>{engineExecutionKind === "pubchem" ? "Compound name" : "SMILES"}<input value={engineExecutionInput} onChange={(event) => setEngineExecutionInput(event.target.value)} /></label>
+              <button type="button" disabled={engineExecutionLoading} onClick={() => submitEngineContract(false)}>Validate request</button>
+              <button type="button" disabled={engineExecutionLoading || engineExecutionResult?.status !== "SUCCESS" || engineExecutionResult?.result?.execution_allowed !== true} onClick={() => submitEngineContract(true)}>Execute</button>
+            </div>
+            {engineExecutionResult && <div className="result-card"><h4>Governance decision: {engineExecutionResult.status}</h4><p>{engineExecutionResult.errors?.map((item) => item.message).join("; ") || "Execution is permitted by the current registry fixture."}</p><Field label="Applicability domain" value={engineExecutionResult.applicability_domain?.status || "Not reported"} /><Field label="Uncertainty" value={engineExecutionResult.uncertainty?.status || "Not reported"} /><Field label="Limitations" value={engineExecutionResult.limitations?.join("; ") || "None reported"} /><Field label="Provenance" value={engineExecutionResult.provenance?.input_hash || "Not available"} />{engineExecutionResult.result && <pre>{JSON.stringify(engineExecutionResult.result, null, 2)}</pre>}</div>}
             {engineSummary && <div className="summary-grid">
               <SummaryCard label="Total Engines" value={engineSummary.total_engines} icon={Beaker} />
               <SummaryCard label="Total Versions" value={engineSummary.total_versions} icon={History} />

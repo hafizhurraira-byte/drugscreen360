@@ -34,6 +34,7 @@ from app.routers.projects import router as projects_router
 from app.routers.research_export import router as research_export_router
 from app.routers.screening import router as screening_router
 from app.routers.scientific_engines import router as scientific_engines_router
+from app.routers.scientific_engine_executions import router as scientific_engine_executions_router
 from app.routers.similarity import router as similarity_router
 from app.routers.validation_planner import router as validation_planner_router
 from app.services.version import app_version
@@ -101,3 +102,4 @@ app.include_router(experimental_results_router, prefix="/api")
 app.include_router(experimental_feedback_router, prefix="/api")
 app.include_router(final_report_router, prefix="/api")
 app.include_router(scientific_engines_router, prefix="/api")
+app.include_router(scientific_engine_executions_router, prefix="/api")

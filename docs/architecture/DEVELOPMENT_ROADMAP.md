@@ -261,3 +261,6 @@ Deferred:
 Exit criteria:
 
 - closed-loop research operation works under audit and evidence-type separation.
+# BETA-P2 universal execution foundation
+
+The versioned scientific-engine request/result/error contract, fail-closed adapter registry, reference adapters, execution audit, existing-job bridge, and minimal Scientific Engines execution panel are implemented in BETA-P2. See `docs/beta_p2_universal_engine_adapter.md` and `docs/beta_p2_execution_contract.md`. Existing scientific APIs remain parallel and unchanged; governed model adoption is deferred to BETA-P3.
