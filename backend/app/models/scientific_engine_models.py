@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -205,4 +205,67 @@ class DeactivationRequest(BaseModel):
 class ArtifactVerification(BaseModel):
     artifact_hash: str | None = None
     artifact_exists: bool
+
+
+CANONICAL_ENGINE_TASKS = Literal[
+    "MOLECULE_STANDARDIZATION", "DESCRIPTOR_CALCULATION", "STRUCTURAL_ALERTS",
+    "SIMILARITY_ANALYSIS", "POTENCY_PREDICTION", "ADME_PREDICTION",
+    "TOXICITY_PREDICTION", "DATABASE_EVIDENCE_RETRIEVAL",
+]
+
+
+class ScientificEngineExecutionContext(BaseModel):
+    deployment_profile: DeploymentProfile
+    requested_by: str = Field(min_length=1, max_length=200)
+    research_only: Literal[True]
+
+
+class ScientificEngineExecutionRequest(BaseModel):
+    contract_version: Literal["1.0"]
+    engine_id: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_.-]+$")
+    engine_version: str = Field(min_length=1)
+    task_type: CANONICAL_ENGINE_TASKS
+    endpoint: str = Field(min_length=1)
+    inputs: dict[str, Any]
+    parameters: dict[str, Any] = Field(default_factory=dict, max_length=20)
+    execution_context: ScientificEngineExecutionContext
+    request_id: str | None = None
+    project_id: str | None = None
+    workflow_run_id: str | None = None
+    candidate_id: str | None = None
+    target_id: str | None = None
+    organism: str | None = None
+    molecule_type: str | None = None
+    execution_mode: Literal["SYNC", "ASYNC"] = "SYNC"
+    timeout_seconds: int = Field(default=30, ge=1, le=30)
+    random_seed: int | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ScientificEngineExecutionError(BaseModel):
+    code: str
+    message: str
+    category: str
+    stage: str
+    retryable: bool = False
+    blocked_reason: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class ScientificEngineExecutionResult(BaseModel):
+    contract_version: Literal["1.0"] = "1.0"
+    request_id: str
+    execution_id: str
+    engine: dict[str, Any]
+    task: dict[str, Any]
+    status: str
+    result: dict[str, Any] | None = None
+    evidence: dict[str, Any]
+    applicability_domain: dict[str, Any]
+    uncertainty: dict[str, Any]
+    provenance: dict[str, Any]
+    limitations: list[str]
+    warnings: list[str]
+    errors: list[ScientificEngineExecutionError]
+    timing: dict[str, Any]
 

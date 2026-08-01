@@ -921,6 +921,27 @@ def init_db() -> None:
                 report_json TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS scientific_engine_executions (
+                execution_id TEXT PRIMARY KEY,
+                request_id TEXT NOT NULL,
+                engine_id TEXT NOT NULL,
+                engine_version TEXT NOT NULL,
+                adapter_id TEXT,
+                adapter_version TEXT,
+                task_type TEXT NOT NULL,
+                endpoint TEXT NOT NULL,
+                deployment_profile TEXT NOT NULL,
+                status TEXT NOT NULL,
+                input_hash TEXT NOT NULL,
+                parameter_hash TEXT NOT NULL,
+                output_hash TEXT,
+                started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                completed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                duration_ms REAL NOT NULL,
+                error_code TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_scientific_engine_executions_created
+                ON scientific_engine_executions(started_at DESC);
             """
         )
 
