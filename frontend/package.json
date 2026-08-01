@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node src/workflowUtils.test.mjs"
+    "test": "node src/workflowUtils.test.mjs && node src/scientificEnginesUi.test.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",

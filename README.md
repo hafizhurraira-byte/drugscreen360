@@ -1,5 +1,7 @@
 # DrugScreen360
 
+Scientific-engine discovery, legacy migration, reconciliation, and the research-use registry interface are documented in [BETA-P1B migration](docs/beta_p1b_existing_engine_migration.md) and [registry UI](docs/beta_p1b_registry_ui.md).
+
 [![DrugScreen360 CI](https://github.com/hafizhurraira-byte/drugscreen360/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/hafizhurraira-byte/drugscreen360/actions/workflows/ci.yml)
 
 DrugScreen360 is a local research-use platform for computational compound screening, ADMET model preparation, external validation/calibration review, Disease-to-Lead workflow organization, and final project report generation.

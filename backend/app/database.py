@@ -897,6 +897,30 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_scientific_engine_history
                 ON scientific_engine_activation_history(engine_id, engine_version, id);
+            CREATE TABLE IF NOT EXISTS scientific_engine_legacy_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                engine_id TEXT NOT NULL,
+                engine_version TEXT NOT NULL,
+                legacy_system TEXT NOT NULL,
+                legacy_record_type TEXT NOT NULL,
+                legacy_record_id TEXT NOT NULL,
+                authoritative_state_source TEXT NOT NULL,
+                snapshot_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(legacy_system, legacy_record_type, legacy_record_id),
+                FOREIGN KEY(engine_id, engine_version) REFERENCES scientific_engine_versions(engine_id, engine_version)
+            );
+            CREATE TABLE IF NOT EXISTS scientific_engine_migration_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mode TEXT NOT NULL,
+                report_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS scientific_engine_reconciliation_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             """
         )
 

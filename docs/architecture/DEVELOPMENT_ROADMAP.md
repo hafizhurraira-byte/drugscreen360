@@ -103,6 +103,8 @@ Exit criteria:
 
 BETA-P1A adds the non-executing scientific-engine registry and licence-governance foundation described in `docs/beta_p1a_scientific_engine_registry.md`; existing-engine migration and the registry UI are deferred to BETA-P1B.
 
+BETA-P1B migrates implemented engines through deterministic manifests, adds read-only legacy reconciliation, and exposes the registry UI. Universal execution remains deferred to BETA-P2.
+
 Objective: build the shared evidence and governed learning foundation.
 
 Major deliverables:

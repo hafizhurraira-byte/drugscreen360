@@ -245,6 +245,8 @@ def discover(filters: dict[str, str | bool | None], limit: int, offset: int) -> 
         item = get_version(row["engine_id"], row["engine_version"])
         engine = get_engine(row["engine_id"])
         checks = {
+            "search": (filters.get("search", "").lower() in f"{engine['engine_name']} {engine['description']} {engine['provider_name']}".lower()) if filters.get("search") else True,
+            "engine_class": engine["engine_class"] == filters.get("engine_class") if filters.get("engine_class") else True,
             "task_type": filters.get("task_type") in engine["task_types"] if filters.get("task_type") else True,
             "endpoint": filters.get("endpoint") in item["supported_endpoints"] if filters.get("endpoint") else True,
             "organism": filters.get("organism") in item["supported_organisms"] if filters.get("organism") else True,
@@ -257,6 +259,8 @@ def discover(filters: dict[str, str | bool | None], limit: int, offset: int) -> 
             "execution_mode": (item["local_execution_supported"] if filters.get("execution_mode") == "local" else item["api_execution_supported"]) if filters.get("execution_mode") else True,
             "deployment_profile": any(p["deployment_profile"] == filters.get("deployment_profile") and p["permitted"] for p in item["deployment_permissions"]) if filters.get("deployment_profile") else True,
             "active_only": item["activation_status"].startswith("ACTIVE_") if filters.get("active_only") else True,
+            "runtime_health_status": item["runtime_health_status"] == filters.get("runtime_health_status") if filters.get("runtime_health_status") else True,
+            "blocked_state": (item["activation_status"].startswith("BLOCKED_") or item["technical_status"].startswith("ARTIFACT_")) if filters.get("blocked_state") else True,
         }
         if all(checks.values()):
             items.append({**engine, "version": item})
@@ -274,6 +278,5 @@ def licence_summary() -> dict[str, int]:
 
 
 def integrity() -> dict[str, Any]:
-    with get_connection() as connection:
-        orphan_versions = connection.execute("SELECT COUNT(*) FROM scientific_engine_versions v LEFT JOIN scientific_engines e ON e.engine_id=v.engine_id WHERE e.engine_id IS NULL").fetchone()[0]
-    return {"status": "HEALTHY" if orphan_versions == 0 else "DEGRADED", "orphan_versions": orphan_versions}
+    from app.services.scientific_engine_reconciliation_service import integrity as expanded_integrity
+    return expanded_integrity()

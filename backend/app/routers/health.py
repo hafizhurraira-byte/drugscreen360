@@ -10,6 +10,8 @@ from app.services.activity_model_service import egfr_activity_model_status
 from app.services.admet_endpoint_model_service import list_admet_models
 from app.services.model_registry import model_status_response
 from app.services.version import app_version
+from app.services.scientific_engine_migration_service import migration_status
+from app.services.scientific_engine_reconciliation_service import integrity as registry_integrity, summary as registry_summary
 
 router = APIRouter(tags=["health"])
 
@@ -173,6 +175,9 @@ def system_readiness():
     egfr_activity = egfr_activity_model_status()
     admet_endpoint_models = list_admet_models()["models"]
     externally_validated_admet = [item for item in admet_endpoint_models if item.get("external_validation_available")]
+    engine_integrity = registry_integrity()
+    engine_summary = registry_summary()
+    migrated = migration_status().get("engine_count", 0) > 0
 
     return {
         "app_version": app_version(),
@@ -205,6 +210,17 @@ def system_readiness():
             },
             "universal_admet_model": False,
         },
+        "scientific_engine_registry_available": engine_integrity["registry_schema_status"] == "AVAILABLE",
+        "scientific_engine_registry_integrity": engine_integrity["status"],
+        "existing_engine_migration_complete": migrated and engine_integrity["registered_engine_count"] >= 11,
+        "legacy_reconciliation_status": "CONSISTENT" if engine_integrity["mismatch_count"] == 0 else "WARNING",
+        "active_beta_engine_count": engine_summary["active_beta_engines"],
+        "licence_blocked_engine_count": engine_summary["licence_blocked"],
+        "validation_blocked_engine_count": engine_summary["validation_blocked"],
+        "artifact_blocked_engine_count": engine_summary["artifact_blocked"],
+        "registry_ui_available": True,
+        "registry_readiness_warning": "Review registry mismatches and unresolved active-engine artifacts." if engine_integrity["mismatch_count"] or engine_integrity["artifact_blocked_count"] else None,
+        "rejected_clintox_blocks_readiness": False,
         "warnings": warnings,
         "recommended_next_actions": list(dict.fromkeys(actions)),
         "scientific_notice": SCIENTIFIC_NOTICE,

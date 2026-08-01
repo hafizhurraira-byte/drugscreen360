@@ -160,6 +160,17 @@ class EngineVersionCreate(BaseModel):
     fallback_policy: str = Field(default="NO_FALLBACK", pattern=r"^(NO_FALLBACK|FALLBACK_TO_SPECIFIC_ENGINE|FALLBACK_TO_RULE_BASED_WITH_LABEL|MANUAL_SELECTION_REQUIRED)$")
     timeout_policy: dict[str, Any] | None = None
     partial_result_policy: dict[str, Any] | None = None
+    dataset_hash: str | None = None
+    split_hash: str | None = None
+    model_hash: str | None = None
+    decision_threshold: float | None = None
+    prediction_unit: str | None = None
+    feature_representation: str | None = None
+    internal_validation: dict[str, Any] | None = None
+    external_validation: dict[str, Any] | None = None
+    calibration_status: str | None = None
+    authoritative_state: str | None = None
+    blocked_reason: str | None = None
     deployment_permissions: list[DeploymentPermission] = []
 
 

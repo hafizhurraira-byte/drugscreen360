@@ -570,6 +570,17 @@ export default function App() {
   const [releaseHealth, setReleaseHealth] = useState(null);
   const [systemReadiness, setSystemReadiness] = useState(null);
   const [systemHealthLoading, setSystemHealthLoading] = useState(false);
+  const [engineRegistry, setEngineRegistry] = useState({ items: [], total: 0 });
+  const [engineSummary, setEngineSummary] = useState(null);
+  const [engineReconciliation, setEngineReconciliation] = useState({ items: [] });
+  const [engineLoading, setEngineLoading] = useState(false);
+  const [engineError, setEngineError] = useState("");
+  const [engineSearch, setEngineSearch] = useState("");
+  const [engineClassFilter, setEngineClassFilter] = useState("");
+  const [engineBlockedOnly, setEngineBlockedOnly] = useState(false);
+  const [engineSort, setEngineSort] = useState("engine_name");
+  const [enginePage, setEnginePage] = useState(0);
+  const [selectedEngine, setSelectedEngine] = useState(null);
   const [researchExportTitle, setResearchExportTitle] = useState("");
   const [researchExportNotes, setResearchExportNotes] = useState("");
   const [researchExportProjectId, setResearchExportProjectId] = useState("");
@@ -993,6 +1004,40 @@ export default function App() {
     } finally {
       setSystemHealthLoading(false);
     }
+  }
+
+  async function loadScientificEngines(page = enginePage) {
+    setEngineLoading(true);
+    setEngineError("");
+    try {
+      const query = new URLSearchParams({ limit: "20", offset: String(page * 20) });
+      if (engineSearch) query.set("search", engineSearch);
+      if (engineClassFilter) query.set("engine_class", engineClassFilter);
+      if (engineBlockedOnly) query.set("blocked_state", "true");
+      const [enginesResponse, summaryResponse, reconciliationResponse] = await Promise.all([
+        fetch(`${API_BASE}/scientific-engines/discover?${query}`),
+        fetch(`${API_BASE}/scientific-engines/summary`),
+        fetch(`${API_BASE}/scientific-engines/reconciliation`),
+      ]);
+      const [engines, summary, reconciliation] = await Promise.all([enginesResponse.json(), summaryResponse.json(), reconciliationResponse.json()]);
+      if (!enginesResponse.ok || !summaryResponse.ok || !reconciliationResponse.ok) throw new Error("Could not load scientific-engine registry.");
+      setEngineRegistry(engines);
+      setEngineSummary(summary);
+      setEngineReconciliation(reconciliation);
+      setEnginePage(page);
+    } catch (err) {
+      setEngineError(err.message);
+    } finally {
+      setEngineLoading(false);
+    }
+  }
+
+  async function openScientificEngine(item) {
+    const [historyResponse, reconciliationResponse] = await Promise.all([
+      fetch(`${API_BASE}/scientific-engines/${item.engine_id}/history`),
+      fetch(`${API_BASE}/scientific-engines/${item.engine_id}/versions/${item.version.engine_version}/reconciliation`),
+    ]);
+    setSelectedEngine({ ...item, history: historyResponse.ok ? await historyResponse.json() : [], reconciliation: reconciliationResponse.ok ? await reconciliationResponse.json() : null });
   }
 
   async function loadResearchExports() {
@@ -5369,9 +5414,9 @@ export default function App() {
           Projects
         </button>
         <button
-          className={["examples", "screening", "finder", "similarity", "validation", "batch-upload", "admet-studio", "admet-data", "disease", "system"].includes(activeView) ? "tab-active" : ""}
+          className={["examples", "screening", "finder", "similarity", "validation", "batch-upload", "admet-studio", "admet-data", "disease", "system", "scientific-engines"].includes(activeView) ? "tab-active" : ""}
           onClick={() => {
-            if (!["examples", "screening", "finder", "similarity", "validation", "batch-upload", "admet-studio", "admet-data", "disease", "system"].includes(activeView)) {
+            if (!["examples", "screening", "finder", "similarity", "validation", "batch-upload", "admet-studio", "admet-data", "disease", "system", "scientific-engines"].includes(activeView)) {
               setActiveView("examples");
             }
           }}
@@ -5382,7 +5427,7 @@ export default function App() {
       </nav>
 
       {/* Sub tabs for Advanced Tools if any of those views are active */}
-      {["examples", "screening", "finder", "similarity", "validation", "batch-upload", "admet-studio", "admet-data", "disease", "system"].includes(activeView) && (
+      {["examples", "screening", "finder", "similarity", "validation", "batch-upload", "admet-studio", "admet-data", "disease", "system", "scientific-engines"].includes(activeView) && (
         <div className="sub-tabs" role="navigation" aria-label="Advanced Tools">
           <button className={activeView === "screening" ? "tab-active" : ""} onClick={() => setActiveView("screening")}>
             <FlaskConical size={14} aria-hidden="true" />
@@ -5428,6 +5473,16 @@ export default function App() {
           >
             <Settings size={14} aria-hidden="true" />
             System
+          </button>
+          <button
+            className={activeView === "scientific-engines" ? "tab-active" : ""}
+            onClick={() => {
+              setActiveView("scientific-engines");
+              loadScientificEngines(0);
+            }}
+          >
+            <Beaker size={14} aria-hidden="true" />
+            Scientific Engines
           </button>
           <button className={activeView === "examples" ? "tab-active" : ""} onClick={() => setActiveView("examples")}>
             <FileText size={14} aria-hidden="true" />
@@ -9433,6 +9488,56 @@ export default function App() {
               {(selectedProject.limitations || []).map((item) => <p className="limitation-label" key={item}>{item}</p>)}
             </Section>
           )}
+        </div>
+      )}
+
+      {activeView === "scientific-engines" && (
+        <div className="finder-dashboard">
+          <Section title="Scientific Engines" icon={Beaker} wide>
+            <p className="warning-text">Research use only. Registered or active does not mean clinically validated, safe, effective, or commercially approved.</p>
+            <p className="limitation-label">Rule-based results and database records are not model predictions. Applicability domain, uncertainty, and licence permissions may be unknown.</p>
+            {engineSummary && <div className="summary-grid">
+              <SummaryCard label="Total Engines" value={engineSummary.total_engines} icon={Beaker} />
+              <SummaryCard label="Total Versions" value={engineSummary.total_versions} icon={History} />
+              <SummaryCard label="Active Research" value={engineSummary.active_research_engines} icon={Activity} />
+              <SummaryCard label="Active Beta" value={engineSummary.active_beta_engines} icon={CheckCircle2} />
+              <SummaryCard label="Licence Blocked" value={engineSummary.licence_blocked} icon={AlertTriangle} />
+              <SummaryCard label="Validation Blocked" value={engineSummary.validation_blocked} icon={ShieldCheck} />
+              <SummaryCard label="Artifact Blocked" value={engineSummary.artifact_blocked} icon={AlertTriangle} />
+              <SummaryCard label="Runtime Unavailable" value={engineSummary.runtime_unavailable} icon={AlertTriangle} />
+              <SummaryCard label="Mismatches" value={engineSummary.registry_mismatches} icon={AlertTriangle} />
+            </div>}
+            <form className="finder-search" onSubmit={(event) => { event.preventDefault(); loadScientificEngines(0); }}>
+              <label>Search<input value={engineSearch} onChange={(event) => setEngineSearch(event.target.value)} placeholder="Engine, provider, or description" /></label>
+              <label>Class<select value={engineClassFilter} onChange={(event) => setEngineClassFilter(event.target.value)}><option value="">All classes</option>{["INTERNAL_MODEL", "RULE_BASED_TOOL", "DATABASE_CONNECTOR", "CHEMISTRY_TOOLKIT"].map((item) => <option key={item}>{item}</option>)}</select></label>
+              <label>Sort<select value={engineSort} onChange={(event) => setEngineSort(event.target.value)}><option value="engine_name">Engine</option><option value="engine_class">Class</option><option value="activation_status">Activation</option><option value="validation_status">Validation</option></select></label>
+              <label><input type="checkbox" checked={engineBlockedOnly} onChange={(event) => setEngineBlockedOnly(event.target.checked)} /> Blocked only</label>
+              <button type="submit">Apply filters</button>
+            </form>
+            {engineLoading && <p className="muted">Loading scientific engines…</p>}
+            {engineError && <p className="warning-text" role="alert">{engineError}</p>}
+            {!engineLoading && !engineError && !engineRegistry.items.length && <p className="muted">No scientific engines match these filters.</p>}
+            {!!engineRegistry.items.length && <div className="responsive-table"><table><thead><tr>
+              <th>Engine</th><th>Version</th><th>Class</th><th>Task</th><th>Endpoints</th><th>Validation</th><th>Licence</th><th>Activation</th><th>Runtime</th><th>Reconciliation</th><th></th>
+            </tr></thead><tbody>{[...engineRegistry.items].sort((a, b) => String(engineSort === "activation_status" ? a.version.activation_status : engineSort === "validation_status" ? a.version.scientific_validation_status : a[engineSort]).localeCompare(String(engineSort === "activation_status" ? b.version.activation_status : engineSort === "validation_status" ? b.version.scientific_validation_status : b[engineSort]))).map((item) => {
+              const recon = engineReconciliation.items?.find((entry) => entry.engine_id === item.engine_id && entry.engine_version === item.version.engine_version);
+              return <tr key={`${item.engine_id}-${item.version.engine_version}`}><td>{item.engine_name}</td><td>{item.version.engine_version}</td><td>{item.engine_class}</td>
+                <td>{item.task_types.join(", ")}</td><td>{item.version.supported_endpoints.join(", ") || "Not reported"}</td><td>{item.version.scientific_validation_status}</td>
+                <td>{item.version.licence_review?.licence_review_status || "Unknown"}</td><td>{item.version.activation_status}</td><td>{item.version.runtime_health_status}</td><td>{recon?.state || "Not reported"}</td>
+                <td><button className="small-button" onClick={() => openScientificEngine(item)}>Details</button></td></tr>;
+            })}</tbody></table></div>}
+            <div className="candidate-actions"><button className="secondary-button" disabled={enginePage === 0 || engineLoading} onClick={() => loadScientificEngines(enginePage - 1)}>Previous</button>
+              <span>Page {enginePage + 1}</span><button className="secondary-button" disabled={(enginePage + 1) * 20 >= engineRegistry.total || engineLoading} onClick={() => loadScientificEngines(enginePage + 1)}>Next</button></div>
+          </Section>
+          {selectedEngine && <Section title={`${selectedEngine.engine_name} — ${selectedEngine.version.engine_version}`} icon={Info} wide>
+            <button className="small-button" onClick={() => setSelectedEngine(null)}>Close</button>
+            <h3>Overview</h3><div className="metric-grid compact-metrics"><Field label="Provider" value={selectedEngine.provider_name} /><Field label="Class" value={selectedEngine.engine_class} /><Field label="Tasks" value={selectedEngine.task_types.join(", ")} /><Field label="Endpoints" value={selectedEngine.version.supported_endpoints.join(", ") || "Not reported"} /><Field label="Organisms" value={selectedEngine.version.supported_organisms.join(", ") || "Not reported"} /><Field label="Targets" value={selectedEngine.version.supported_targets.join(", ") || "Not applicable"} /></div>
+            <h3>Governance</h3><div className="metric-grid compact-metrics"><Field label="Validation" value={selectedEngine.version.scientific_validation_status} /><Field label="Model status" value={selectedEngine.version.model_status || "Not applicable"} /><Field label="Activation" value={selectedEngine.version.activation_status} /><Field label="Licence" value={selectedEngine.version.licence_review?.licence_review_status || "Unknown"} /><Field label="Blocked reason" value={selectedEngine.version.blocked_reason || "Not applicable"} /></div>
+            <h3>Scientific evidence</h3><div className="metric-grid compact-metrics"><Field label="Applicability domain" value={selectedEngine.version.applicability_domain_method || "Unknown"} /><Field label="Uncertainty" value={selectedEngine.version.uncertainty_method || "Unknown"} /><Field label="Calibration" value={selectedEngine.version.calibration_status || "Not reported"} /><Field label="Limitations" value={selectedEngine.version.known_limitations.join("; ")} /></div>
+            <h3>Technical information</h3><div className="metric-grid compact-metrics"><Field label="Runtime" value={selectedEngine.version.runtime_type} /><Field label="Package" value={[selectedEngine.version.package_name, selectedEngine.version.package_version].filter(Boolean).join(" ") || "Not reported"} /><Field label="Adapter" value={`${selectedEngine.version.adapter_id} ${selectedEngine.version.adapter_version}`} /><Field label="Artifact" value={selectedEngine.version.technical_status} /><Field label="Internet required" value={String(selectedEngine.version.internet_required)} /><Field label="Credentials required" value={String(selectedEngine.version.credentials_required)} /><Field label="Failure / fallback" value={`${selectedEngine.version.failure_policy} / ${selectedEngine.version.fallback_policy}`} /></div>
+            <h3>Provenance</h3><div className="metric-grid compact-metrics"><Field label="Dataset hash" value={selectedEngine.version.dataset_hash || "Not reported"} /><Field label="Split hash" value={selectedEngine.version.split_hash || "Not reported"} /><Field label="Model hash" value={selectedEngine.version.model_hash || "Not reported"} /><Field label="Artifact hash" value={selectedEngine.version.artifact_hash || "Not reported"} /><Field label="Authoritative state" value={selectedEngine.version.authoritative_state || "Not reported"} /><Field label="Registered" value={selectedEngine.version.registered_at} /></div>
+            <h3>History and reconciliation</h3><p>{selectedEngine.history.length ? `${selectedEngine.history.length} activation-history event(s).` : "No activation history recorded in the display registry."}</p><p>Reconciliation: {selectedEngine.reconciliation?.items?.[0]?.state || "Not reported"}</p>
+          </Section>}
         </div>
       )}
 
