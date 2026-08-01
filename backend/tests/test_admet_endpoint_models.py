@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import json
+from importlib.metadata import version as package_version
 from pathlib import Path
 
 import joblib
@@ -51,6 +52,7 @@ def _fake_artifact(tmp_path, endpoint="bbbp", task="classification", model=None,
         "internal_resplitting_disabled": True,
         "dataset_hash": f"{endpoint}-dataset-hash",
         "split_hash": f"{endpoint}-split-hash",
+        "package_versions": {"sklearn": package_version("scikit-learn")},
     })
     test_metrics = {"recall": recall, "f1": f1, "specificity": specificity, "ece": 0.078, "auroc": 0.84, "auprc": {"value": 0.93}}
     _write_json(folder / "metrics.json", {

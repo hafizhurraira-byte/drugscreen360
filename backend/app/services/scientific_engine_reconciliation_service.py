@@ -47,19 +47,31 @@ def reconcile(engine_id: str | None = None, version: str | None = None, record_r
     for link in links:
         current = registry.get_version(link["engine_id"], link["engine_version"])
         live = _live_state(link)
-        expected_active = "ACTIVE_BETA" if live.get("activation_status") == "ACTIVE" else ("BLOCKED_VALIDATION" if current.get("scientific_validation_status") == "REJECTED" else "INACTIVE")
+        licence_status = (current.get("licence_review") or {}).get("licence_review_status", "UNKNOWN")
+        licence_approved_beta = licence_status == "APPROVED_BETA"
+        runtime_ok = current.get("runtime_compatibility_status") in {"EXACT_VERSION_MATCH", "COMPATIBILITY_VERIFIED", "COMPATIBLE", "NOT_APPLICABLE"}
         checks = {
             "model_hash": current.get("model_hash") == live.get("model_hash") if live.get("model_hash") else None,
-            "activation_state": current.get("activation_status") == expected_active if link["legacy_system"] in {"admet_endpoint_governance", "activity_model_governance"} else None,
+            "legacy_execution_state": current.get("legacy_execution_status") == live.get("activation_status") if link["legacy_system"] in {"admet_endpoint_governance", "activity_model_governance"} else True,
+            "beta_activation_has_licence": current.get("activation_status") != "ACTIVE_BETA" or licence_approved_beta,
+            "runtime_compatible_for_execution": not current.get("execution_allowed") or runtime_ok,
             "endpoint": live.get("endpoint") in current.get("supported_endpoints", []) if live.get("endpoint") else None,
             "validation": current.get("scientific_validation_status") == live.get("validation_status") if live.get("validation_status") else None,
             "artifact": bool(live.get("artifact_available")) if "artifact_available" in live else None,
-            "licence_resolved": (current.get("licence_review") or {}).get("licence_review_status") not in {None, "UNKNOWN", "NOT_REVIEWED", "UNDER_REVIEW"},
+            "licence_resolved": licence_status not in {"UNKNOWN", "NOT_REVIEWED", "UNDER_REVIEW"},
         }
         failed = [name for name, passed in checks.items() if passed is False]
+        issues = []
+        if not checks["beta_activation_has_licence"]:
+            issues.append("BETA_ACTIVATION_WITHOUT_LICENCE_APPROVAL")
+        if current.get("runtime_compatibility_status") == "VERSION_MISMATCH_UNVERIFIED":
+            issues.append("RUNTIME_VERSION_MISMATCH")
+            issues.append("RUNTIME_COMPATIBILITY_UNVERIFIED")
+            if live.get("activation_status") == "ACTIVE":
+                issues.append("ACTIVE_ENGINE_RUNTIME_BLOCKED")
         if "model_hash" in failed:
             state = "HASH_MISMATCH"
-        elif "activation_state" in failed:
+        elif "legacy_execution_state" in failed or "beta_activation_has_licence" in failed:
             state = "STATE_MISMATCH"
         elif "endpoint" in failed:
             state = "ENDPOINT_MISMATCH"
@@ -67,12 +79,14 @@ def reconcile(engine_id: str | None = None, version: str | None = None, record_r
             state = "VALIDATION_MISMATCH"
         elif "artifact" in failed:
             state = "ARTIFACT_UNAVAILABLE"
+        elif current.get("runtime_compatibility_status") == "VERSION_MISMATCH_UNVERIFIED":
+            state = "RUNTIME_COMPATIBILITY_UNVERIFIED"
         elif "licence_resolved" in failed:
             state = "LICENCE_UNRESOLVED"
         else:
             state = "CONSISTENT"
         items.append({"engine_id": link["engine_id"], "engine_version": link["engine_version"], "state": state,
-                      "checks": checks, "recommended_action": "Review and update governance evidence; no automatic repair was performed." if state != "CONSISTENT" else "None."})
+                      "checks": checks, "issues": issues, "recommended_action": "Review and update governance evidence; no automatic repair was performed." if state != "CONSISTENT" else "None."})
     report = {"items": items, "read_only": True, "repairs_performed": 0}
     if record_run:
         with get_connection() as connection:
@@ -95,10 +109,14 @@ def summary() -> dict[str, Any]:
         "total_engines": engines, "total_versions": versions,
         "active_research_engines": count(lambda x: x["activation_status"] == "ACTIVE_RESEARCH"),
         "active_beta_engines": count(lambda x: x["activation_status"] == "ACTIVE_BETA"),
+        "beta_approved_engines": count(lambda x: x["activation_status"] == "ACTIVE_BETA" and (x.get("licence_review") or {}).get("licence_review_status") == "APPROVED_BETA" and x.get("execution_allowed")),
         "licence_blocked": count(lambda x: (x.get("licence_review") or {}).get("licence_review_status", "UNKNOWN") in {"UNKNOWN", "NOT_REVIEWED", "UNDER_REVIEW", "BLOCKED"}),
         "validation_blocked": count(lambda x: x["activation_status"] == "BLOCKED_VALIDATION"),
         "artifact_blocked": count(lambda x: x["technical_status"] in {"ARTIFACT_MISSING", "ARTIFACT_HASH_MISMATCH"}),
         "runtime_unavailable": count(lambda x: x["runtime_health_status"] == "UNAVAILABLE"),
+        "runtime_version_mismatch": count(lambda x: x.get("runtime_compatibility_status") == "VERSION_MISMATCH_UNVERIFIED"),
+        "runtime_compatibility_unverified": count(lambda x: x.get("runtime_compatibility_status") in {"VERSION_MISMATCH_UNVERIFIED", "UNKNOWN"}),
+        "legacy_active_but_beta_blocked": count(lambda x: x.get("legacy_execution_status") == "ACTIVE" and x.get("beta_eligibility_status", "").startswith("BLOCKED_")),
         "registry_mismatches": sum(1 for item in report["items"] if item["state"] not in {"CONSISTENT", "LICENCE_UNRESOLVED"}),
         "research_use_only": True,
     }
@@ -122,5 +140,8 @@ def integrity() -> dict[str, Any]:
             "consistent_engine_count": states.count("CONSISTENT"), "mismatch_count": sum(s not in {"CONSISTENT", "LICENCE_UNRESOLVED"} for s in states),
             "licence_blocked_count": summary_counts["licence_blocked"], "validation_blocked_count": summary_counts["validation_blocked"],
             "artifact_blocked_count": summary_counts["artifact_blocked"], "runtime_unavailable_count": summary_counts["runtime_unavailable"],
+            "beta_licence_blocked_count": summary_counts["licence_blocked"], "runtime_version_mismatch_count": summary_counts["runtime_version_mismatch"],
+            "runtime_compatibility_unverified_count": summary_counts["runtime_compatibility_unverified"], "beta_approved_engine_count": summary_counts["beta_approved_engines"],
+            "legacy_active_but_beta_blocked_count": summary_counts["legacy_active_but_beta_blocked"],
             "unknown_licence_count": states.count("LICENCE_UNRESOLVED"), "duplicate_conflicts": 0,
             "status": "HEALTHY" if not any(s not in {"CONSISTENT", "LICENCE_UNRESOLVED"} for s in states) and not counts["orphan_registry_records"] and not counts["orphan_legacy_links"] else "DEGRADED"}

@@ -41,6 +41,20 @@ def test_apply_is_idempotent_and_verify_succeeds(isolated):
         assert connection.execute("SELECT COUNT(*) FROM scientific_engine_legacy_links").fetchone()[0] == 11
 
 
+def test_corrective_apply_rewrites_governance_without_activation_history(isolated):
+    migration.migrate("apply", isolated, "bbbp_v1")
+    with get_connection() as connection:
+        row = connection.execute("SELECT record_json FROM scientific_engine_versions WHERE engine_id='bbbp_v1'").fetchone()
+        old = json.loads(row[0]); old["activation_status"] = "ACTIVE_BETA"; old.pop("beta_eligibility_status", None)
+        connection.execute("UPDATE scientific_engine_versions SET record_json=? WHERE engine_id='bbbp_v1'", (registry._json(old),))
+    corrected = migration.migrate("apply", isolated, "bbbp_v1")
+    current = registry.get_version("bbbp_v1", "v1")
+    assert corrected["results"][0]["outcome"] == "CORRECTED"
+    assert current["activation_status"] == "INACTIVE" and current["beta_eligibility_status"].startswith("BLOCKED_")
+    assert registry.history("bbbp_v1") == []
+    assert migration.migrate("apply", isolated, "bbbp_v1")["results"][0]["outcome"] == "IMPORTED"
+
+
 def test_single_engine_migration_and_missing_verify(isolated):
     report = migration.migrate("apply", isolated, "rdkit_toolkit")
     assert report["results"][0]["engine_id"] == "rdkit_toolkit"
@@ -52,6 +66,7 @@ def test_conflicting_duplicate_fails_closed(isolated):
     migration.migrate("apply", isolated, "rdkit_toolkit")
     with get_connection() as connection:
         connection.execute("UPDATE scientific_engine_versions SET record_json='{}' WHERE engine_id='rdkit_toolkit'")
+        connection.execute("DELETE FROM scientific_engine_legacy_links WHERE engine_id='rdkit_toolkit'")
     with pytest.raises(HTTPException, match="Conflicting"):
         migration.migrate("apply", isolated, "rdkit_toolkit")
 
@@ -59,7 +74,12 @@ def test_conflicting_duplicate_fails_closed(isolated):
 def test_engine_specific_states_and_warnings_are_preserved(isolated):
     migration.migrate("apply", isolated)
     assert registry.get_version("egfr_activity_v2", "v2")["activation_status"] == "INACTIVE"
-    assert registry.get_version("bbbp_v1", "v1")["activation_status"] == "ACTIVE_BETA"
+    for model_id in ("bbbp_v1", "esol_v1", "herg_v1"):
+        governed = registry.get_version(model_id, "v1")
+        assert governed["legacy_execution_status"] == "ACTIVE"
+        assert governed["activation_status"] == "INACTIVE"
+        assert governed["beta_eligibility_status"] in {"BLOCKED_LICENCE", "BLOCKED_CONFIGURATION"}
+        assert "LICENCE_UNRESOLVED" in governed["beta_blocked_reasons"]
     assert "undercover" in " ".join(registry.get_version("esol_v1", "v1")["known_limitations"]).lower()
     assert "cardiac safety" in " ".join(registry.get_version("herg_v1", "v1")["known_limitations"]).lower()
     clintox = registry.get_version("clintox_cttox_v1", "v1")
@@ -74,6 +94,8 @@ def test_toolkit_rules_and_connectors_are_distinct_evidence_types(isolated):
     assert "RULE_BASED_HEURISTIC" in rules["known_limitations"][0]
     pubchem = registry.get_version("pubchem_connector", "PUG_REST")
     assert pubchem["internet_required"] is True and pubchem["applicability_domain_method"] is None
+    assert rules["activation_status"] == pubchem["activation_status"] == "INACTIVE"
+    assert rules["beta_eligibility_status"] == pubchem["beta_eligibility_status"] == "BLOCKED_LICENCE"
 
 
 def test_reconciliation_detects_state_hash_endpoint_licence_and_artifact(isolated):
@@ -109,6 +131,10 @@ def test_api_summary_capabilities_filters_reconciliation_and_redaction(isolated)
     assert client.get("/api/scientific-engines/reconciliation").status_code == 200
     body = client.get("/api/scientific-engines/egfr_activity_v2/versions/v2").text
     assert "DRUG CONJUGATE" not in body and "DRUGDESIGN360_REAL_DATA" not in body
+    readiness = client.get("/api/system/readiness").json()
+    assert readiness["beta_approved_engine_count"] == 0
+    assert readiness["runtime_compatibility_unverified_count"] > 0
+    assert readiness["beta_approval_readiness"] == "BLOCKED"
 
 
 def test_migration_api_is_local_admin_only(isolated):

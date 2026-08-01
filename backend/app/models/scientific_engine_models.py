@@ -171,6 +171,16 @@ class EngineVersionCreate(BaseModel):
     calibration_status: str | None = None
     authoritative_state: str | None = None
     blocked_reason: str | None = None
+    legacy_execution_status: str | None = None
+    beta_eligibility_status: str | None = None
+    beta_blocked_reasons: list[str] = []
+    artifact_framework: str | None = None
+    artifact_framework_version: str | None = None
+    runtime_framework: str | None = None
+    runtime_framework_version: str | None = None
+    serialization_format: str | None = None
+    runtime_compatibility_status: str = "NOT_APPLICABLE"
+    execution_allowed: bool = True
     deployment_permissions: list[DeploymentPermission] = []
 
 

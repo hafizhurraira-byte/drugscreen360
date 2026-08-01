@@ -31,3 +31,9 @@ Reconciliation is read-only and reports `CONSISTENT`, missing/link/state/hash/en
 ## BETA-P2 handoff
 
 Execution still uses existing model/tool/provider services. BETA-P2 may add a standardized adapter contract after licence, artifact, schema, failure, and deployment gates are reconciled.
+
+## Corrective governance note
+
+Legacy execution is not beta approval. BBBP, ESOL, and hERG keep authoritative legacy `ACTIVE` records, but registry activation is `INACTIVE` and beta eligibility is blocked while licence review is unresolved. EGFR remains disabled/inactive. ClinTox remains blocked by rejected validation. Toolkits, rules, and connectors likewise remain inactive for governed registry execution until an appropriate licence review is recorded.
+
+The frozen BBBP, ESOL, hERG, and ClinTox joblib artifacts record scikit-learn 1.9.0, while `backend/requirements.txt` and the controlled runtime provide 1.5.2. No authoritative 1.9.0 parity baseline or existing isolated runtime is available, so the correction uses fail-closed Option C: `MISCONFIGURED`, runtime `UNAVAILABLE`, `VERSION_MISMATCH_UNVERIFIED`, and `execution_allowed=false`. Hash verification occurs before compatibility evaluation; unsafe artifacts are never deserialized and no heuristic fallback is used. EGFR records scikit-learn 1.5.2 and exactly matches the runtime, but remains unavailable because its authoritative execution state is disabled and its licence is unresolved.

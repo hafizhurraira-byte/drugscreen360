@@ -61,11 +61,9 @@ def _admet(root: Path, model_id: str) -> dict[str, Any]:
     metrics = _load(artifact / "metrics.json") if artifact else {}
     uncertainty = _load(artifact / "uncertainty_metadata.json") if artifact else {}
     calibration = _load(artifact / "calibration_metadata.json") if artifact else {}
-    runtime_sklearn = package_version("scikit-learn")
-    trained_sklearn = (training.get("package_versions") or {}).get("sklearn")
-    runtime_mismatch = bool(trained_sklearn and trained_sklearn != runtime_sklearn)
-    if runtime_mismatch:
-        limitations = limitations + [f"Artifact was produced with scikit-learn {trained_sklearn}; installed runtime is {runtime_sklearn}."]
+    compatibility = registry.sklearn_joblib_compatibility(training, verification.get("hashes", {}).get("model.joblib") == manifest.get("artifact_hash"))
+    if not compatibility["execution_allowed"]:
+        limitations = limitations + [compatibility["compatibility_reason"]]
     active = _active("admet_endpoint_active_models", "endpoint_key", endpoint)
     active_state = active.get("status") == "ACTIVE" and active.get("model_id") == model_id
     artifact_ok = bool(verification.get("valid") and artifact and artifact.exists())
@@ -82,7 +80,7 @@ def _admet(root: Path, model_id: str) -> dict[str, Any]:
                        provider_name="DrugScreen360", task_types=["ADME_PREDICTION" if endpoint != "clintox_cttox" else "TOXICITY_PREDICTION"],
                        description=f"Governed {task} engine for {scope}."),
         "version": dict(engine_version="v1", adapter_id="admet_endpoint_model_service", adapter_version="1",
-                        runtime_type="python_joblib", package_name="scikit-learn", package_version=runtime_sklearn,
+                        runtime_type="python_joblib", package_name="scikit-learn", package_version=compatibility["runtime_framework_version"],
                         artifact_identifier=model_id, artifact_hash=manifest.get("artifact_hash"), model_hash=manifest.get("artifact_hash"),
                         input_schema_version="smiles_v1", output_schema_version="admet_endpoint_v1", supported_endpoints=[scope],
                         supported_organisms=[], supported_targets=[], supported_target_classes=[], supported_molecule_types=["SMALL_MOLECULE"],
@@ -92,11 +90,15 @@ def _admet(root: Path, model_id: str) -> dict[str, Any]:
                         feature_representation=feature.get("fingerprint") or feature.get("feature_set"),
                         applicability_domain_method=(f"{domain.get('similarity_metric')} nearest-training fingerprint similarity" if domain else None),
                         uncertainty_method=(uncertainty.get("method") or ("conformal interval" if endpoint == "esol" else "probability and domain assessment")),
-                        known_limitations=limitations + list(manifest.get("warnings") or []), technical_status="AVAILABLE" if artifact_ok else "ARTIFACT_MISSING",
+                        known_limitations=limitations + list(manifest.get("warnings") or []), technical_status=("ARTIFACT_MISSING" if not artifact_ok else "AVAILABLE" if compatibility["execution_allowed"] else "MISCONFIGURED"),
                         scientific_validation_status=validation, model_status="EXPERIMENTAL_INTERNAL" if endpoint == "clintox_cttox" else "INTERNAL_VALIDATED",
-                        activation_status="BLOCKED_VALIDATION" if endpoint == "clintox_cttox" else ("ACTIVE_BETA" if active_state else "INACTIVE"),
-                        runtime_health_status="DEGRADED" if artifact_ok and runtime_mismatch else ("HEALTHY" if artifact_ok and active_state else ("UNAVAILABLE" if not artifact_ok else "UNKNOWN")),
-                        authoritative_state=active.get("status", "UNAVAILABLE"), blocked_reason=(limitations[0] if endpoint == "clintox_cttox" else None),
+                        activation_status="BLOCKED_VALIDATION" if endpoint == "clintox_cttox" else "INACTIVE",
+                        runtime_health_status="UNAVAILABLE" if not artifact_ok or not compatibility["execution_allowed"] else ("HEALTHY" if active_state else "UNKNOWN"),
+                        authoritative_state=active.get("status", "UNAVAILABLE"), legacy_execution_status=active.get("status", "UNAVAILABLE"),
+                        beta_eligibility_status="BLOCKED_VALIDATION" if endpoint == "clintox_cttox" else ("BLOCKED_CONFIGURATION" if not compatibility["execution_allowed"] else "BLOCKED_LICENCE"),
+                        beta_blocked_reasons=(["VALIDATION_REJECTED", "LICENCE_UNRESOLVED"] if endpoint == "clintox_cttox" else ["LICENCE_UNRESOLVED"] + ([] if compatibility["execution_allowed"] else ["RUNTIME_VERSION_MISMATCH_UNVERIFIED"])),
+                        blocked_reason=(limitations[0] if endpoint == "clintox_cttox" else "Licence review unresolved" if compatibility["execution_allowed"] else "Licence unresolved and runtime compatibility unverified"),
+                        artifact_framework=compatibility["artifact_framework"], artifact_framework_version=compatibility["artifact_framework_version"], runtime_framework=compatibility["runtime_framework"], runtime_framework_version=compatibility["runtime_framework_version"], serialization_format=compatibility["serialization_format"], runtime_compatibility_status=compatibility["runtime_compatibility_status"], execution_allowed=False,
                         internal_validation=metrics or None, external_validation=external or None,
                         calibration_status="UNDERCOVERAGE" if endpoint == "esol" else ("RECALIBRATION_RECOMMENDED" if endpoint == "herg" else (calibration.get("classification_calibration") or None)),
                         deployment_permissions=_permissions()),
@@ -113,12 +115,10 @@ def _egfr(root: Path) -> dict[str, Any]:
     artifact_ok = bool(manifest.get("verification", {}).get("valid") and artifact and artifact.exists())
     metrics = _load(artifact / "metrics.json") if artifact else {}
     training = _load(artifact / "training_metadata.json") if artifact else {}
-    runtime_sklearn = package_version("scikit-learn")
-    trained_sklearn = (training.get("package_versions") or {}).get("sklearn")
-    runtime_mismatch = bool(trained_sklearn and trained_sklearn != runtime_sklearn)
+    compatibility = registry.sklearn_joblib_compatibility(training, manifest.get("verification", {}).get("hashes", {}).get("model.joblib") == manifest.get("artifact_hash"))
     limitations = manifest.get("limitations") or ["Target-specific model only."]
-    if runtime_mismatch:
-        limitations = limitations + [f"Artifact was produced with scikit-learn {trained_sklearn}; installed runtime is {runtime_sklearn}."]
+    if not compatibility["execution_allowed"]:
+        limitations = limitations + [compatibility["compatibility_reason"]]
     active_state = active.get("status") == "ACTIVE" and active.get("model_id") == "egfr_activity_v2"
     reason = "Authoritative activity state is disabled; no automatic reactivation." if active.get("status") == "DISABLED" else ("Artifact unavailable" if not artifact_ok else "Inactive governance state")
     return {
@@ -128,15 +128,16 @@ def _egfr(root: Path) -> dict[str, Any]:
                         package_name="scikit-learn", artifact_identifier="egfr_activity_v2", artifact_hash=manifest.get("artifact_hash"), model_hash=manifest.get("artifact_hash"),
                         input_schema_version="smiles_target_v1", output_schema_version="activity_prediction_v2", supported_endpoints=["pIC50"],
                         supported_organisms=["Homo sapiens"], supported_targets=["EGFR", "P00533", "CHEMBL203"], supported_target_classes=["protein kinase"],
-                        package_version=runtime_sklearn, supported_molecule_types=["SMALL_MOLECULE"], local_execution_supported=True, known_limitations=limitations,
+                        package_version=compatibility["runtime_framework_version"], supported_molecule_types=["SMALL_MOLECULE"], local_execution_supported=True, known_limitations=limitations,
                         dataset_hash=training.get("dataset_hash"), split_hash=training.get("split_hash"), prediction_unit="pIC50", feature_representation="RDKit Morgan fingerprint",
                         internal_validation=metrics or None,
-                        technical_status="AVAILABLE" if artifact_ok else "ARTIFACT_MISSING", scientific_validation_status="VALIDATED_FOR_SCOPE" if manifest else "UNREVIEWED",
+                        technical_status="ARTIFACT_MISSING" if not artifact_ok else "AVAILABLE" if compatibility["execution_allowed"] else "MISCONFIGURED", scientific_validation_status="VALIDATED_FOR_SCOPE" if manifest else "UNREVIEWED",
                         model_status="INTERNAL_VALIDATED", activation_status="ACTIVE_BETA" if active_state else "INACTIVE",
-                        runtime_health_status="DEGRADED" if artifact_ok and runtime_mismatch else ("HEALTHY" if artifact_ok and active_state else ("UNAVAILABLE" if not artifact_ok else "UNKNOWN")),
+                        runtime_health_status="UNAVAILABLE" if not artifact_ok or not compatibility["execution_allowed"] else ("HEALTHY" if active_state else "UNKNOWN"),
                         applicability_domain_method="Morgan fingerprint nearest-neighbour domain assessment" if manifest else None,
                         uncertainty_method="Conformal prediction interval with documented undercoverage" if manifest else None,
-                        authoritative_state=active.get("status", "UNAVAILABLE"), blocked_reason=reason, deployment_permissions=_permissions()),
+                        authoritative_state=active.get("status", "UNAVAILABLE"), legacy_execution_status=active.get("status", "UNAVAILABLE"), beta_eligibility_status="BLOCKED_LICENCE", beta_blocked_reasons=["LICENCE_UNRESOLVED"], blocked_reason=reason,
+                        artifact_framework=compatibility["artifact_framework"], artifact_framework_version=compatibility["artifact_framework_version"], runtime_framework=compatibility["runtime_framework"], runtime_framework_version=compatibility["runtime_framework_version"], serialization_format=compatibility["serialization_format"], runtime_compatibility_status=compatibility["runtime_compatibility_status"], execution_allowed=False, deployment_permissions=_permissions()),
         "link": dict(legacy_system="activity_model_governance", legacy_record_type="target_model", legacy_record_id="EGFR",
                      authoritative_state_source="activity_active_models + registration_manifest", snapshot={"model_id": "egfr_activity_v2", "activation_status": active.get("status", "UNAVAILABLE"), "model_hash": manifest.get("artifact_hash"), "endpoint": "pIC50", "target": "EGFR", "artifact_available": artifact_ok, "validation_status": "VALIDATED_FOR_SCOPE" if manifest else "UNREVIEWED"}),
     }
@@ -164,8 +165,8 @@ def _static_engines() -> list[dict[str, Any]]:
                         supported_endpoints=tasks, supported_molecule_types=["SMALL_MOLECULE"] if cls != "DATABASE_CONNECTOR" else [],
                         local_execution_supported=not internet, api_execution_supported=internet, internet_required=internet, credentials_required=False,
                         known_limitations=[limitation], technical_status="AVAILABLE", scientific_validation_status="DOCUMENTED",
-                        activation_status="ACTIVE_RESEARCH", runtime_health_status="UNKNOWN" if internet else "HEALTHY", failure_policy="FAIL_CLOSED",
-                        fallback_policy="NO_FALLBACK", authoritative_state="IMPLEMENTED", deployment_permissions=_permissions(internet)),
+                        activation_status="INACTIVE", runtime_health_status="UNKNOWN" if internet else "HEALTHY", failure_policy="FAIL_CLOSED",
+                        fallback_policy="NO_FALLBACK", authoritative_state="IMPLEMENTED", legacy_execution_status="IMPLEMENTED" if internet else "AVAILABLE", beta_eligibility_status="BLOCKED_LICENCE", beta_blocked_reasons=["LICENCE_UNRESOLVED"], blocked_reason="Licence review unresolved", runtime_compatibility_status="NOT_APPLICABLE", execution_allowed=False, deployment_permissions=_permissions(internet)),
         "licence": dict(code_licence=licence, licence_review_status="NOT_REVIEWED"),
         "link": dict(legacy_system="application_service", legacy_record_type="implemented_service", legacy_record_id=adapter,
                      authoritative_state_source=adapter, snapshot={"implementation_status": "IMPLEMENTED", "adapter_id": adapter}),
@@ -191,6 +192,28 @@ def _link(engine_id: str, version: str, link: dict[str, Any]) -> None:
             VALUES (?,?,?,?,?,?,?)""", (engine_id, version, link["legacy_system"], link["legacy_record_type"], link["legacy_record_id"], link["authoritative_state_source"], registry._json(link["snapshot"])))
 
 
+def _register_or_correct_version(engine_id: str, payload: EngineVersionCreate) -> str:
+    try:
+        registry.register_version(engine_id, payload)
+        return "IMPORTED"
+    except HTTPException as exc:
+        if exc.status_code != 409:
+            raise
+    with get_connection() as connection:
+        linked = connection.execute("SELECT 1 FROM scientific_engine_legacy_links WHERE engine_id=? AND engine_version=?", (engine_id, payload.engine_version)).fetchone()
+        if not linked:
+            raise HTTPException(409, "Conflicting engine version is not linked to the authoritative legacy record")
+        data = payload.model_dump(mode="json")
+        permissions = data.pop("deployment_permissions")
+        current = connection.execute("SELECT record_json FROM scientific_engine_versions WHERE engine_id=? AND engine_version=?", (engine_id, payload.engine_version)).fetchone()
+        changed = current["record_json"] != registry._json(data)
+        if changed:
+            connection.execute("UPDATE scientific_engine_versions SET record_json=? WHERE engine_id=? AND engine_version=?", (registry._json(data), engine_id, payload.engine_version))
+            connection.execute("DELETE FROM scientific_engine_deployment_permissions WHERE engine_id=? AND engine_version=?", (engine_id, payload.engine_version))
+            connection.executemany("INSERT INTO scientific_engine_deployment_permissions VALUES (?,?,?,?,?)", [(engine_id, payload.engine_version, item["deployment_profile"], int(item["permitted"]), item.get("reason")) for item in permissions])
+        return "CORRECTED" if changed else "UNCHANGED"
+
+
 def migrate(mode: str = "dry-run", source_root: str | Path | None = None, engine_id: str | None = None) -> dict[str, Any]:
     if mode not in {"dry-run", "apply", "verify"}:
         raise HTTPException(422, "Mode must be dry-run, apply, or verify")
@@ -201,13 +224,12 @@ def migrate(mode: str = "dry-run", source_root: str | Path | None = None, engine
         eid, version = item["engine"]["engine_id"], item["version"]["engine_version"]
         if mode == "apply":
             registry.register_engine(EngineCreate(**item["engine"]))
-            registry.register_version(eid, EngineVersionCreate(**item["version"]))
+            outcome = _register_or_correct_version(eid, EngineVersionCreate(**item["version"]))
             if item.get("licence"):
                 current = registry.get_version(eid, version).get("licence_review")
                 if not current:
                     registry.add_licence_review(eid, version, LicenceReview(**item["licence"]))
             _link(eid, version, item["link"])
-            outcome = "IMPORTED"
         else:
             try:
                 current = registry.get_version(eid, version)

@@ -1,4 +1,5 @@
 import hashlib
+from importlib.metadata import PackageNotFoundError, version as package_version
 import json
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,35 @@ from app.models.scientific_engine_models import (
 
 def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def sklearn_joblib_compatibility(training_metadata: dict[str, Any], artifact_hash_verified: bool = True) -> dict[str, Any]:
+    artifact_version = (training_metadata.get("package_versions") or {}).get("sklearn") or training_metadata.get("sklearn")
+    try:
+        runtime_version = package_version("scikit-learn")
+    except PackageNotFoundError:
+        runtime_version = None
+    if not artifact_hash_verified:
+        status, reason = "UNKNOWN", "Artifact hash must verify before runtime compatibility is evaluated."
+    elif not artifact_version:
+        status, reason = "UNKNOWN", "Artifact-producing scikit-learn version is not recorded."
+    elif not runtime_version:
+        status, reason = "UNKNOWN", "Runtime scikit-learn version is unavailable."
+    elif artifact_version == runtime_version:
+        status, reason = "EXACT_VERSION_MATCH", "Artifact-producing and runtime scikit-learn versions match exactly."
+    else:
+        status, reason = "VERSION_MISMATCH_UNVERIFIED", "Joblib/pickle compatibility is not verified across these scikit-learn versions."
+    return {
+        "artifact_framework": "scikit-learn",
+        "artifact_framework_version": artifact_version,
+        "runtime_framework": "scikit-learn",
+        "runtime_framework_version": runtime_version,
+        "serialization_format": "joblib/pickle",
+        "runtime_compatibility_status": status,
+        "compatibility_reason": reason,
+        "execution_allowed": status == "EXACT_VERSION_MATCH",
+        "fallback_used": False,
+    }
 
 
 def _public(value: Any) -> Any:
@@ -190,6 +220,8 @@ def _eligibility(version: dict[str, Any], target: ActivationStatus, profile: str
         return "BLOCKED_VALIDATION", "Scientific validation does not permit activation"
     if version["technical_status"] != "AVAILABLE" or not version.get("artifact_hash"):
         return "BLOCKED_ARTIFACT", "A present, hash-matching artifact is required"
+    if not version.get("execution_allowed", False) or version.get("runtime_compatibility_status") not in {"EXACT_VERSION_MATCH", "COMPATIBILITY_VERIFIED", "COMPATIBLE", "NOT_APPLICABLE"}:
+        return "BLOCKED_CONFIGURATION", "Runtime compatibility is not verified"
     if not version.get("supported_endpoints") or not version.get("input_schema_version") or not version.get("output_schema_version") or not version.get("known_limitations"):
         return "BLOCKED_CONFIGURATION", "Endpoint, schema, and limitation declarations are required"
     permission = next((item for item in version["deployment_permissions"] if item["deployment_profile"] == profile), None)
