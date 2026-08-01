@@ -61,6 +61,11 @@ def _admet(root: Path, model_id: str) -> dict[str, Any]:
     metrics = _load(artifact / "metrics.json") if artifact else {}
     uncertainty = _load(artifact / "uncertainty_metadata.json") if artifact else {}
     calibration = _load(artifact / "calibration_metadata.json") if artifact else {}
+    runtime_sklearn = package_version("scikit-learn")
+    trained_sklearn = (training.get("package_versions") or {}).get("sklearn")
+    runtime_mismatch = bool(trained_sklearn and trained_sklearn != runtime_sklearn)
+    if runtime_mismatch:
+        limitations = limitations + [f"Artifact was produced with scikit-learn {trained_sklearn}; installed runtime is {runtime_sklearn}."]
     active = _active("admet_endpoint_active_models", "endpoint_key", endpoint)
     active_state = active.get("status") == "ACTIVE" and active.get("model_id") == model_id
     artifact_ok = bool(verification.get("valid") and artifact and artifact.exists())
@@ -77,7 +82,7 @@ def _admet(root: Path, model_id: str) -> dict[str, Any]:
                        provider_name="DrugScreen360", task_types=["ADME_PREDICTION" if endpoint != "clintox_cttox" else "TOXICITY_PREDICTION"],
                        description=f"Governed {task} engine for {scope}."),
         "version": dict(engine_version="v1", adapter_id="admet_endpoint_model_service", adapter_version="1",
-                        runtime_type="python_joblib", package_name="scikit-learn", package_version=(training.get("package_versions") or {}).get("sklearn"),
+                        runtime_type="python_joblib", package_name="scikit-learn", package_version=runtime_sklearn,
                         artifact_identifier=model_id, artifact_hash=manifest.get("artifact_hash"), model_hash=manifest.get("artifact_hash"),
                         input_schema_version="smiles_v1", output_schema_version="admet_endpoint_v1", supported_endpoints=[scope],
                         supported_organisms=[], supported_targets=[], supported_target_classes=[], supported_molecule_types=["SMALL_MOLECULE"],
@@ -90,7 +95,7 @@ def _admet(root: Path, model_id: str) -> dict[str, Any]:
                         known_limitations=limitations + list(manifest.get("warnings") or []), technical_status="AVAILABLE" if artifact_ok else "ARTIFACT_MISSING",
                         scientific_validation_status=validation, model_status="EXPERIMENTAL_INTERNAL" if endpoint == "clintox_cttox" else "INTERNAL_VALIDATED",
                         activation_status="BLOCKED_VALIDATION" if endpoint == "clintox_cttox" else ("ACTIVE_BETA" if active_state else "INACTIVE"),
-                        runtime_health_status="HEALTHY" if artifact_ok and active_state else ("UNAVAILABLE" if not artifact_ok else "UNKNOWN"),
+                        runtime_health_status="DEGRADED" if artifact_ok and runtime_mismatch else ("HEALTHY" if artifact_ok and active_state else ("UNAVAILABLE" if not artifact_ok else "UNKNOWN")),
                         authoritative_state=active.get("status", "UNAVAILABLE"), blocked_reason=(limitations[0] if endpoint == "clintox_cttox" else None),
                         internal_validation=metrics or None, external_validation=external or None,
                         calibration_status="UNDERCOVERAGE" if endpoint == "esol" else ("RECALIBRATION_RECOMMENDED" if endpoint == "herg" else (calibration.get("classification_calibration") or None)),
@@ -108,6 +113,12 @@ def _egfr(root: Path) -> dict[str, Any]:
     artifact_ok = bool(manifest.get("verification", {}).get("valid") and artifact and artifact.exists())
     metrics = _load(artifact / "metrics.json") if artifact else {}
     training = _load(artifact / "training_metadata.json") if artifact else {}
+    runtime_sklearn = package_version("scikit-learn")
+    trained_sklearn = (training.get("package_versions") or {}).get("sklearn")
+    runtime_mismatch = bool(trained_sklearn and trained_sklearn != runtime_sklearn)
+    limitations = manifest.get("limitations") or ["Target-specific model only."]
+    if runtime_mismatch:
+        limitations = limitations + [f"Artifact was produced with scikit-learn {trained_sklearn}; installed runtime is {runtime_sklearn}."]
     active_state = active.get("status") == "ACTIVE" and active.get("model_id") == "egfr_activity_v2"
     reason = "Authoritative activity state is disabled; no automatic reactivation." if active.get("status") == "DISABLED" else ("Artifact unavailable" if not artifact_ok else "Inactive governance state")
     return {
@@ -117,12 +128,12 @@ def _egfr(root: Path) -> dict[str, Any]:
                         package_name="scikit-learn", artifact_identifier="egfr_activity_v2", artifact_hash=manifest.get("artifact_hash"), model_hash=manifest.get("artifact_hash"),
                         input_schema_version="smiles_target_v1", output_schema_version="activity_prediction_v2", supported_endpoints=["pIC50"],
                         supported_organisms=["Homo sapiens"], supported_targets=["EGFR", "P00533", "CHEMBL203"], supported_target_classes=["protein kinase"],
-                        supported_molecule_types=["SMALL_MOLECULE"], local_execution_supported=True, known_limitations=manifest.get("limitations") or ["Target-specific model only."],
+                        package_version=runtime_sklearn, supported_molecule_types=["SMALL_MOLECULE"], local_execution_supported=True, known_limitations=limitations,
                         dataset_hash=training.get("dataset_hash"), split_hash=training.get("split_hash"), prediction_unit="pIC50", feature_representation="RDKit Morgan fingerprint",
                         internal_validation=metrics or None,
                         technical_status="AVAILABLE" if artifact_ok else "ARTIFACT_MISSING", scientific_validation_status="VALIDATED_FOR_SCOPE" if manifest else "UNREVIEWED",
                         model_status="INTERNAL_VALIDATED", activation_status="ACTIVE_BETA" if active_state else "INACTIVE",
-                        runtime_health_status="HEALTHY" if artifact_ok and active_state else ("UNAVAILABLE" if not artifact_ok else "UNKNOWN"),
+                        runtime_health_status="DEGRADED" if artifact_ok and runtime_mismatch else ("HEALTHY" if artifact_ok and active_state else ("UNAVAILABLE" if not artifact_ok else "UNKNOWN")),
                         applicability_domain_method="Morgan fingerprint nearest-neighbour domain assessment" if manifest else None,
                         uncertainty_method="Conformal prediction interval with documented undercoverage" if manifest else None,
                         authoritative_state=active.get("status", "UNAVAILABLE"), blocked_reason=reason, deployment_permissions=_permissions()),
