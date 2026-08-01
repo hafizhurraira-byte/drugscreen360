@@ -101,6 +101,8 @@ Exit criteria:
 
 ## M3 — Evidence & Learning Core
 
+BETA-P1A adds the non-executing scientific-engine registry and licence-governance foundation described in `docs/beta_p1a_scientific_engine_registry.md`; existing-engine migration and the registry UI are deferred to BETA-P1B.
+
 Objective: build the shared evidence and governed learning foundation.
 
 Major deliverables:

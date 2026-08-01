@@ -839,6 +839,66 @@ def init_db() -> None:
             )
             """
         )
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS scientific_engines (
+                engine_id TEXT PRIMARY KEY,
+                engine_name TEXT NOT NULL,
+                engine_family TEXT NOT NULL,
+                engine_class TEXT NOT NULL,
+                provider_name TEXT NOT NULL,
+                task_types_json TEXT NOT NULL,
+                description TEXT NOT NULL,
+                repository TEXT,
+                official_documentation TEXT,
+                publication TEXT,
+                maintainer TEXT,
+                registry_schema_version TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS scientific_engine_versions (
+                engine_id TEXT NOT NULL,
+                engine_version TEXT NOT NULL,
+                record_json TEXT NOT NULL,
+                registered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_verified_at TEXT,
+                retired_at TEXT,
+                PRIMARY KEY(engine_id, engine_version),
+                FOREIGN KEY(engine_id) REFERENCES scientific_engines(engine_id)
+            );
+            CREATE TABLE IF NOT EXISTS scientific_engine_licence_reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                engine_id TEXT NOT NULL,
+                engine_version TEXT NOT NULL,
+                record_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(engine_id, engine_version) REFERENCES scientific_engine_versions(engine_id, engine_version)
+            );
+            CREATE TABLE IF NOT EXISTS scientific_engine_deployment_permissions (
+                engine_id TEXT NOT NULL,
+                engine_version TEXT NOT NULL,
+                deployment_profile TEXT NOT NULL,
+                permitted INTEGER NOT NULL,
+                reason TEXT,
+                PRIMARY KEY(engine_id, engine_version, deployment_profile),
+                FOREIGN KEY(engine_id, engine_version) REFERENCES scientific_engine_versions(engine_id, engine_version)
+            );
+            CREATE TABLE IF NOT EXISTS scientific_engine_activation_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                engine_id TEXT NOT NULL,
+                engine_version TEXT NOT NULL,
+                previous_status TEXT NOT NULL,
+                new_status TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                initiated_by TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(engine_id, engine_version) REFERENCES scientific_engine_versions(engine_id, engine_version)
+            );
+            CREATE INDEX IF NOT EXISTS idx_scientific_engine_history
+                ON scientific_engine_activation_history(engine_id, engine_version, id);
+            """
+        )
 
 
 
