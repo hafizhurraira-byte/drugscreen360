@@ -14,6 +14,7 @@ from rdkit import Chem, DataStructs
 from rdkit.Chem import rdMolDescriptors
 
 from app.database import get_connection, init_db
+from app.services.scientific_engine_registry_service import sklearn_joblib_compatibility
 
 
 SCIENTIFIC_NOTICE = (
@@ -117,12 +118,16 @@ def verify_egfr_v2_artifact(artifact_dir: str | Path | None = None) -> dict[str,
     manifest = _load_json(folder / "model_manifest.json")
     freeze = _load_json(folder / "freeze_record.json")
     metrics = _load_json(folder / "metrics.json")
+    training = _load_json(folder / "training_metadata.json")
+    compatibility = sklearn_joblib_compatibility(training, hashes.get("model.joblib") == EXPECTED_EGFR_V2_MODEL_HASH)
     if manifest.get("target") != "EGFR" or manifest.get("target_chembl_id") != "CHEMBL203":
         errors.append("Model manifest target identity is not EGFR/CHEMBL203.")
     if freeze.get("model_hash") != EXPECTED_EGFR_V2_MODEL_HASH:
         errors.append("Freeze record model hash does not match the frozen EGFR v2 hash.")
     if metrics.get("activation_gate", {}).get("decision") != "ACTIVATE_RECOMMENDED":
         errors.append("External activation gate did not recommend activation.")
+    if hashes.get("model.joblib") == EXPECTED_EGFR_V2_MODEL_HASH and not compatibility["execution_allowed"]:
+        errors.append(f"model_runtime_version_mismatch: {compatibility['compatibility_reason']}")
     return {
         "valid": not errors,
         "artifact_dir": str(folder),
@@ -133,6 +138,7 @@ def verify_egfr_v2_artifact(artifact_dir: str | Path | None = None) -> dict[str,
         "warnings": [
             "Observed 90% conformal interval coverage on BindingDB final holdout was 83.37%; report as undercoverage."
         ],
+        "runtime_compatibility": compatibility,
     }
 
 

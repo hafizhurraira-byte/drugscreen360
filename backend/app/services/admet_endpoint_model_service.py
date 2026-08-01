@@ -18,6 +18,7 @@ from app.services.admet_endpoint_external_evidence_service import (
     get_latest_endpoint_external_evidence,
     unavailable_external_evidence,
 )
+from app.services.scientific_engine_registry_service import sklearn_joblib_compatibility
 
 
 SCIENTIFIC_NOTICE = (
@@ -213,6 +214,7 @@ def verify_admet_artifact(endpoint: str, artifact_dir: str | Path | None = None)
     manifest = _load_json(folder / "model_manifest.json")
     feature_schema = _load_json(folder / "feature_schema.json")
     training = _load_json(folder / "training_metadata.json")
+    compatibility = sklearn_joblib_compatibility(training, hashes.get("model.joblib") == spec["expected_hash"])
     metrics = _load_json(folder / "metrics.json")
     freeze = _load_json(folder / "freeze_record.json")
     domain_manifest = _load_json(folder / "domain_reference_manifest.json")
@@ -225,6 +227,8 @@ def verify_admet_artifact(endpoint: str, artifact_dir: str | Path | None = None)
         errors.append("Frozen split enforcement metadata is missing.")
     if not training.get("dataset_hash") or not training.get("split_hash"):
         errors.append("Dataset/split lineage is incomplete.")
+    if hashes.get("model.joblib") == spec["expected_hash"] and not compatibility["execution_allowed"]:
+        errors.append(f"model_runtime_version_mismatch: {compatibility['compatibility_reason']}")
     if not feature_schema.get("feature_dimension"):
         errors.append("Feature schema is incomplete.")
     if spec["eligible"]:
@@ -262,6 +266,7 @@ def verify_admet_artifact(endpoint: str, artifact_dir: str | Path | None = None)
         "freeze_record": freeze,
         "domain_reference_manifest": domain_manifest,
         "domain_reference_freeze_record": domain_freeze,
+        "runtime_compatibility": compatibility,
     }
 
 
@@ -473,6 +478,9 @@ def _load_bundle(endpoint: str):
     folder = _artifact_dir(endpoint)
     verification = verify_admet_artifact(endpoint, folder)
     if not verification["valid"]:
+        compatibility = verification.get("runtime_compatibility") or {}
+        if verification.get("hashes", {}).get("model.joblib") == _spec(endpoint)["expected_hash"] and not compatibility.get("execution_allowed", False):
+            raise HTTPException(status_code=409, detail={"error": "model_runtime_version_mismatch", "engine_id": _spec(endpoint)["model_id"], **compatibility})
         raise HTTPException(status_code=400, detail={"message": "Registered artifact failed verification.", "errors": verification["errors"]})
     return (
         joblib.load(folder / "model.joblib"),

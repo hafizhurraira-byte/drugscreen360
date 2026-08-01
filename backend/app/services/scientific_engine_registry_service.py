@@ -1,4 +1,5 @@
 import hashlib
+from importlib.metadata import PackageNotFoundError, version as package_version
 import json
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,35 @@ from app.models.scientific_engine_models import (
 
 def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def sklearn_joblib_compatibility(training_metadata: dict[str, Any], artifact_hash_verified: bool = True) -> dict[str, Any]:
+    artifact_version = (training_metadata.get("package_versions") or {}).get("sklearn") or training_metadata.get("sklearn")
+    try:
+        runtime_version = package_version("scikit-learn")
+    except PackageNotFoundError:
+        runtime_version = None
+    if not artifact_hash_verified:
+        status, reason = "UNKNOWN", "Artifact hash must verify before runtime compatibility is evaluated."
+    elif not artifact_version:
+        status, reason = "UNKNOWN", "Artifact-producing scikit-learn version is not recorded."
+    elif not runtime_version:
+        status, reason = "UNKNOWN", "Runtime scikit-learn version is unavailable."
+    elif artifact_version == runtime_version:
+        status, reason = "EXACT_VERSION_MATCH", "Artifact-producing and runtime scikit-learn versions match exactly."
+    else:
+        status, reason = "VERSION_MISMATCH_UNVERIFIED", "Joblib/pickle compatibility is not verified across these scikit-learn versions."
+    return {
+        "artifact_framework": "scikit-learn",
+        "artifact_framework_version": artifact_version,
+        "runtime_framework": "scikit-learn",
+        "runtime_framework_version": runtime_version,
+        "serialization_format": "joblib/pickle",
+        "runtime_compatibility_status": status,
+        "compatibility_reason": reason,
+        "execution_allowed": status == "EXACT_VERSION_MATCH",
+        "fallback_used": False,
+    }
 
 
 def _public(value: Any) -> Any:
@@ -190,6 +220,8 @@ def _eligibility(version: dict[str, Any], target: ActivationStatus, profile: str
         return "BLOCKED_VALIDATION", "Scientific validation does not permit activation"
     if version["technical_status"] != "AVAILABLE" or not version.get("artifact_hash"):
         return "BLOCKED_ARTIFACT", "A present, hash-matching artifact is required"
+    if not version.get("execution_allowed", False) or version.get("runtime_compatibility_status") not in {"EXACT_VERSION_MATCH", "COMPATIBILITY_VERIFIED", "COMPATIBLE", "NOT_APPLICABLE"}:
+        return "BLOCKED_CONFIGURATION", "Runtime compatibility is not verified"
     if not version.get("supported_endpoints") or not version.get("input_schema_version") or not version.get("output_schema_version") or not version.get("known_limitations"):
         return "BLOCKED_CONFIGURATION", "Endpoint, schema, and limitation declarations are required"
     permission = next((item for item in version["deployment_permissions"] if item["deployment_profile"] == profile), None)
@@ -245,6 +277,8 @@ def discover(filters: dict[str, str | bool | None], limit: int, offset: int) -> 
         item = get_version(row["engine_id"], row["engine_version"])
         engine = get_engine(row["engine_id"])
         checks = {
+            "search": (filters.get("search", "").lower() in f"{engine['engine_name']} {engine['description']} {engine['provider_name']}".lower()) if filters.get("search") else True,
+            "engine_class": engine["engine_class"] == filters.get("engine_class") if filters.get("engine_class") else True,
             "task_type": filters.get("task_type") in engine["task_types"] if filters.get("task_type") else True,
             "endpoint": filters.get("endpoint") in item["supported_endpoints"] if filters.get("endpoint") else True,
             "organism": filters.get("organism") in item["supported_organisms"] if filters.get("organism") else True,
@@ -257,6 +291,8 @@ def discover(filters: dict[str, str | bool | None], limit: int, offset: int) -> 
             "execution_mode": (item["local_execution_supported"] if filters.get("execution_mode") == "local" else item["api_execution_supported"]) if filters.get("execution_mode") else True,
             "deployment_profile": any(p["deployment_profile"] == filters.get("deployment_profile") and p["permitted"] for p in item["deployment_permissions"]) if filters.get("deployment_profile") else True,
             "active_only": item["activation_status"].startswith("ACTIVE_") if filters.get("active_only") else True,
+            "runtime_health_status": item["runtime_health_status"] == filters.get("runtime_health_status") if filters.get("runtime_health_status") else True,
+            "blocked_state": (item["activation_status"].startswith("BLOCKED_") or item["technical_status"].startswith("ARTIFACT_")) if filters.get("blocked_state") else True,
         }
         if all(checks.values()):
             items.append({**engine, "version": item})
@@ -274,6 +310,5 @@ def licence_summary() -> dict[str, int]:
 
 
 def integrity() -> dict[str, Any]:
-    with get_connection() as connection:
-        orphan_versions = connection.execute("SELECT COUNT(*) FROM scientific_engine_versions v LEFT JOIN scientific_engines e ON e.engine_id=v.engine_id WHERE e.engine_id IS NULL").fetchone()[0]
-    return {"status": "HEALTHY" if orphan_versions == 0 else "DEGRADED", "orphan_versions": orphan_versions}
+    from app.services.scientific_engine_reconciliation_service import integrity as expanded_integrity
+    return expanded_integrity()

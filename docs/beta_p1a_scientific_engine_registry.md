@@ -23,3 +23,7 @@ The deterministic BETA-P1B import will read existing activity/ADMET registration
 Discovery filters task, endpoint, organism, target, target class, molecule type, local/API execution, deployment profile, validation, licence, activation, and active-only state. There is no universal execution adapter, automatic download, seed import, or full frontend browser in P1A. Authorization remains the deployment's existing responsibility; this change adds no bypass. No training, recalibration, threshold, domain, uncertainty, ranking, report-scoring, or prediction behavior changes were made.
 
 BETA-P1B adds the reviewed existing-engine import and registry user interface. M2 internal-model research remains separate until complete hash-verified governance evidence exists.
+
+BETA-P1B is implemented in `docs/beta_p1b_existing_engine_migration.md` and `docs/beta_p1b_registry_ui.md`; it links to rather than replaces legacy governance.
+
+Corrective invariant: authoritative legacy `ACTIVE` never implies `ACTIVE_BETA`. Beta activation requires `APPROVED_BETA` plus compatible runtime, verified artifacts, eligible scientific validation, deployment permission, schemas, endpoints, and limitations.
