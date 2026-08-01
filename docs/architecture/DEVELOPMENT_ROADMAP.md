@@ -4,6 +4,8 @@
 
 BETA-P3 completed the bounded official-source review of ADMET-AI, a DeepChem-based pretrained option, and no integration. No candidate passed every mandatory gate: ADMET-AI has unresolved explicit weight and endpoint-dataset rights plus v2-specific validation gaps, while no qualified frozen DeepChem ADME artifact was identified. No runtime, adapter, registry record, endpoint, or activation was added. See `docs/beta_p3_adme_candidate_review.md` and `docs/beta_p3_engine_selection_decision.md`.
 
+The targeted OpenADMET permeability/LogD/PPB follow-up froze commit `6fb7782db474a9c9198d4ace3a5c6b6a6abb304b` but stopped at `BLOCKED_LICENCE`: the model tree has Apache-2.0 card metadata but no licence file, distributes ChEMBL-derived training rows without a repository terms/attribution explanation, and labels the model v2 while recipe metadata remains v1. No runtime or integration was added. See `docs/beta_p3_openadmet_integration.md`.
+
 This roadmap sequences DRUGDESIGN 360 from the current DrugScreen360 MVP toward the long-term five-system platform.
 
 ## Platform Versions
