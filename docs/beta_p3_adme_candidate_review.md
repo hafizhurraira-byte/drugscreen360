@@ -6,7 +6,7 @@ Review date: 2026-08-01. This is a technical evidence review, not legal advice. 
 
 | Candidate | Frozen identity | Code | Weights | Training data | Qualified artifact | Decision |
 |---|---|---|---|---|---|---|
-| ADMET-AI | `admet-ai==2.0.1`, tag `v_2.0.1`, commit `c65bf0418e19c65d7228f9e40da5d0152aade756` | VERIFIED, MIT | UNKNOWN: no separate official weight grant found | PARTIALLY_VERIFIED: TDC sources identified; individual terms not resolved | Bundled `.pt` ensembles exist, but licence and v2 validation gates fail | `NOT_SELECTED_LICENCE` |
+| ADMET-AI | `admet-ai==2.0.1`, tag `v_2.0.1`, commit `c65bf0418e19c65d7228f9e40da5d0152aade756` | VERIFIED, MIT | UNKNOWN: ten bundled weights hashed; no explicit weight grant found | PARTIALLY_VERIFIED: TDC terms unresolved; bundled DrugBank-derived CSV lacks permission evidence | Wheel and source inspected; asset-rights and v2 validation gates fail | `NOT_SELECTED_LICENCE` |
 | DeepChem pretrained option | DeepChem toolkit `2.8.0`; no model identity | VERIFIED, MIT | NOT_APPLICABLE: no qualified artifact selected | NOT_APPLICABLE | No frozen endpoint-qualified pretrained ADME artifact identified | `NOT_SELECTED_NO_QUALIFIED_PRETRAINED_ARTIFACT` |
 | No external engine | NOT_APPLICABLE | NOT_APPLICABLE | NOT_APPLICABLE | NOT_APPLICABLE | NOT_APPLICABLE | Selected disposition: `NO_CANDIDATE_APPROVED` |
 
@@ -44,7 +44,7 @@ core_dependencies: Chemprop >=2.2.2; Torch >=2.8.0; RDKit >=2025.9.5; Lightning;
 GPU_required: false
 CPU_supported: true
 model_artifact_format: PyTorch .pt ensemble files
-model_artifact_hashes: UNKNOWN — not downloaded or independently hashed
+model_artifact_hashes: VERIFIED — all ten bundled model files independently SHA-256 hashed; see docs/beta_p3_admet_ai_licence_review.md
 endpoint_count: 41 ADMET datasets reported for published v1; exact approved v2 endpoint count is 0
 endpoint_definitions_available: PARTIALLY_VERIFIED in bundled metadata/TDC links
 units_available: PARTIALLY_VERIFIED
@@ -53,7 +53,7 @@ training_scope_available: PARTIALLY_VERIFIED
 validation_evidence_available: Published for v1; insufficiently frozen for v2.0.1 qualification
 applicability_domain_available: UNKNOWN; DrugBank percentiles are context, not a model applicability domain
 uncertainty_available: UNKNOWN; ensemble averaging is documented, but a supported uncertainty output was not established
-known_limitations: v2 was retrained from scratch and predictions do not match published/web-server v1; weight rights and dataset terms unresolved
+known_limitations: v2 was retrained from scratch and predictions do not match published/web-server v1; weight rights and dataset terms unresolved; package includes a DrugBank-derived CSV without DrugBank licence/version evidence
 integration_complexity: medium-high isolated PyTorch/Chemprop runtime
 scientific_risk: high until v2 endpoint validation and definitions are frozen
 licence_risk: high

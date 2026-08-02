@@ -268,3 +268,7 @@ Exit criteria:
 # BETA-P2 universal execution foundation
 
 The versioned scientific-engine request/result/error contract, fail-closed adapter registry, reference adapters, execution audit, existing-job bridge, and minimal Scientific Engines execution panel are implemented in BETA-P2. See `docs/beta_p2_universal_engine_adapter.md` and `docs/beta_p2_execution_contract.md`. Existing scientific APIs remain parallel and unchanged; governed model adoption is deferred to BETA-P3.
+
+# BETA-P3 ADMET-AI qualification
+
+ADMET-AI 2.0.1 package identity and bundled assets were inspected. Executable integration is blocked because explicit pretrained-weight rights are unresolved and the package includes DrugBank-derived data without the provenance and permission evidence required by the registry. No runtime, adapter, endpoint, or deployment profile was activated. See `docs/beta_p3_admet_ai_licence_review.md`.

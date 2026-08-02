@@ -10,7 +10,7 @@ Only official repositories, licence files, package metadata, documentation, rele
 
 ## Licence findings
 
-ADMET-AI code is MIT-licensed. That code licence was not treated as a model-weight licence. No separate official grant explicitly covering the bundled pretrained `.pt` weights was found. ADMET-AI identifies TDC datasets, while TDC explicitly directs users to each dataset's own licence; the endpoint-by-endpoint training-data rights required for selection were not resolved. DeepChem code is MIT-licensed, but there is no selected model artifact whose weight and dataset licences can be reviewed.
+ADMET-AI code is MIT-licensed. That code licence was not treated as a model-weight licence. Inspection of the 2.0.1 wheel and source archive confirmed and hashed ten bundled pretrained `.pt` weights, but found no separate official grant explicitly covering them. Both archives also bundle a DrugBank-derived CSV that the model loads by default, without DrugBank licence, version, or permission evidence; DrugBank states that use or redistribution requires a licence and citation. ADMET-AI identifies TDC datasets, while TDC directs users to dataset-specific terms; endpoint-by-endpoint training-data rights remain unresolved. DeepChem code is MIT-licensed, but there is no selected model artifact whose weight and dataset licences can be reviewed.
 
 Technical licence review was completed from official published terms. Formal legal review may still be required before any commercial deployment.
 
@@ -22,7 +22,7 @@ DeepChem provides model-building and restoration infrastructure, not a specific 
 
 ## Runtime findings
 
-ADMET-AI supports local CPU/GPU inference and requires Python 3.11 or newer with Chemprop, Torch, RDKit, and Lightning. Its official frozen environment differs substantially from the main application. No installation or probe was performed because Phase A failed mandatory licence and validation gates; creating an environment or loading weights would add risk without changing the selection decision.
+ADMET-AI supports local CPU/GPU inference and requires Python 3.11 or newer with Chemprop, Torch, RDKit, and Lightning. Its official frozen environment differs substantially from the main application. No installation or probe was performed because archive inspection failed the mandatory asset-rights gate; creating an environment or loading weights would add risk without changing the selection decision.
 
 ## Risk findings
 
@@ -66,8 +66,8 @@ No new deployment profile is permitted. No public, demo, CI, beta, or local-rese
 ## Remaining blockers
 
 1. Explicit model-weight licence evidence for ADMET-AI v2.0.1.
-2. Endpoint-by-endpoint training and benchmark dataset terms.
-3. Frozen v2-specific validation evidence and classification semantics.
-4. Artifact and runtime manifests with hashes.
-5. Isolated reproducibility, download, determinism, performance, domain, and uncertainty probes.
+2. DrugBank provenance, version, permission, and redistribution evidence for the bundled CSV, or an authoritative package without that asset.
+3. Endpoint-by-endpoint training and benchmark dataset terms.
+4. Frozen v2-specific validation evidence and classification semantics.
+5. Runtime manifest and isolated reproducibility, download, determinism, performance, domain, and uncertainty probes.
 
