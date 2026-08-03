@@ -1,0 +1,42 @@
+{
+  "model_id": "egfr_activity_v2",
+  "model_family": "activity",
+  "target_key": "EGFR",
+  "target_name": "EGFR",
+  "target_gene_symbol": "EGFR",
+  "uniprot_id": "P00533",
+  "target_chembl_id": "CHEMBL203",
+  "endpoint": "IC50",
+  "transformed_label": "pIC50",
+  "task_type": "regression",
+  "model_version": "v2",
+  "artifact_path": "D:\\DRUG CONJUGATE\\DRUGDESIGN360_REAL_DATA\\models\\egfr_activity_v2",
+  "source_artifact_path": "D:\\DRUG CONJUGATE\\DRUGDESIGN360_REAL_DATA\\models\\egfr_activity_v2",
+  "artifact_hash": "7bd850e41d877a0d3c1c39dde42914ba67fa81142962c7ca7e67d7707f1b6c61",
+  "registered_at": "2026-07-25T01:14:46.165323+00:00",
+  "copied_files": [],
+  "verification": {
+    "valid": true,
+    "artifact_dir": "D:\\DRUG CONJUGATE\\DRUGDESIGN360_REAL_DATA\\models\\egfr_activity_v2",
+    "model_id": "egfr_activity_v2",
+    "model_name": "random_forest_180_morgan",
+    "hashes": {
+      "model.joblib": "7bd850e41d877a0d3c1c39dde42914ba67fa81142962c7ca7e67d7707f1b6c61",
+      "model_manifest.json": "6284b25ff76dea5a8ee51623d81410285d63a24fd10992a5ff502792501ee4f6",
+      "feature_schema.json": "8ed4ac4617e2c173eecb3162947a9e9a8364c71dd8c526b9787e37df45a784ec",
+      "training_metadata.json": "cd94224824dfbf32fadc97d0a65d15e5cdaace576a4bd8dc4a0a17396b647daf",
+      "metrics.json": "d0bbc2410f8fcef2d7387c044f648a4aaa536c0806f46b8b85824cbda2c6a88b",
+      "domain_reference.npz": "ed7a84320cd48379b948179d05962b3d5f58d3f4ae692ed02eedbc7350dabb1d",
+      "freeze_record.json": "3ba13074121cc5b9739ca4213ab9251317dcdf853cfa0902e8d1c5ba638cffbb"
+    },
+    "errors": [],
+    "warnings": [
+      "Observed 90% conformal interval coverage on BindingDB final holdout was 83.37%; report as undercoverage."
+    ]
+  },
+  "limitations": [
+    "Target-specific EGFR/P00533/CHEMBL203 model only.",
+    "Prediction is not a measured IC50.",
+    "External validation is retrospective computational validation, not clinical validation."
+  ]
+}

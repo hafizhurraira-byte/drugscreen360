@@ -1,0 +1,241 @@
+{
+  "endpoint_key": "herg",
+  "model_id": "herg_v1",
+  "display_name": "hERG Inhibition Concern",
+  "task_type": "binary_classification",
+  "prediction_label": "herg_inhibitor",
+  "version": "v1",
+  "artifact_path": "D:\\DRUG CONJUGATE\\DRUGDESIGN360_REAL_DATA\\models\\admet\\herg_v1",
+  "artifact_hash": "0e0d07a5347c6027c12e2b86946588eb3c66330a80df499fda7a92d3c6721081",
+  "registered_at": "2026-07-25T04:11:14.918956+00:00",
+  "activation_gate_state": "ACTIVATION_ELIGIBLE",
+  "warnings": [
+    "hERG TEST N=65; small-test-set limitation must be reviewed.",
+    "hERG TEST ECE was 0.1385; calibration is imperfect.",
+    "Low predicted hERG risk is not cardiac safety clearance."
+  ],
+  "verification": {
+    "endpoint": "herg",
+    "model_id": "herg_v1",
+    "valid": true,
+    "artifact_dir": "D:\\DRUG CONJUGATE\\DRUGDESIGN360_REAL_DATA\\models\\admet\\herg_v1",
+    "hashes": {
+      "model.joblib": "0e0d07a5347c6027c12e2b86946588eb3c66330a80df499fda7a92d3c6721081",
+      "model_manifest.json": "186b9b5e202aa6965110248dc4562639380a013947ffb3c5dcbe991363a29bba",
+      "metrics.json": "5743aac0d5721565ea2b31ae90c2332cd20ce05239afe037c4f0d022d42df706",
+      "feature_schema.json": "8b7410787ae1e315563b9dca09ac4cfab8c65401dbbd9b8fdc456925b569cc4c",
+      "training_metadata.json": "5e2a68ed275f822b0fdbb202e4e6c8cceedfa7eec60dc1249f24165c75dcd2a8",
+      "split_reference.json": "721e58a5b16f9fb9f99a8ae3b3ec42e465f7219be7de957681d3d56e457a6923",
+      "domain_reference.npz": "2a4f3ab5f251e1be90151c74f9882bdaa2e5ae734c256205831eb45f50d9c3c6",
+      "uncertainty_metadata.json": "bb154cf5b2db7c0de08d48db50a776a13cf19f366c538459cde99903e3c38f8f",
+      "calibration_metadata.json": "c16ba2dc97a465b5cae92d8934dcf710f1561238f8ba4987c0c933973afd0cf5",
+      "freeze_record.json": "11a8bbfbe11790a7990ed8a6c6cdda0349fc8cc50aa2784b252432eb821eec76",
+      "domain_fingerprints.npz": "68f02227162c05a2213d27268a7b8897a2d2f08325c46d1144de237c5cd3caf8",
+      "domain_reference_manifest.json": "33fff9166ccd7982536e2162905ee7215f1517d78854d19158cbeb5ee0137c5d",
+      "domain_reference_freeze_record.json": "d15ccee9b419a4bc79ded0b621c12c316c2326cc1b81e42f3b813f80c3cf85f3"
+    },
+    "errors": [],
+    "warnings": [
+      "hERG TEST N=65; small-test-set limitation must be reviewed.",
+      "hERG TEST ECE was 0.1385; calibration is imperfect.",
+      "Low predicted hERG risk is not cardiac safety clearance."
+    ],
+    "manifest": {
+      "category": "toxicity",
+      "created_at": "2026-07-25T02:16:29+00:00",
+      "endpoint": "hERG inhibition/toxicity",
+      "label": "herg_inhibitor",
+      "limitations": [
+        "Small test set and limited assay context; no claim of cardiac safety."
+      ],
+      "model_hash_sha256": "0e0d07a5347c6027c12e2b86946588eb3c66330a80df499fda7a92d3c6721081",
+      "model_id": "herg_v1",
+      "selected_feature_set": "morgan_desc",
+      "selected_model": "rf_300_balanced",
+      "task_type": "classification"
+    },
+    "feature_schema": {
+      "bits": 2048,
+      "descriptors": [
+        "mol_weight",
+        "logp",
+        "tpsa",
+        "hbd",
+        "hba",
+        "rotatable_bonds",
+        "ring_count",
+        "fraction_csp3"
+      ],
+      "feature_dimension": 2056,
+      "feature_set": "morgan_desc",
+      "fingerprint": "RDKit Morgan",
+      "radius": 2,
+      "rdkit_version": "2026.03.3"
+    },
+    "training_metadata": {
+      "counts": {
+        "TEST": 65,
+        "TRAIN": 515,
+        "VALIDATION": 65
+      },
+      "dataset_hash": "d158349057ba221b11504c9f03ec5bcab9f07577be0f24316e8c5cab8ef3cd04",
+      "internal_resplitting_disabled": true,
+      "package_versions": {
+        "rdkit": "2026.03.3",
+        "sklearn": "1.9.0"
+      },
+      "seed": 1729,
+      "split_enforced": true,
+      "split_hash": "803405066130897ebcb0dff653c747e3b7851492da93d5721a6b4daac46cc9c0",
+      "split_strategy": "scaffold_safe_persisted_v1"
+    },
+    "freeze_record": {
+      "activation_gate": {
+        "auto_activated": false,
+        "beats_baseline": true,
+        "domain_coverage_reported": true,
+        "reasons": [
+          "validation AUPRC 0.9729 vs baseline 0.6462",
+          "validation balanced accuracy 0.8773",
+          "test recall 0.8421, F1 0.8205, balanced accuracy 0.7729"
+        ],
+        "result": "ACTIVATION_ELIGIBLE",
+        "warnings": [
+          "Small test set and limited assay context; no claim of cardiac safety.",
+          "TEST N=65; activation should remain cautious."
+        ]
+      },
+      "frozen_at": "2026-07-25T02:16:29+00:00",
+      "model_hash_sha256": "0e0d07a5347c6027c12e2b86946588eb3c66330a80df499fda7a92d3c6721081",
+      "no_test_tuning": true
+    },
+    "domain_reference_manifest": {
+      "domain_reference_version": "m2c4_v1",
+      "endpoint_key": "herg",
+      "model_id": "herg_v1",
+      "model_hash": "0e0d07a5347c6027c12e2b86946588eb3c66330a80df499fda7a92d3c6721081",
+      "domain_artifact_filename": "domain_fingerprints.npz",
+      "domain_artifact_sha256": "68f02227162c05a2213d27268a7b8897a2d2f08325c46d1144de237c5cd3caf8",
+      "schema": {
+        "schema_version": "m2c4_domain_schema_v1",
+        "fingerprint_algorithm": "RDKit Morgan",
+        "radius": 2,
+        "bit_length": 2048,
+        "use_chirality": false,
+        "use_features": false,
+        "vector_type": "bit_vector",
+        "similarity_metric": "Tanimoto",
+        "source_split": "TRAIN",
+        "molecule_standardisation": "RDKit canonical SMILES, isomericSmiles=True",
+        "rdkit_version": "2026.03.3",
+        "endpoint": "herg",
+        "model_id": "herg_v1",
+        "dataset_hash": "d158349057ba221b11504c9f03ec5bcab9f07577be0f24316e8c5cab8ef3cd04",
+        "split_hash": "803405066130897ebcb0dff653c747e3b7851492da93d5721a6b4daac46cc9c0"
+      },
+      "domain_schema_hash": "ecb3c08981fbcd79f7b79aaf5fbab147fd94768aa4c5632354bead4db164e862",
+      "fingerprint_count": 515,
+      "fingerprint_bit_length": 2048,
+      "packed_shape": [
+        515,
+        256
+      ],
+      "packed_dtype": "uint8",
+      "compression": "np.savez_compressed",
+      "similarity_metric": "Tanimoto",
+      "thresholds": [
+        0.2362121212121212,
+        0.18733568318473978
+      ],
+      "dataset_hash": "d158349057ba221b11504c9f03ec5bcab9f07577be0f24316e8c5cab8ef3cd04",
+      "split_hash": "803405066130897ebcb0dff653c747e3b7851492da93d5721a6b4daac46cc9c0",
+      "deterministic_order_hash": "3161e8825f5c0e62ba1ed9c6b8f1a7d72d5eff8341e2b88b91599d6ea3dd7ab0",
+      "rdkit_version": "2026.03.3",
+      "numpy_version": "2.4.6",
+      "generated_at": "2026-07-25T04:11:05.134448+00:00",
+      "parity_validation": {
+        "records_checked": 645,
+        "maximum_absolute_similarity_difference": 0.0,
+        "domain_label_mismatch_count": 0,
+        "result": "PASS"
+      }
+    },
+    "domain_reference_freeze_record": {
+      "component": "compact_applicability_domain_reference",
+      "original_model_hash": "0e0d07a5347c6027c12e2b86946588eb3c66330a80df499fda7a92d3c6721081",
+      "original_model_freeze_record_hash": "11a8bbfbe11790a7990ed8a6c6cdda0349fc8cc50aa2784b252432eb821eec76",
+      "domain_artifact_filename": "domain_fingerprints.npz",
+      "domain_artifact_sha256": "68f02227162c05a2213d27268a7b8897a2d2f08325c46d1144de237c5cd3caf8",
+      "domain_reference_manifest_sha256": "33fff9166ccd7982536e2162905ee7215f1517d78854d19158cbeb5ee0137c5d",
+      "schema_hash": "ecb3c08981fbcd79f7b79aaf5fbab147fd94768aa4c5632354bead4db164e862",
+      "training_count": 515,
+      "dataset_hash": "d158349057ba221b11504c9f03ec5bcab9f07577be0f24316e8c5cab8ef3cd04",
+      "split_hash": "803405066130897ebcb0dff653c747e3b7851492da93d5721a6b4daac46cc9c0",
+      "thresholds_unchanged": true,
+      "model_retrained": false,
+      "model_modified": false,
+      "parity_validation_result": {
+        "records_checked": 645,
+        "maximum_absolute_similarity_difference": 0.0,
+        "domain_label_mismatch_count": 0,
+        "result": "PASS"
+      },
+      "generation_script_sha256": "a408654622d57bc67c151e53db337c20612bd686dde79919819a3e119c1303f6",
+      "timestamp": "2026-07-25T04:11:05.146412+00:00",
+      "limitations": [
+        "Compact reference accelerates applicability-domain lookup only; it does not change model predictions or validation evidence."
+      ]
+    }
+  },
+  "domain_reference": {
+    "domain_reference_version": "m2c4_v1",
+    "endpoint_key": "herg",
+    "model_id": "herg_v1",
+    "model_hash": "0e0d07a5347c6027c12e2b86946588eb3c66330a80df499fda7a92d3c6721081",
+    "domain_artifact_filename": "domain_fingerprints.npz",
+    "domain_artifact_sha256": "68f02227162c05a2213d27268a7b8897a2d2f08325c46d1144de237c5cd3caf8",
+    "schema": {
+      "schema_version": "m2c4_domain_schema_v1",
+      "fingerprint_algorithm": "RDKit Morgan",
+      "radius": 2,
+      "bit_length": 2048,
+      "use_chirality": false,
+      "use_features": false,
+      "vector_type": "bit_vector",
+      "similarity_metric": "Tanimoto",
+      "source_split": "TRAIN",
+      "molecule_standardisation": "RDKit canonical SMILES, isomericSmiles=True",
+      "rdkit_version": "2026.03.3",
+      "endpoint": "herg",
+      "model_id": "herg_v1",
+      "dataset_hash": "d158349057ba221b11504c9f03ec5bcab9f07577be0f24316e8c5cab8ef3cd04",
+      "split_hash": "803405066130897ebcb0dff653c747e3b7851492da93d5721a6b4daac46cc9c0"
+    },
+    "domain_schema_hash": "ecb3c08981fbcd79f7b79aaf5fbab147fd94768aa4c5632354bead4db164e862",
+    "fingerprint_count": 515,
+    "fingerprint_bit_length": 2048,
+    "packed_shape": [
+      515,
+      256
+    ],
+    "packed_dtype": "uint8",
+    "compression": "np.savez_compressed",
+    "similarity_metric": "Tanimoto",
+    "thresholds": [
+      0.2362121212121212,
+      0.18733568318473978
+    ],
+    "dataset_hash": "d158349057ba221b11504c9f03ec5bcab9f07577be0f24316e8c5cab8ef3cd04",
+    "split_hash": "803405066130897ebcb0dff653c747e3b7851492da93d5721a6b4daac46cc9c0",
+    "deterministic_order_hash": "3161e8825f5c0e62ba1ed9c6b8f1a7d72d5eff8341e2b88b91599d6ea3dd7ab0",
+    "rdkit_version": "2026.03.3",
+    "numpy_version": "2.4.6",
+    "generated_at": "2026-07-25T04:11:05.134448+00:00",
+    "parity_validation": {
+      "records_checked": 645,
+      "maximum_absolute_similarity_difference": 0.0,
+      "domain_label_mismatch_count": 0,
+      "result": "PASS"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+Collecting rdkit
+  Downloading rdkit-2026.3.4-cp312-cp312-win_amd64.whl.metadata (3.9 kB)
+Collecting numpy (from rdkit)
+  Downloading numpy-2.5.1-cp312-cp312-win_amd64.whl.metadata (6.6 kB)
+Collecting Pillow (from rdkit)
+  Downloading pillow-12.3.0-cp312-cp312-win_amd64.whl.metadata (9.3 kB)
+Downloading rdkit-2026.3.4-cp312-cp312-win_amd64.whl (24.7 MB)
+   ---------------------------------------- 24.7/24.7 MB 2.5 MB/s eta 0:00:00
+Downloading numpy-2.5.1-cp312-cp312-win_amd64.whl (12.4 MB)
+   ---------------------------------------- 12.4/12.4 MB 1.5 MB/s eta 0:00:00
+Downloading pillow-12.3.0-cp312-cp312-win_amd64.whl (7.2 MB)
+   ---------------------------------------- 7.2/7.2 MB 2.9 MB/s eta 0:00:00
+Installing collected packages: Pillow, numpy, rdkit
+  Attempting uninstall: Pillow
+    Found existing installation: pillow 12.2.0
+    Uninstalling pillow-12.2.0:
+      Successfully uninstalled pillow-12.2.0
+  Attempting uninstall: numpy
+    Found existing installation: numpy 2.4.6
+    Uninstalling numpy-2.4.6:
+      Successfully uninstalled numpy-2.4.6
+Successfully installed Pillow-12.3.0 numpy-2.5.1 rdkit-2026.3.4

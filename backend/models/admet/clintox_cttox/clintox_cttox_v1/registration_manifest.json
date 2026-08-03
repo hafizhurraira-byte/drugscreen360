@@ -1,0 +1,113 @@
+{
+  "endpoint_key": "clintox_cttox",
+  "model_id": "clintox_cttox_v1",
+  "display_name": "ClinTox Toxicity Concern",
+  "task_type": "binary_classification",
+  "prediction_label": "toxicity_concern",
+  "version": "v1",
+  "artifact_path": "D:\\DRUG CONJUGATE\\DRUGDESIGN360_REAL_DATA\\models\\admet\\clintox_cttox_v1",
+  "artifact_hash": "524e68e123b6478a1e50ba8df48625beebf7007138f8b8401a2105d895cdb1c7",
+  "registered_at": "2026-07-25T04:11:14.957723+00:00",
+  "activation_gate_state": "NOT_ELIGIBLE",
+  "warnings": [
+    "ClinTox TEST recall was 0 and F1 was 0; this is a hard activation blocker.",
+    "ClinTox is registered for transparency only and must not provide production predictions."
+  ],
+  "verification": {
+    "endpoint": "clintox_cttox",
+    "model_id": "clintox_cttox_v1",
+    "valid": true,
+    "artifact_dir": "D:\\DRUG CONJUGATE\\DRUGDESIGN360_REAL_DATA\\models\\admet\\clintox_cttox_v1",
+    "hashes": {
+      "model.joblib": "524e68e123b6478a1e50ba8df48625beebf7007138f8b8401a2105d895cdb1c7",
+      "model_manifest.json": "020657351e074ac085284802155054d6c817a751f3c3e3c0e7e754583bb1a20b",
+      "metrics.json": "2738fa8938eb9ef06afb37f889442f731d8e9d9ab7925bf5fe5f18f123624857",
+      "feature_schema.json": "8b7410787ae1e315563b9dca09ac4cfab8c65401dbbd9b8fdc456925b569cc4c",
+      "training_metadata.json": "caa854242948c1fb577dc104bd3dac313b98d54f018e10ca03e81bf52fb342e2",
+      "split_reference.json": "bbe536b87c509996e5a298ac9c004dc16aaaea2469c5095b6ae1f112cfb28d12",
+      "domain_reference.npz": "dcc8170a4de1eb6c452544a41b437aebd53b99ad00ea365253415dd2fda6ca8a",
+      "uncertainty_metadata.json": "d110fd7264732eafe97f4cd7e0ea61deee42b48936960f081cd6f3183a21b056",
+      "calibration_metadata.json": "64dba230c0cc782c900d2b9ed64ad9fb3125c5f3975b7cfe63a5b251146b8bb8",
+      "freeze_record.json": "42c354a5f3d9bc0daa04405354e53d15bf4382af68de3b9c0fa86d20d71ac7ab"
+    },
+    "errors": [],
+    "warnings": [
+      "ClinTox TEST recall was 0 and F1 was 0; this is a hard activation blocker.",
+      "ClinTox is registered for transparency only and must not provide production predictions."
+    ],
+    "manifest": {
+      "category": "toxicity",
+      "created_at": "2026-07-25T02:14:48+00:00",
+      "endpoint": "ClinTox CT_TOX toxicity concern",
+      "label": "toxicity_concern",
+      "limitations": [
+        "Small positive class; positive-class metrics may be unstable.",
+        "No clinical toxicity or safety claim."
+      ],
+      "model_hash_sha256": "524e68e123b6478a1e50ba8df48625beebf7007138f8b8401a2105d895cdb1c7",
+      "model_id": "clintox_cttox_v1",
+      "selected_feature_set": "morgan_desc",
+      "selected_model": "histgb_lr0.05",
+      "task_type": "classification"
+    },
+    "feature_schema": {
+      "bits": 2048,
+      "descriptors": [
+        "mol_weight",
+        "logp",
+        "tpsa",
+        "hbd",
+        "hba",
+        "rotatable_bonds",
+        "ring_count",
+        "fraction_csp3"
+      ],
+      "feature_dimension": 2056,
+      "feature_set": "morgan_desc",
+      "fingerprint": "RDKit Morgan",
+      "radius": 2,
+      "rdkit_version": "2026.03.3"
+    },
+    "training_metadata": {
+      "counts": {
+        "TEST": 145,
+        "TRAIN": 1152,
+        "VALIDATION": 145
+      },
+      "dataset_hash": "d39621fd1fc8b36ed1996212849b25d9442b909493f20b98acc87de97600de45",
+      "internal_resplitting_disabled": true,
+      "package_versions": {
+        "rdkit": "2026.03.3",
+        "sklearn": "1.9.0"
+      },
+      "seed": 1729,
+      "split_enforced": true,
+      "split_hash": "e87b3b077ef4badd1380dd0c04abbd713b280169904a18a6458a15d3c70569b8",
+      "split_strategy": "scaffold_safe_persisted_v1"
+    },
+    "freeze_record": {
+      "activation_gate": {
+        "auto_activated": false,
+        "beats_baseline": false,
+        "domain_coverage_reported": true,
+        "reasons": [
+          "validation AUPRC 0.6292 vs baseline 0.0966",
+          "validation balanced accuracy 0.6071",
+          "test recall 0.0000, F1 0.0000, balanced accuracy 0.5000"
+        ],
+        "result": "NOT_ELIGIBLE",
+        "warnings": [
+          "Small positive class; positive-class metrics may be unstable.",
+          "No clinical toxicity or safety claim.",
+          "Severe imbalance; positive-class evidence should be reviewed before activation."
+        ]
+      },
+      "frozen_at": "2026-07-25T02:14:48+00:00",
+      "model_hash_sha256": "524e68e123b6478a1e50ba8df48625beebf7007138f8b8401a2105d895cdb1c7",
+      "no_test_tuning": true
+    },
+    "domain_reference_manifest": {},
+    "domain_reference_freeze_record": {}
+  },
+  "domain_reference": {}
+}
