@@ -1,0 +1,229 @@
+{
+  "endpoint_key": "bbbp",
+  "model_id": "bbbp_v1",
+  "display_name": "Blood-Brain Barrier Penetration",
+  "task_type": "binary_classification",
+  "prediction_label": "bbb_penetrant",
+  "version": "v1",
+  "artifact_path": "D:\\DRUG CONJUGATE\\DRUGDESIGN360_REAL_DATA\\models\\admet\\bbbp_v1",
+  "artifact_hash": "e08d91c7febb4b8cc82ca71c7b46ff8afccb6d12debd217f9b563c13bee8500b",
+  "registered_at": "2026-07-25T04:11:14.791959+00:00",
+  "activation_gate_state": "ACTIVATION_ELIGIBLE",
+  "warnings": [
+    "BBBP TEST specificity was 0.3922; do not describe this model as highly specific.",
+    "Benchmark BBBP classification only; not proof of human CNS exposure."
+  ],
+  "verification": {
+    "endpoint": "bbbp",
+    "model_id": "bbbp_v1",
+    "valid": true,
+    "artifact_dir": "D:\\DRUG CONJUGATE\\DRUGDESIGN360_REAL_DATA\\models\\admet\\bbbp_v1",
+    "hashes": {
+      "model.joblib": "e08d91c7febb4b8cc82ca71c7b46ff8afccb6d12debd217f9b563c13bee8500b",
+      "model_manifest.json": "0330598d75d158bf6243b1397adc5f55cbd02a539bc13e122a134ae1c096fb84",
+      "metrics.json": "6d83cfd4dc3d899037f1bf54c6871ba4feb4603d8fa5ba8f37e6051fc54aa7ff",
+      "feature_schema.json": "f93c8d4b25499c309545aed5544b458c18ab81fe32c219d0601c38c7c6672760",
+      "training_metadata.json": "01958d82dff2c0a48e3fb84485a46ee1612233cd0de60ef2f9a7edeb000336e0",
+      "split_reference.json": "c0a941259625a192694e03f000a00f7d63e6d0134f73364a2a018b75766bfd55",
+      "domain_reference.npz": "a2d821970b06838d6048e59916b108fa0bba22fac5a230d2512e42cc68998c2b",
+      "uncertainty_metadata.json": "50c487ef285f29ce14cab5754483a73ce497032a6c01849769942b4b6aebc60a",
+      "calibration_metadata.json": "fe3085ae4934875a0158a3e5a71ada76f780138d21ef52eb72d10d502cc54452",
+      "freeze_record.json": "35f73a8b0f5767c4bd29447091582d2bb9f83828309d02fcb1f1fc80ec093576",
+      "domain_fingerprints.npz": "5ec43a15fc732042db0acb74385601ebe28e1ec1fb0306979c91637f036bc584",
+      "domain_reference_manifest.json": "274bdc84fe5cb3886e6fb662824505456964d242db14bf80f11a046aa177630f",
+      "domain_reference_freeze_record.json": "cbb8fd87c67eab884ff90e2291692ffab36296af490222d8c005875cda6a1b8f"
+    },
+    "errors": [],
+    "warnings": [
+      "BBBP TEST specificity was 0.3922; do not describe this model as highly specific.",
+      "Benchmark BBBP classification only; not proof of human CNS exposure."
+    ],
+    "manifest": {
+      "category": "distribution",
+      "created_at": "2026-07-25T02:15:33+00:00",
+      "endpoint": "blood-brain barrier penetration",
+      "label": "bbb_penetrant",
+      "limitations": [
+        "Benchmark endpoint only; not proof of human clinical BBB penetration."
+      ],
+      "model_hash_sha256": "e08d91c7febb4b8cc82ca71c7b46ff8afccb6d12debd217f9b563c13bee8500b",
+      "model_id": "bbbp_v1",
+      "selected_feature_set": "morgan",
+      "selected_model": "extratrees_300_balanced",
+      "task_type": "classification"
+    },
+    "feature_schema": {
+      "bits": 2048,
+      "descriptors": [],
+      "feature_dimension": 2048,
+      "feature_set": "morgan",
+      "fingerprint": "RDKit Morgan",
+      "radius": 2,
+      "rdkit_version": "2026.03.3"
+    },
+    "training_metadata": {
+      "counts": {
+        "TEST": 197,
+        "TRAIN": 1571,
+        "VALIDATION": 197
+      },
+      "dataset_hash": "df9a7aa512215ed3e382b2d7213efc7fde890c381c319842f8010ae7b7c2f992",
+      "internal_resplitting_disabled": true,
+      "package_versions": {
+        "rdkit": "2026.03.3",
+        "sklearn": "1.9.0"
+      },
+      "seed": 1729,
+      "split_enforced": true,
+      "split_hash": "821565bbce1e1264ba71d91021db56b26ac52540242da7f6f77e680adb8f483f",
+      "split_strategy": "scaffold_safe_persisted_v1"
+    },
+    "freeze_record": {
+      "activation_gate": {
+        "auto_activated": false,
+        "beats_baseline": true,
+        "domain_coverage_reported": true,
+        "reasons": [
+          "validation AUPRC 0.9783 vs baseline 0.7817",
+          "validation balanced accuracy 0.8759",
+          "test recall 0.9521, F1 0.8797, balanced accuracy 0.6721"
+        ],
+        "result": "ACTIVATION_ELIGIBLE",
+        "warnings": [
+          "Benchmark endpoint only; not proof of human clinical BBB penetration."
+        ]
+      },
+      "frozen_at": "2026-07-25T02:15:33+00:00",
+      "model_hash_sha256": "e08d91c7febb4b8cc82ca71c7b46ff8afccb6d12debd217f9b563c13bee8500b",
+      "no_test_tuning": true
+    },
+    "domain_reference_manifest": {
+      "domain_reference_version": "m2c4_v1",
+      "endpoint_key": "bbbp",
+      "model_id": "bbbp_v1",
+      "model_hash": "e08d91c7febb4b8cc82ca71c7b46ff8afccb6d12debd217f9b563c13bee8500b",
+      "domain_artifact_filename": "domain_fingerprints.npz",
+      "domain_artifact_sha256": "5ec43a15fc732042db0acb74385601ebe28e1ec1fb0306979c91637f036bc584",
+      "schema": {
+        "schema_version": "m2c4_domain_schema_v1",
+        "fingerprint_algorithm": "RDKit Morgan",
+        "radius": 2,
+        "bit_length": 2048,
+        "use_chirality": false,
+        "use_features": false,
+        "vector_type": "bit_vector",
+        "similarity_metric": "Tanimoto",
+        "source_split": "TRAIN",
+        "molecule_standardisation": "RDKit canonical SMILES, isomericSmiles=True",
+        "rdkit_version": "2026.03.3",
+        "endpoint": "bbbp",
+        "model_id": "bbbp_v1",
+        "dataset_hash": "df9a7aa512215ed3e382b2d7213efc7fde890c381c319842f8010ae7b7c2f992",
+        "split_hash": "821565bbce1e1264ba71d91021db56b26ac52540242da7f6f77e680adb8f483f"
+      },
+      "domain_schema_hash": "6fd3335cf892b9892c10da39eea7529aa2923da8ae124b6e07e8fe59ffb76921",
+      "fingerprint_count": 1571,
+      "fingerprint_bit_length": 2048,
+      "packed_shape": [
+        1571,
+        256
+      ],
+      "packed_dtype": "uint8",
+      "compression": "np.savez_compressed",
+      "similarity_metric": "Tanimoto",
+      "thresholds": [
+        0.2911392405063291,
+        0.22007339449541286
+      ],
+      "dataset_hash": "df9a7aa512215ed3e382b2d7213efc7fde890c381c319842f8010ae7b7c2f992",
+      "split_hash": "821565bbce1e1264ba71d91021db56b26ac52540242da7f6f77e680adb8f483f",
+      "deterministic_order_hash": "861554808b634ca9a3f1ccb8efe730212b904be53efb1030b411da14bb3f2247",
+      "rdkit_version": "2026.03.3",
+      "numpy_version": "2.4.6",
+      "generated_at": "2026-07-25T04:08:40.573547+00:00",
+      "parity_validation": {
+        "records_checked": 1965,
+        "maximum_absolute_similarity_difference": 0.0,
+        "domain_label_mismatch_count": 0,
+        "result": "PASS"
+      }
+    },
+    "domain_reference_freeze_record": {
+      "component": "compact_applicability_domain_reference",
+      "original_model_hash": "e08d91c7febb4b8cc82ca71c7b46ff8afccb6d12debd217f9b563c13bee8500b",
+      "original_model_freeze_record_hash": "35f73a8b0f5767c4bd29447091582d2bb9f83828309d02fcb1f1fc80ec093576",
+      "domain_artifact_filename": "domain_fingerprints.npz",
+      "domain_artifact_sha256": "5ec43a15fc732042db0acb74385601ebe28e1ec1fb0306979c91637f036bc584",
+      "domain_reference_manifest_sha256": "274bdc84fe5cb3886e6fb662824505456964d242db14bf80f11a046aa177630f",
+      "schema_hash": "6fd3335cf892b9892c10da39eea7529aa2923da8ae124b6e07e8fe59ffb76921",
+      "training_count": 1571,
+      "dataset_hash": "df9a7aa512215ed3e382b2d7213efc7fde890c381c319842f8010ae7b7c2f992",
+      "split_hash": "821565bbce1e1264ba71d91021db56b26ac52540242da7f6f77e680adb8f483f",
+      "thresholds_unchanged": true,
+      "model_retrained": false,
+      "model_modified": false,
+      "parity_validation_result": {
+        "records_checked": 1965,
+        "maximum_absolute_similarity_difference": 0.0,
+        "domain_label_mismatch_count": 0,
+        "result": "PASS"
+      },
+      "generation_script_sha256": "a408654622d57bc67c151e53db337c20612bd686dde79919819a3e119c1303f6",
+      "timestamp": "2026-07-25T04:08:40.586202+00:00",
+      "limitations": [
+        "Compact reference accelerates applicability-domain lookup only; it does not change model predictions or validation evidence."
+      ]
+    }
+  },
+  "domain_reference": {
+    "domain_reference_version": "m2c4_v1",
+    "endpoint_key": "bbbp",
+    "model_id": "bbbp_v1",
+    "model_hash": "e08d91c7febb4b8cc82ca71c7b46ff8afccb6d12debd217f9b563c13bee8500b",
+    "domain_artifact_filename": "domain_fingerprints.npz",
+    "domain_artifact_sha256": "5ec43a15fc732042db0acb74385601ebe28e1ec1fb0306979c91637f036bc584",
+    "schema": {
+      "schema_version": "m2c4_domain_schema_v1",
+      "fingerprint_algorithm": "RDKit Morgan",
+      "radius": 2,
+      "bit_length": 2048,
+      "use_chirality": false,
+      "use_features": false,
+      "vector_type": "bit_vector",
+      "similarity_metric": "Tanimoto",
+      "source_split": "TRAIN",
+      "molecule_standardisation": "RDKit canonical SMILES, isomericSmiles=True",
+      "rdkit_version": "2026.03.3",
+      "endpoint": "bbbp",
+      "model_id": "bbbp_v1",
+      "dataset_hash": "df9a7aa512215ed3e382b2d7213efc7fde890c381c319842f8010ae7b7c2f992",
+      "split_hash": "821565bbce1e1264ba71d91021db56b26ac52540242da7f6f77e680adb8f483f"
+    },
+    "domain_schema_hash": "6fd3335cf892b9892c10da39eea7529aa2923da8ae124b6e07e8fe59ffb76921",
+    "fingerprint_count": 1571,
+    "fingerprint_bit_length": 2048,
+    "packed_shape": [
+      1571,
+      256
+    ],
+    "packed_dtype": "uint8",
+    "compression": "np.savez_compressed",
+    "similarity_metric": "Tanimoto",
+    "thresholds": [
+      0.2911392405063291,
+      0.22007339449541286
+    ],
+    "dataset_hash": "df9a7aa512215ed3e382b2d7213efc7fde890c381c319842f8010ae7b7c2f992",
+    "split_hash": "821565bbce1e1264ba71d91021db56b26ac52540242da7f6f77e680adb8f483f",
+    "deterministic_order_hash": "861554808b634ca9a3f1ccb8efe730212b904be53efb1030b411da14bb3f2247",
+    "rdkit_version": "2026.03.3",
+    "numpy_version": "2.4.6",
+    "generated_at": "2026-07-25T04:08:40.573547+00:00",
+    "parity_validation": {
+      "records_checked": 1965,
+      "maximum_absolute_similarity_difference": 0.0,
+      "domain_label_mismatch_count": 0,
+      "result": "PASS"
+    }
+  }
+}

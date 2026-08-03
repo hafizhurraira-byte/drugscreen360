@@ -1,0 +1,23 @@
+{
+    "status":  "PASS",
+    "purpose":  "M2F-4C_ERA_V2_CURATION_AND_ASSAY_HARMONISATION",
+    "python_executable":  "D:\\DRUG CONJUGATE\\drugscreen360\\backend\\.venv\\Scripts\\python.exe",
+    "python_version":  "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+    "platform":  "Windows-11-10.0.26200-SP0",
+    "numpy_version":  "2.5.1",
+    "pandas_version":  "3.0.5",
+    "rdkit_version":  "2026.03.4",
+    "rdkit_import_test":  "PASS",
+    "rdkit_smiles_parse_test":  "PASS",
+    "rdkit_descriptor_test":  "PASS",
+    "rdkit_standardization_test":  "PASS",
+    "test_input_smiles":  "CCO",
+    "canonical_smiles":  "CCO",
+    "uncharged_smiles":  "CCO",
+    "molecular_weight":  46.069,
+    "pandas_install_completed":  true,
+    "rdkit_install_completed":  true,
+    "environment_preparation_network_access":  true,
+    "scientific_pipeline_network_access":  0,
+    "verified_at_utc":  "2026-08-01T08:18:42.9587365Z"
+}

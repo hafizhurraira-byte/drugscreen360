@@ -1,0 +1,237 @@
+{
+  "endpoint_key": "esol",
+  "model_id": "esol_v1",
+  "display_name": "Aqueous Solubility",
+  "task_type": "regression",
+  "prediction_label": "logS",
+  "version": "v1",
+  "artifact_path": "D:\\DRUG CONJUGATE\\DRUGDESIGN360_REAL_DATA\\models\\admet\\esol_v1",
+  "artifact_hash": "c91ac8c3c5cec08dd1cb4417c969e18cdb1ef0148d599c4badbc72db093fec10",
+  "registered_at": "2026-07-25T04:11:14.856794+00:00",
+  "activation_gate_state": "ACTIVATION_ELIGIBLE",
+  "warnings": [
+    "ESOL nominal 90% interval achieved 86.17% TEST coverage; do not claim validated 90% coverage.",
+    "Model-derived logS is not a measured solubility result."
+  ],
+  "verification": {
+    "endpoint": "esol",
+    "model_id": "esol_v1",
+    "valid": true,
+    "artifact_dir": "D:\\DRUG CONJUGATE\\DRUGDESIGN360_REAL_DATA\\models\\admet\\esol_v1",
+    "hashes": {
+      "model.joblib": "c91ac8c3c5cec08dd1cb4417c969e18cdb1ef0148d599c4badbc72db093fec10",
+      "model_manifest.json": "04de5aaefbdbb4dcd72c37fff47e2b2c9d4115a0791713b1105973a8f970daf9",
+      "metrics.json": "a4bb9002e1d18768d3a08fea681d26a34a35655b8c02b5d93881c6f3cce309b0",
+      "feature_schema.json": "8b7410787ae1e315563b9dca09ac4cfab8c65401dbbd9b8fdc456925b569cc4c",
+      "training_metadata.json": "8f41728183f0ed615ad59c687778d068430911b36142ca6295555a3621f63477",
+      "split_reference.json": "e8c92bed11edec561aec5aef5677f481556df90203aa318f53afca0376c09fe5",
+      "domain_reference.npz": "9468d47ca712b0548db5fa6874abbe17f34e91cad494d2f616d4a8313b90b6ea",
+      "uncertainty_metadata.json": "5c02509c866e59e55bfec1b41195433c0a62bf5d9536c5e5a27b1402be38fed0",
+      "calibration_metadata.json": "601c021339513a81c3a6faa56022ef7f48791f74100eca0bc9ad966dee10576b",
+      "freeze_record.json": "c05553e2ab3fb180d9d14b9fc839ade0e0f91599d9d181360f07d546dba73f57",
+      "domain_fingerprints.npz": "9088eac34c9ede65eade3be5ace820a6ad6e73d36d9d6c10106b8b6b177c919a",
+      "domain_reference_manifest.json": "382efdfa0955fc6aac76aec6fcb08e7a5346a2138e3bf78628f9ffb6932d34c9",
+      "domain_reference_freeze_record.json": "9d2e76f74d3ea1689e146e2cdaf16003a338e2cac1bf8c099c6088d2f47f54a8"
+    },
+    "errors": [],
+    "warnings": [
+      "ESOL nominal 90% interval achieved 86.17% TEST coverage; do not claim validated 90% coverage.",
+      "Model-derived logS is not a measured solubility result."
+    ],
+    "manifest": {
+      "category": "absorption",
+      "created_at": "2026-07-25T02:16:07+00:00",
+      "endpoint": "measured aqueous solubility",
+      "label": "logS",
+      "limitations": [
+        "Small older solubility benchmark; technical research model only."
+      ],
+      "model_hash_sha256": "c91ac8c3c5cec08dd1cb4417c969e18cdb1ef0148d599c4badbc72db093fec10",
+      "model_id": "esol_v1",
+      "selected_feature_set": "morgan_desc",
+      "selected_model": "extratrees_300",
+      "task_type": "regression"
+    },
+    "feature_schema": {
+      "bits": 2048,
+      "descriptors": [
+        "mol_weight",
+        "logp",
+        "tpsa",
+        "hbd",
+        "hba",
+        "rotatable_bonds",
+        "ring_count",
+        "fraction_csp3"
+      ],
+      "feature_dimension": 2056,
+      "feature_set": "morgan_desc",
+      "fingerprint": "RDKit Morgan",
+      "radius": 2,
+      "rdkit_version": "2026.03.3"
+    },
+    "training_metadata": {
+      "counts": {
+        "TEST": 253,
+        "TRAIN": 767,
+        "VALIDATION": 96
+      },
+      "dataset_hash": "a43e62f97d4442bc73f9896b8b25f0f1afd0318b57d9e577d316a99b4b228ed7",
+      "internal_resplitting_disabled": true,
+      "package_versions": {
+        "rdkit": "2026.03.3",
+        "sklearn": "1.9.0"
+      },
+      "seed": 1729,
+      "split_enforced": true,
+      "split_hash": "a4a23bd1ca152f9e5d0b488f0658876176489be44d17bfc9901b8e1d8db6808d",
+      "split_strategy": "scaffold_safe_persisted_v1"
+    },
+    "freeze_record": {
+      "activation_gate": {
+        "auto_activated": false,
+        "beats_baseline": true,
+        "domain_coverage_reported": true,
+        "reasons": [
+          "validation RMSE 0.5522 vs baseline 1.8397",
+          "validation R2 0.9099"
+        ],
+        "result": "ACTIVATION_ELIGIBLE",
+        "warnings": [
+          "Small older solubility benchmark; technical research model only."
+        ]
+      },
+      "frozen_at": "2026-07-25T02:16:07+00:00",
+      "model_hash_sha256": "c91ac8c3c5cec08dd1cb4417c969e18cdb1ef0148d599c4badbc72db093fec10",
+      "no_test_tuning": true
+    },
+    "domain_reference_manifest": {
+      "domain_reference_version": "m2c4_v1",
+      "endpoint_key": "esol",
+      "model_id": "esol_v1",
+      "model_hash": "c91ac8c3c5cec08dd1cb4417c969e18cdb1ef0148d599c4badbc72db093fec10",
+      "domain_artifact_filename": "domain_fingerprints.npz",
+      "domain_artifact_sha256": "9088eac34c9ede65eade3be5ace820a6ad6e73d36d9d6c10106b8b6b177c919a",
+      "schema": {
+        "schema_version": "m2c4_domain_schema_v1",
+        "fingerprint_algorithm": "RDKit Morgan",
+        "radius": 2,
+        "bit_length": 2048,
+        "use_chirality": false,
+        "use_features": false,
+        "vector_type": "bit_vector",
+        "similarity_metric": "Tanimoto",
+        "source_split": "TRAIN",
+        "molecule_standardisation": "RDKit canonical SMILES, isomericSmiles=True",
+        "rdkit_version": "2026.03.3",
+        "endpoint": "esol",
+        "model_id": "esol_v1",
+        "dataset_hash": "a43e62f97d4442bc73f9896b8b25f0f1afd0318b57d9e577d316a99b4b228ed7",
+        "split_hash": "a4a23bd1ca152f9e5d0b488f0658876176489be44d17bfc9901b8e1d8db6808d"
+      },
+      "domain_schema_hash": "bd81dcd905157d2b018843b4dfd1846f0b4f6dad957db119ee6c4e447ef1a41c",
+      "fingerprint_count": 767,
+      "fingerprint_bit_length": 2048,
+      "packed_shape": [
+        767,
+        256
+      ],
+      "packed_dtype": "uint8",
+      "compression": "np.savez_compressed",
+      "similarity_metric": "Tanimoto",
+      "thresholds": [
+        0.2857142857142857,
+        0.19405192761605036
+      ],
+      "dataset_hash": "a43e62f97d4442bc73f9896b8b25f0f1afd0318b57d9e577d316a99b4b228ed7",
+      "split_hash": "a4a23bd1ca152f9e5d0b488f0658876176489be44d17bfc9901b8e1d8db6808d",
+      "deterministic_order_hash": "d75c479704a70a76f216e142e6f17289d350f0f74b1a507a212d2c311c2ab742",
+      "rdkit_version": "2026.03.3",
+      "numpy_version": "2.4.6",
+      "generated_at": "2026-07-25T04:10:23.977320+00:00",
+      "parity_validation": {
+        "records_checked": 1116,
+        "maximum_absolute_similarity_difference": 0.0,
+        "domain_label_mismatch_count": 0,
+        "result": "PASS"
+      }
+    },
+    "domain_reference_freeze_record": {
+      "component": "compact_applicability_domain_reference",
+      "original_model_hash": "c91ac8c3c5cec08dd1cb4417c969e18cdb1ef0148d599c4badbc72db093fec10",
+      "original_model_freeze_record_hash": "c05553e2ab3fb180d9d14b9fc839ade0e0f91599d9d181360f07d546dba73f57",
+      "domain_artifact_filename": "domain_fingerprints.npz",
+      "domain_artifact_sha256": "9088eac34c9ede65eade3be5ace820a6ad6e73d36d9d6c10106b8b6b177c919a",
+      "domain_reference_manifest_sha256": "382efdfa0955fc6aac76aec6fcb08e7a5346a2138e3bf78628f9ffb6932d34c9",
+      "schema_hash": "bd81dcd905157d2b018843b4dfd1846f0b4f6dad957db119ee6c4e447ef1a41c",
+      "training_count": 767,
+      "dataset_hash": "a43e62f97d4442bc73f9896b8b25f0f1afd0318b57d9e577d316a99b4b228ed7",
+      "split_hash": "a4a23bd1ca152f9e5d0b488f0658876176489be44d17bfc9901b8e1d8db6808d",
+      "thresholds_unchanged": true,
+      "model_retrained": false,
+      "model_modified": false,
+      "parity_validation_result": {
+        "records_checked": 1116,
+        "maximum_absolute_similarity_difference": 0.0,
+        "domain_label_mismatch_count": 0,
+        "result": "PASS"
+      },
+      "generation_script_sha256": "a408654622d57bc67c151e53db337c20612bd686dde79919819a3e119c1303f6",
+      "timestamp": "2026-07-25T04:10:23.991076+00:00",
+      "limitations": [
+        "Compact reference accelerates applicability-domain lookup only; it does not change model predictions or validation evidence."
+      ]
+    }
+  },
+  "domain_reference": {
+    "domain_reference_version": "m2c4_v1",
+    "endpoint_key": "esol",
+    "model_id": "esol_v1",
+    "model_hash": "c91ac8c3c5cec08dd1cb4417c969e18cdb1ef0148d599c4badbc72db093fec10",
+    "domain_artifact_filename": "domain_fingerprints.npz",
+    "domain_artifact_sha256": "9088eac34c9ede65eade3be5ace820a6ad6e73d36d9d6c10106b8b6b177c919a",
+    "schema": {
+      "schema_version": "m2c4_domain_schema_v1",
+      "fingerprint_algorithm": "RDKit Morgan",
+      "radius": 2,
+      "bit_length": 2048,
+      "use_chirality": false,
+      "use_features": false,
+      "vector_type": "bit_vector",
+      "similarity_metric": "Tanimoto",
+      "source_split": "TRAIN",
+      "molecule_standardisation": "RDKit canonical SMILES, isomericSmiles=True",
+      "rdkit_version": "2026.03.3",
+      "endpoint": "esol",
+      "model_id": "esol_v1",
+      "dataset_hash": "a43e62f97d4442bc73f9896b8b25f0f1afd0318b57d9e577d316a99b4b228ed7",
+      "split_hash": "a4a23bd1ca152f9e5d0b488f0658876176489be44d17bfc9901b8e1d8db6808d"
+    },
+    "domain_schema_hash": "bd81dcd905157d2b018843b4dfd1846f0b4f6dad957db119ee6c4e447ef1a41c",
+    "fingerprint_count": 767,
+    "fingerprint_bit_length": 2048,
+    "packed_shape": [
+      767,
+      256
+    ],
+    "packed_dtype": "uint8",
+    "compression": "np.savez_compressed",
+    "similarity_metric": "Tanimoto",
+    "thresholds": [
+      0.2857142857142857,
+      0.19405192761605036
+    ],
+    "dataset_hash": "a43e62f97d4442bc73f9896b8b25f0f1afd0318b57d9e577d316a99b4b228ed7",
+    "split_hash": "a4a23bd1ca152f9e5d0b488f0658876176489be44d17bfc9901b8e1d8db6808d",
+    "deterministic_order_hash": "d75c479704a70a76f216e142e6f17289d350f0f74b1a507a212d2c311c2ab742",
+    "rdkit_version": "2026.03.3",
+    "numpy_version": "2.4.6",
+    "generated_at": "2026-07-25T04:10:23.977320+00:00",
+    "parity_validation": {
+      "records_checked": 1116,
+      "maximum_absolute_similarity_difference": 0.0,
+      "domain_label_mismatch_count": 0,
+      "result": "PASS"
+    }
+  }
+}
