@@ -1,4 +1,5 @@
 import base64
+from functools import lru_cache
 from io import BytesIO
 
 from fastapi import HTTPException
@@ -16,6 +17,7 @@ def parse_smiles(smiles: str):
     return mol
 
 
+@lru_cache(maxsize=4096)
 def calculate_descriptors(smiles: str) -> DescriptorSet:
     mol = parse_smiles(smiles)
     return DescriptorSet(

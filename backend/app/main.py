@@ -1,9 +1,8 @@
-import os
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.constants import DISCLAIMER
+from app.config import platform_config
 from app.database import init_db
 from app.routers.admet import router as admet_router
 from app.routers.disease_to_lead import router as disease_to_lead_router
@@ -31,6 +30,7 @@ from app.routers.m2_scientific_core import router as m2_scientific_core_router
 from app.routers.models import router as models_router
 from app.routers.project_report import router as project_report_router
 from app.routers.projects import router as projects_router
+from app.routers.platform import router as platform_router
 from app.routers.research_export import router as research_export_router
 from app.routers.screening import router as screening_router
 from app.routers.scientific_engines import router as scientific_engines_router
@@ -41,8 +41,7 @@ from app.services.version import app_version
 
 
 def _cors_origins() -> list[str]:
-    raw = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
-    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+    return platform_config()["cors_origins"]
 
 app = FastAPI(
     title="DrugScreen360 API",
@@ -103,3 +102,4 @@ app.include_router(experimental_feedback_router, prefix="/api")
 app.include_router(final_report_router, prefix="/api")
 app.include_router(scientific_engines_router, prefix="/api")
 app.include_router(scientific_engine_executions_router, prefix="/api")
+app.include_router(platform_router, prefix="/api")

@@ -6,7 +6,6 @@ rdkit==2026.3.3
 reportlab==4.2.5
 python-docx==1.1.2
 pytest==8.3.4
-chardet==5.2.0
 httpx==0.28.1
 python-multipart==0.0.20
 scikit-learn==1.5.2

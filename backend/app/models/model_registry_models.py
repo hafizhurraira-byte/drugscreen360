@@ -62,6 +62,7 @@ class ModelStatusResponse(BaseModel):
     unavailable_models: list[ModelInfo]
     supported_tasks: list[str]
     limitations: list[str]
+    plugins: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class PredictAdmetRequest(BaseModel):

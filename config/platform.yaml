@@ -1,0 +1,11 @@
+{
+  "cors_origins": ["http://localhost:5173", "http://127.0.0.1:5173"],
+  "plugin_directory": "plugins",
+  "scoring_weights": {
+    "egfr": 0.30,
+    "admet": 0.25,
+    "confidence": 0.20,
+    "uncertainty": 0.15,
+    "applicability_domain": 0.10
+  }
+}
