@@ -7,6 +7,7 @@ from app.services.admet_external_provider import check_external_provider_status,
 from app.services.local_admet_model import check_local_admet_model_status, predict_local_admet
 from app.services.admet_trained_model_service import get_active_trained_model_info, predict_trained_model
 from app.services.admet_endpoint_model_service import list_admet_models, predict_admet_endpoints
+from app.services.plugin_service import discover_plugins, load_plugin_adapters
 
 
 TASKS = [
@@ -444,17 +445,19 @@ ADAPTERS: dict[str, PredictorAdapter] = {
 
 
 def get_adapters(model_ids: list[str] | None = None) -> list[PredictorAdapter]:
+    adapters = {**ADAPTERS, **load_plugin_adapters()}
     if not model_ids:
-        return list(ADAPTERS.values())
-    return [ADAPTERS[model_id] for model_id in model_ids if model_id in ADAPTERS]
+        return list(adapters.values())
+    return [adapters[model_id] for model_id in model_ids if model_id in adapters]
 
 
 def model_status_response():
-    infos = [adapter.get_model_info() for adapter in ADAPTERS.values()]
+    infos = [adapter.get_model_info() for adapter in get_adapters()]
     return {
         "available_models": [info for info in infos if info.status in {"available", "mock"}],
         "unavailable_models": [info for info in infos if info.status not in {"available", "mock"}],
         "supported_tasks": TASKS,
+        "plugins": list(discover_plugins()),
         "limitations": [
             "Only rule-based ADMET/Tox screening is available by default unless an external provider is configured.",
             "Unavailable adapters do not generate fake predictions.",

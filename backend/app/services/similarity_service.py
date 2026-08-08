@@ -1,4 +1,5 @@
 from typing import Any
+from functools import lru_cache
 from urllib.parse import quote
 
 import requests
@@ -60,6 +61,7 @@ def _get_json(url: str, timeout: int = 25) -> dict[str, Any]:
         raise SimilarityUnavailableError("Similarity source returned an unreadable response. Please try again later.") from exc
 
 
+@lru_cache(maxsize=4096)
 def _fingerprint(smiles: str):
     mol = parse_smiles(smiles)
     generator = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
